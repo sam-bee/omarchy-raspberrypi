@@ -1,0 +1,17 @@
+# ARM64 packages outside install/omarchy-base.packages, considered separately.
+# Columns: package<TAB>action<TAB>replacement<TAB>reason
+# Package/source availability is intentionally unresolved here and must be checked during deployment.
+
+egl-wayland	candidate	-	Wayland EGL integration for the graphical session; verify against the Pi graphics stack.
+gtk4-layer-shell	candidate	-	Layer-shell support used by compatible GTK desktop components; verify at deployment.
+libpulse	candidate	-	PulseAudio client API used by desktop applications and controls.
+mesa	candidate	-	Pi graphics userspace baseline for the V3D/DRM stack; preserve the existing firmware and overlay.
+polkit	candidate	-	Policy daemon required by the Quickshell authentication agent; verify agent/session integration at deployment.
+pipewire	candidate	-	Audio graph runtime paired with wireplumber.
+pipewire-alsa	candidate	-	ALSA compatibility for the audio baseline.
+pipewire-jack	defer	-	Optional JACK compatibility; defer until audio applications require it.
+pipewire-pulse	candidate	-	PulseAudio-compatible server expected by desktop applications and audio controls.
+qt6-wayland	candidate	-	Qt Wayland platform integration for graphical applications.
+python	candidate	-	Python interpreter used by helper/runtime components; verify the dependency closure at deployment.
+vulkan-broadcom	candidate	-	Pi-specific Vulkan userspace candidate; verify package/provider without changing firmware.
+zram-generator	defer	-	Optional compressed-swap tuning from the ISO package set; separate from boot/FDE protection.
