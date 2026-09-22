@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# omarchy:summary=Preview the ARM64 userspace compatibility plan without changing the system
+# omarchy:args=[--target auto|rpi5|arm64] [--format text|json]
+# omarchy:examples=omarchy install plan --target rpi5 | omarchy install plan --target rpi5 --format json
+
+set -euo pipefail
+
+python3 "$OMARCHY_PATH/install/arm64/plan.py" "$@"

@@ -1,0 +1,156 @@
+# ARM64 package policy for the official install/omarchy-base.packages list at upstream HEAD 947e2fc0.
+# Columns: package<TAB>action<TAB>replacement<TAB>reason
+# Actions are planning labels only: candidate, replace, defer, exclude.
+# Package/source availability is intentionally unresolved here and must be checked during deployment.
+
+aether	defer	-	Optional Omarchy application; postpone until an ARM source and use case are confirmed.
+alsa-utils	candidate	-	Audio controls are part of the first desktop baseline.
+asdcontrol	exclude	-	Apple Studio Display helper is outside the Pi target and should not enter the first transaction.
+avahi	defer	-	Optional service discovery; defer service changes while preserving the existing network path.
+bash-completion	candidate	-	Useful baseline shell integration for the administered desktop.
+bat	defer	-	Optional enhanced pager/tool; not required to start the desktop.
+bluez	defer	-	Optional Bluetooth stack; defer hardware service changes.
+bluez-tools	defer	-	Optional Bluetooth tools; not required by the first session.
+bluez-utils	defer	-	Optional Bluetooth utilities; not required by the first session.
+bolt	defer	-	Optional Thunderbolt support, unrelated to the Pi baseline.
+brightnessctl	defer	-	Laptop/backlight helper; no Pi display-backlight requirement is established.
+btop	defer	-	Optional system monitor.
+chromium	defer	-	Optional browser; defer application selection.
+clang	defer	-	Developer toolchain; not needed for the first desktop.
+cliamp	defer	-	Optional application; defer ARM source and build work.
+cups	defer	-	Optional printing stack; defer service and device changes.
+cups-filters	defer	-	Optional printing support; defer with the printing stack.
+cups-pk-helper	defer	-	Optional printing privilege helper; defer with the printing stack.
+ddcutil	defer	-	Optional external-monitor control; not needed for initial Pi bring-up.
+docker	defer	-	Optional container runtime; defer daemon and firewall integration.
+docker-buildx	defer	-	Optional container build support; defer with Docker.
+docker-compose	defer	-	Optional container orchestration; defer with Docker.
+dosfstools	defer	-	Disk-format utility; keep storage changes out of the first desktop transaction.
+dotnet-runtime	defer	-	Optional runtime with ARM packaging/source unresolved in this policy.
+dua-cli	defer	-	Optional disk-usage tool.
+elsewhen	defer	-	Optional Omarchy utility; defer until its ARM packaging path is resolved.
+evince	defer	-	Optional document viewer.
+exfatprogs	defer	-	Optional removable-media filesystem support.
+expac	candidate	-	Package metadata helper used by Omarchy package tooling.
+eza	candidate	-	Shell file-listing tool used by the desktop environment.
+fakeroot	defer	-	Package-build helper; defer until an AUR/build workflow is explicitly enabled.
+fastfetch	defer	-	Optional system summary tool.
+fcitx5	defer	-	Optional input-method framework; defer locale/input setup.
+fcitx5-gtk	defer	-	Optional GTK input-method integration.
+fcitx5-qt	defer	-	Optional Qt input-method integration.
+fd	candidate	-	Baseline file-search tool used by shell workflows.
+ffmpegthumbnailer	defer	-	Optional file-manager thumbnailer.
+fontconfig	candidate	-	Required font discovery foundation for the graphical session.
+foot	candidate	-	Baseline terminal emulator for the session.
+fzf	candidate	-	Baseline interactive shell selector used by Omarchy workflows.
+git	candidate	-	Required for source-backed configuration and normal administration.
+gnome-keyring	candidate	-	Desktop credential storage integration.
+gnome-themes-extra	candidate	-	GTK theme assets used by the desktop baseline.
+grim	candidate	-	Wayland screenshot utility used by desktop actions.
+gpu-screen-recorder	defer	-	Optional capture/recording tool; defer GPU-specific validation.
+gum	candidate	-	Interactive shell UI helper used by Omarchy commands.
+gvfs-mtp	defer	-	Optional MTP integration for file management.
+gvfs-nfs	defer	-	Optional NFS file-manager integration.
+gvfs-smb	defer	-	Optional SMB file-manager integration.
+herdr	defer	-	Optional application with unresolved ARM build cost and source.
+hyprland	candidate	-	Core compositor for the ARM64 desktop session.
+hyprland-guiutils	candidate	-	Core Hyprland GUI utilities used by the session.
+hyprland-preview-share-picker	defer	-	Optional screen-share picker; defer and explicitly validate the portal's own fallback before claiming screen sharing.
+hyprpicker	defer	-	Optional color picker; not required to start the session.
+hyprsunset	candidate	-	Desktop night-light command expected by Omarchy controls.
+imagemagick	defer	-	Optional image-processing tool; not required for the first session.
+imv	defer	-	Optional image viewer; defer application choices.
+inetutils	defer	-	Optional network diagnostics; avoid changing the working network substrate.
+inotify-tools	candidate	-	File-watch utility used by desktop/config workflows.
+inxi	defer	-	Optional hardware-reporting tool.
+networkmanager	exclude	-	Do not replace the working systemd-networkd and wpa_supplicant path on the Pi.
+jq	candidate	-	JSON processing tool used by menus and configuration helpers.
+kdenlive	defer	-	Optional video editor; defer GPU and application validation.
+kernel-modules-hook	exclude	-	Kernel lifecycle hook is outside this desktop layer and could affect the protected boot substrate.
+lazydocker	defer	-	Optional Docker UI; defer with Docker.
+lazygit	defer	-	Optional Git UI.
+less	candidate	-	Baseline pager for SSH and desktop administration.
+libsecret	candidate	-	Credential-store library for desktop applications.
+libvips	defer	-	Optional image-processing library.
+libyaml	defer	-	Optional development/runtime library; not needed for the first session.
+libreoffice-fresh	defer	-	Optional office suite.
+llvm	defer	-	Developer/build dependency; defer until source builds are in scope.
+localsend	defer	-	Optional file-transfer application.
+lua51	defer	-	Optional scripting/runtime dependency; not required by the initial session plan.
+luarocks	defer	-	Optional Lua development tool.
+man-db	defer	-	Optional local manual-page indexer.
+mariadb-libs	defer	-	Optional database client library.
+mise-bin	defer	-	Developer/runtime toolchain; defer until ARM binary/source handling is explicit.
+moonlight-qt	defer	-	Optional streaming client.
+mpv	candidate	-	Baseline media playback used by desktop media actions.
+mpv-mpris	candidate	-	Media-session integration for the baseline player.
+nautilus	candidate	-	Baseline graphical file manager.
+nautilus-python	defer	-	Optional file-manager extension.
+gnome-disk-utility	defer	-	Optional disk UI; defer storage operations on the encrypted Pi root.
+noto-fonts	candidate	-	Baseline text font coverage.
+noto-fonts-cjk	defer	-	Optional extended CJK font coverage.
+noto-fonts-emoji	candidate	-	Baseline emoji rendering coverage.
+nss-mdns	defer	-	Optional local-name discovery; defer network service changes.
+nvim	replace	neovim	Use the generic editor package name in the ARM plan; verify the provider during deployment.
+obs-studio	exclude	-	Optional capture application with ARM packaging/source unresolved; leave out of the first transaction.
+obsidian	exclude	-	Optional proprietary application with ARM packaging/source unresolved; leave out of the first transaction.
+omacalc	exclude	-	First-party Omarchy application source for ARM is unresolved; leave out of the initial baseline.
+omacut	exclude	-	First-party Omarchy application source for ARM is unresolved; leave out of the initial baseline.
+omawrite	exclude	-	First-party Omarchy application source for ARM is unresolved; leave out of the initial baseline.
+omarchy-nvim	exclude	-	First-party editor configuration package source for ARM is unresolved; use the generic editor baseline.
+omasnap	defer	-	Optional screenshot annotation/editor tool; defer screenshot workflow and ARM source resolution.
+owe	defer	-	Optional desktop video-background service; defer GPU/session integration and do not claim video backgrounds yet.
+owe-lockfeed	defer	-	Optional lock-screen video-feed module used with OWE; defer and record the feature gap until its default shader/session path is validated.
+pacman-contrib	candidate	-	Package update helpers used by Omarchy maintenance commands.
+pamixer	candidate	-	Audio mixer command used by desktop controls.
+pinta	defer	-	Optional image editor; defer ARM packaging/source work.
+plocate	defer	-	Optional file indexer; defer background indexing.
+plymouth	exclude	-	Do not add an initramfs/boot splash dependency to the working Pi boot and LUKS path.
+postgresql-libs	defer	-	Optional database client library.
+power-profiles-daemon	defer	-	Optional power policy service; defer platform-specific policy changes.
+python-gobject	candidate	-	GTK/Python integration used by desktop utilities.
+python-poetry-core	defer	-	Developer packaging dependency; not needed for the first session.
+ttfx	exclude	-	First-party screensaver package source for ARM is unresolved; the screensaver cannot be claimed until ttfx or an explicit fallback is implemented and tested.
+qemu-user-static-binfmt	exclude	-	Binfmt registration is outside the desktop layer and has the wrong emulation direction for this host.
+qrencode	defer	-	Optional QR generation utility.
+qt6-imageformats	candidate	-	Qt image format support for graphical applications and shell components.
+quickshell	candidate	-	Core Omarchy shell/bar runtime.
+ripgrep	candidate	-	Baseline fast text-search tool used by Omarchy workflows.
+ruby	defer	-	Optional language runtime; not needed for the first session.
+sddm	exclude	-	Do not change display-manager or boot-session ownership while the Pi remains SSH/headless infrastructure.
+slurp	candidate	-	Wayland region selector used by screenshot actions.
+socat	defer	-	Optional socket utility; not required by the initial session.
+starship	candidate	-	Baseline shell prompt integration.
+sushi	defer	-	Optional file previewer.
+system-config-printer	defer	-	Optional printer configuration UI.
+tesseract	defer	-	Optional OCR engine.
+tesseract-data-eng	defer	-	Optional OCR language data.
+tldr	defer	-	Optional command help client.
+tree-sitter-cli	defer	-	Optional editor/developer parser tool.
+tmux	candidate	-	Useful resilient terminal layer for SSH administration.
+tobi-try	exclude	-	First-party Omarchy application source for ARM is unresolved; leave out of the initial baseline.
+ttf-ia-writer	defer	-	Optional font; defer font selection and source resolution.
+ttf-jetbrains-mono-nerd-basic	replace	ttf-jetbrains-mono-nerd	Use the generic Nerd Font package name in the ARM plan; verify the provider during deployment.
+tzupdate	defer	-	Optional timezone update utility; defer service behavior.
+udiskie	defer	-	Optional removable-media automounter; defer device policy.
+ufw	exclude	-	Do not arm a new firewall while preserving SSH reachability and the existing network configuration.
+ufw-docker	defer	-	Docker firewall helper; defer with Docker and explicit SSH/firewall review.
+unzip	candidate	-	Baseline archive utility for Omarchy workflows.
+usage	defer	-	Mise tab-completion dependency; defer with the developer tooling layer.
+uwsm	candidate	-	Session manager integration for Hyprland startup.
+vi	candidate	-	Minimal recovery/editor tool for SSH administration.
+whois	defer	-	Optional network diagnostic utility.
+wireless-regdb	exclude	-	Do not alter the working wireless regulatory setup in the first desktop layer.
+wireplumber	candidate	-	PipeWire session manager required for the audio baseline.
+wl-clipboard	candidate	-	Wayland clipboard integration.
+wtype	candidate	-	Wayland text-input helper used by desktop actions.
+woff2-font-awesome	candidate	-	Icon font used by Omarchy shell components.
+xdg-desktop-portal-gtk	candidate	-	Desktop portal backend for GTK applications.
+xdg-desktop-portal-hyprland	candidate	-	Desktop portal backend for the Hyprland session.
+xdg-terminal-exec	candidate	-	Terminal launcher expected by Omarchy session bindings; resolve its source during deployment.
+xournalpp	defer	-	Optional document annotation application.
+yaru-icon-theme	defer	-	Optional icon theme; defer theme selection and source resolution.
+yay	exclude	-	Keep AUR helper bootstrap outside the base transaction and make it an explicit later decision.
+yt-dlp	defer	-	Optional media retrieval utility.
+zbar	defer	-	Optional barcode/QR reader.
+zoxide	candidate	-	Shell navigation helper used by the Omarchy baseline.
