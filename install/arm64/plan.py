@@ -23,7 +23,7 @@ PRESERVE = [
 ]
 BLOCKERS = [
     "No apply implementation exists in this version; a successful plan is not installation approval.",
-    "Package names are policy candidates, not verified ARM repository availability or compatible versions.",
+    "Recheck package names, dependency closure and compatible versions against current target repositories before deployment.",
     "Verify Hyprland Lua configuration support, Quickshell dependencies and Omarchy session packaging together.",
     "Resolve deferred desktop helpers and portal picker before claiming a complete upstream desktop.",
     "Review package dependencies, conflicts and transaction hooks for effects on the protected substrate.",

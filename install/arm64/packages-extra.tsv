@@ -1,8 +1,8 @@
 # ARM64 packages outside install/omarchy-base.packages, considered separately.
 # Columns: package<TAB>action<TAB>replacement<TAB>reason
-# Package/source availability is intentionally unresolved here and must be checked during deployment.
+# A dated Pi repository snapshot is documented in docs/arm64-package-audit.md; recheck before deployment.
 
-egl-wayland	candidate	-	Wayland EGL integration for the graphical session; verify against the Pi graphics stack.
+egl-wayland	exclude	-	NVIDIA EGLStream platform has no identified consumer on the Pi V3D desktop; it is not a generic Wayland EGL dependency.
 gtk4-layer-shell	candidate	-	Layer-shell support used by compatible GTK desktop components; verify at deployment.
 libpulse	candidate	-	PulseAudio client API used by desktop applications and controls.
 mesa	candidate	-	Pi graphics userspace baseline for the V3D/DRM stack; preserve the existing firmware and overlay.
