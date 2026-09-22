@@ -2,6 +2,8 @@
 
 This is a read-only inventory of the existing Arch Linux ARM Pi, not an install rehearsal or approval to apply the [ARM64 package policy](arm64-packages.md). No package database refresh, download, installation, service change, configuration write, or reboot was performed on the Pi.
 
+Subsequent work: the [23 September deployment plan](deployment/first-session/README.md) narrows the first operation to four roots, records a new read-only Pi baseline and a 106-package closure, and adds a partial workstation archive review. It identifies a udev re-trigger safeguard and a missing package archive. Deployment remains on hold.
+
 ## Method and freshness
 
 Over password-authenticated SSH with strict checking of the existing host key, we read `pacman-conf --repo-list`, `pacman -Q`, `pacman -Qm`, `pacman -Dk`, `pacman -Si`, `pacman -Sp --noconfirm --print-format`, `pacman -Sup --noconfirm --print-format`, and the installed libalpm hook files. `-Sp` and `-Sup` printed resolution from the Pi's **existing** sync databases; neither option included `-y` or applied a transaction.
