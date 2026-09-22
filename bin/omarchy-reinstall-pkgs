@@ -5,6 +5,11 @@
 
 set -e
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 # Reinstall all default Omarchy packages from the stable channel and downgrade any packages that are too new.
 
 # Set the package repository to the stable mirrors

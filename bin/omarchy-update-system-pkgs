@@ -5,6 +5,11 @@
 
 set -e
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 # The conflict handler's last resort: pacman puts its questions to the person
 # running the update instead of answering them itself. Nothing here may capture
 # a stream, because an upgrade without --noconfirm prompts on stderr. The

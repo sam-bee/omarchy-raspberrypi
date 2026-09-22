@@ -3,6 +3,11 @@
 # omarchy:summary=Add or remove an EFI boot entry for the Omarchy UKI, allowing the system to boot directly
 # omarchy:requires-sudo=true
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 if [[ ! -d /sys/firmware/efi ]]; then
   echo "Error: System is not booted in UEFI mode" >&2
   exit 1

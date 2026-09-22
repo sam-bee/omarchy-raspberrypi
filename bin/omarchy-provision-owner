@@ -13,6 +13,11 @@
 
 set -euo pipefail
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 PROVISIONING_DIR=/var/lib/omarchy/provisioning
 OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 LOG_FILE=/var/log/omarchy-provision-owner.log

@@ -7,6 +7,11 @@
 
 set -euo pipefail
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 # Build the authoritative theme in a root-owned directory, then publish each
 # fixed destination atomically. The caller opens the selected logo before sudo,
 # so the privileged process never resolves a user-controlled input path.

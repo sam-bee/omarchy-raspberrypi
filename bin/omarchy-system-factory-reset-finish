@@ -17,6 +17,11 @@
 
 set -uo pipefail
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 PROVISIONING_DIR=/var/lib/omarchy/provisioning
 TOP_MNT=/run/omarchy-system-factory-reset-finish-top
 
