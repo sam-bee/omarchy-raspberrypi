@@ -11,6 +11,11 @@
 # transaction halfway. Registering the transaction as a PID 1 scope keeps it
 # out of the user manager's cgroups entirely, and system scopes survive the
 # system manager's own reexec.
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 scope=()
 if [[ -d /run/systemd/system && ! -L /run/systemd/system ]]; then
   scope=(systemd-run --scope --quiet --collect)

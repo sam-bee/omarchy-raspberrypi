@@ -3,6 +3,11 @@
 # omarchy:summary=Remove hibernation setup including swap and boot resume settings
 # omarchy:requires-sudo=true
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 MKINITCPIO_CONF="/etc/mkinitcpio.conf.d/omarchy_resume.conf"
 
 # Check if hibernation is configured

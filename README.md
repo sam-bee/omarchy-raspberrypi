@@ -4,6 +4,10 @@ Omarchy is a beautiful, fun & agentic Linux distribution by DHH.
 
 Read more at [omarchy.org](https://omarchy.org).
 
+## Raspberry Pi / ARM64 development
+
+This branch tracks official Omarchy Quattro and adds our own initial, **plan-only** ARM64 compatibility layer. It does not yet install a desktop. See [the compatibility layer and local preview command](docs/arm64.md) before using this branch on an existing Arch Linux ARM system.
+
 ## The Omarchy Manual
 
 The manual lives in [`manual/`](manual/), which is its authoritative source.

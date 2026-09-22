@@ -4,6 +4,11 @@
 # omarchy:requires-sudo=true
 # omarchy:args=[--force] [--no-rebuild]
 
+if [[ $(uname -m) != "x86_64" ]]; then
+  echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
+  exit 1
+fi
+
 FORCE=false
 NO_REBUILD=false
 for arg in "$@"; do
