@@ -43,6 +43,6 @@ bash test/shell.d/arm64-guards-test.sh
 ./test/cli
 ```
 
-Tests use local fixtures and command stubs, not the Pi. Before deployment, resolve package availability and compatible Hyprland/Quickshell versions against the target's own repositories, inspect dependencies and package hooks, and design an allow-listed deployment of commands, shared assets and existing-user session configuration with backups and rollback. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
+Tests use local fixtures and command stubs, not the Pi. A [read-only package audit](arm64-package-audit.md) checked the Pi's cached repositories and identified a Nautilus dependency that would trigger its mkinitcpio hook. Before deployment, re-resolve availability and compatible Hyprland/Quickshell versions against fresh target metadata, inspect dependencies and package hooks, and design an allow-listed deployment of commands, shared assets and existing-user session configuration with backups and rollback. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
 
 A later on-device rehearsal must validate configuration parsing, shell/bar, terminal bindings, portals/audio, continued SSH/Wi-Fi and unattended encrypted reboot. Headless outputs and RDP are separate unimplemented work. No Pi package transaction, configuration write, service change or reboot was performed for this local milestone.

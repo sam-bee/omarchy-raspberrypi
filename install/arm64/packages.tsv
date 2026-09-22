@@ -1,12 +1,12 @@
 # ARM64 package policy for the official install/omarchy-base.packages list at upstream HEAD 947e2fc0.
 # Columns: package<TAB>action<TAB>replacement<TAB>reason
 # Actions are planning labels only: candidate, replace, defer, exclude.
-# Package/source availability is intentionally unresolved here and must be checked during deployment.
+# A dated Pi repository snapshot is documented in docs/arm64-package-audit.md; recheck before deployment.
 
 aether	defer	-	Optional Omarchy application; postpone until an ARM source and use case are confirmed.
 alsa-utils	candidate	-	Audio controls are part of the first desktop baseline.
 asdcontrol	exclude	-	Apple Studio Display helper is outside the Pi target and should not enter the first transaction.
-avahi	defer	-	Optional service discovery; defer service changes while preserving the existing network path.
+avahi	candidate	-	Current Pi repository makes this a hard dependency of pipewire-pulse; review hooks and activation behavior, and do not enable its service.
 bash-completion	candidate	-	Useful baseline shell integration for the administered desktop.
 bat	defer	-	Optional enhanced pager/tool; not required to start the desktop.
 bluez	defer	-	Optional Bluetooth stack; defer hardware service changes.
@@ -84,7 +84,7 @@ mise-bin	defer	-	Developer/runtime toolchain; defer until ARM binary/source hand
 moonlight-qt	defer	-	Optional streaming client.
 mpv	candidate	-	Baseline media playback used by desktop media actions.
 mpv-mpris	candidate	-	Media-session integration for the baseline player.
-nautilus	candidate	-	Baseline graphical file manager.
+nautilus	defer	-	Current Pi repository pulls mdadm through gvfs and udisks2, triggering the installed mkinitcpio hook; defer file management until boot-safe deployment is reviewed.
 nautilus-python	defer	-	Optional file-manager extension.
 gnome-disk-utility	defer	-	Optional disk UI; defer storage operations on the encrypted Pi root.
 noto-fonts	candidate	-	Baseline text font coverage.
@@ -138,7 +138,7 @@ ufw-docker	defer	-	Docker firewall helper; defer with Docker and explicit SSH/fi
 unzip	candidate	-	Baseline archive utility for Omarchy workflows.
 usage	defer	-	Mise tab-completion dependency; defer with the developer tooling layer.
 uwsm	candidate	-	Session manager integration for Hyprland startup.
-vi	candidate	-	Minimal recovery/editor tool for SSH administration.
+vi	replace	ex-vi-compat	Current Pi repository has no vi package; ex-vi-compat provides the already-installed /usr/bin/vi command.
 whois	defer	-	Optional network diagnostic utility.
 wireless-regdb	exclude	-	Do not alter the working wireless regulatory setup in the first desktop layer.
 wireplumber	candidate	-	PipeWire session manager required for the audio baseline.
