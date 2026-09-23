@@ -3,8 +3,6 @@ Description=Omarchy Pi UWSM session for %i on tty8
 Wants=systemd-logind.service
 After=systemd-logind.service systemd-user-sessions.service getty@tty8.service
 Conflicts=getty@tty8.service
-StartLimitIntervalSec=5min
-StartLimitBurst=1
 
 [Service]
 Type=exec
