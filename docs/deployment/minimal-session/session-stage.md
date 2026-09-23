@@ -1,8 +1,8 @@
 # Bounded Pi UWSM and Quickshell session
 
-**Status: pending runtime validation.** The 32-package transaction in [the package stage](package-stage.md) is separate and must finish with its preservation gate before this runbook is used. The earlier [Hyprland and Foot smoke](../first-session/smoke-result.md) proved a local tty8 seat and Pi V3D rendering, but needed an explicit headless output and did not capture a frame. This experiment tests the staged minimal Omarchy bar in a five-minute local session. It does not install packages, enable a unit, change the default target, install a display manager, configure autologin, or reboot.
+**Status: validated on 23 September 2026.** [The session result](session-result.md) records three direct-Hyprland attempts and one `start-hyprland` wrapper attempt. The 32-package transaction in [the package stage](package-stage.md) is separate and must pass its preservation gate before this runbook is used. The earlier [Hyprland and Foot smoke](../first-session/smoke-result.md) proved a local tty8 seat and Pi V3D rendering, but needed an explicit headless output and did not capture a frame. This experiment tests the staged minimal Omarchy bar in a five-minute local session. It does not install packages, enable a unit, change the default target, install a display manager, configure autologin, or reboot. The four new user configuration files and staged source release now exist on this Pi; the first-use staging commands below must not be rerun over them.
 
-Use two independent SSH connections to `sierra@192.168.178.21`; keep one available for recovery. Run each block, inspect its output, and proceed only when its stated conditions hold. Commands labeled **workstation** run in the main `quattro-rpi5` checkout; other commands run as Sierra on the Pi. The private package baseline path and source revision are operator inputs, not values to guess. Do not print or transfer recovery keys, credentials, or the unencrypted baseline. This is a runtime probe: the exact UWSM/PAM behavior on this Pi is not yet established.
+Use two independent SSH connections to `sierra@192.168.178.21`; keep one available for recovery. Run each block, inspect its output, and proceed only when its stated conditions hold. Commands labeled **workstation** run in the main `quattro-rpi5` checkout; other commands run as Sierra on the Pi. The private package baseline path and source revision are operator inputs, not values to guess. Do not print or transfer recovery keys, credentials, or the unencrypted baseline. The commands below record the validated direct-Hyprland experiment; the tested wrapper changes the unit and process identity as described at the end.
 
 ## 1. Package and source gates
 
@@ -120,7 +120,7 @@ find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -print
 sudo fgconsole
 ```
 
-Stop if any of those gates differs from the reviewed prestate. A read-only preflight after the previous smoke found stale `WAYLAND_DISPLAY=wayland-1` and `XDG_CURRENT_DESKTOP=Hyprland` in Sierra's user manager, although no compositor was active. UWSM restores pre-existing values on cleanup, so the launch block records those two exact values and clears only them after confirming there is no local graphics session or Wayland socket. A different value, any existing `OMARCHY_PATH` or minimal flag, or a live socket is a stop. Postcleanup requires the four session variables absent. `systemd-run` with `PAMName=login`, a controlling tty8, and `User=sierra` produced an active local Sierra seat in the previous smoke; this UWSM combination remains untested. The `-g -1` option avoids UWSM's wait for the system `graphical.target` on a Pi that currently boots to `multi-user.target`, without changing that target. The five-minute service limit is a backstop, not proof that UWSM's separate user units and PAM session have stopped.
+Stop if any of those gates differs from the reviewed prestate. A read-only preflight after the previous smoke found stale `WAYLAND_DISPLAY=wayland-1` and `XDG_CURRENT_DESKTOP=Hyprland` in Sierra's user manager, although no compositor was active. The first launch cleared those exact values after confirming there was no local graphics session or Wayland socket. Subsequent preflights found all four session variables absent. A different value, any existing `OMARCHY_PATH` or minimal flag, or a live socket is a stop. Postcleanup requires the four session variables absent. `systemd-run` with `PAMName=login`, a controlling tty8, and `User=sierra` produced an active local Sierra seat in both UWSM variants. The Pi's observed default is `graphical.target`; `-g -1` disabled UWSM's graphical-target wait for this bounded experiment without changing the default. The five-minute service limit is a backstop, not proof that UWSM's separate user units and PAM session have stopped.
 
 In the dedicated Bash shell, set the trap before `chvt`. Fill `PI_SESSION_ID`, `PI_SESSION_LEADER`, `PI_WM_UNIT`, and `PI_WM_PID` only after checking their identities below. The trap restores the VT first, stops only the recorded compositor unit if its PID still matches, then stops the named transient service. It terminates a remaining PAM session only after matching all recorded local tty8 properties. If any cleanup check fails, use the second SSH connection to inspect the state; never terminate Sierra's whole user manager or an SSH session.
 
@@ -142,18 +142,19 @@ install -d -m 0700 "$PI_EVIDENCE"
 systemctl --user list-unit-files --state=enabled --no-legend --no-pager > "$PI_EVIDENCE/user-enabled.before"
 sudo sha256sum /etc/passwd /etc/shadow /etc/group /etc/gshadow > "$PI_EVIDENCE/account-files.before.sha256"
 systemctl --user show-environment | grep -E '^(WAYLAND_DISPLAY|XDG_CURRENT_DESKTOP|OMARCHY_PATH|OMARCHY_PI_MINIMAL_SESSION)=' > "$PI_EVIDENCE/graphical-env.original" || true
-grep -Fxq 'WAYLAND_DISPLAY=wayland-1' "$PI_EVIDENCE/graphical-env.original"
-grep -Fxq 'XDG_CURRENT_DESKTOP=Hyprland' "$PI_EVIDENCE/graphical-env.original"
-if grep -Eq '^(OMARCHY_PATH|OMARCHY_PI_MINIMAL_SESSION)=' "$PI_EVIDENCE/graphical-env.original"; then
-  echo 'Unexpected existing Omarchy session environment; stop for review' >&2
-  exit 1
+if [[ -s $PI_EVIDENCE/graphical-env.original ]]; then
+  grep -Fxq 'WAYLAND_DISPLAY=wayland-1' "$PI_EVIDENCE/graphical-env.original"
+  grep -Fxq 'XDG_CURRENT_DESKTOP=Hyprland' "$PI_EVIDENCE/graphical-env.original"
+  [[ $(wc -l < "$PI_EVIDENCE/graphical-env.original") == 2 ]]
 fi
 [[ ! -S $XDG_RUNTIME_DIR/wayland-1 ]]
 if find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -print -quit | grep -q .; then
   echo 'A Wayland socket exists; do not reset the user environment or launch' >&2
   exit 1
 fi
-systemctl --user unset-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+if [[ -s $PI_EVIDENCE/graphical-env.original ]]; then
+  systemctl --user unset-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+fi
 if systemctl --user show-environment | grep -Eq '^(WAYLAND_DISPLAY|XDG_CURRENT_DESKTOP)='; then
   echo 'Stale graphical environment remains; do not launch' >&2
   exit 1
@@ -260,7 +261,10 @@ PI_WAYLAND_DISPLAY=$(systemctl --user show-environment | sed -n 's/^WAYLAND_DISP
 export WAYLAND_DISPLAY="$PI_WAYLAND_DISPLAY"
 hyprctl version | tee "$PI_EVIDENCE/hyprland-version.txt"
 hyprctl configerrors | tee "$PI_EVIDENCE/config-errors.txt"
-[[ ! -s $PI_EVIDENCE/config-errors.txt ]]
+python3 - "$PI_EVIDENCE/config-errors.txt" <<'PY'
+import pathlib, sys
+assert not pathlib.Path(sys.argv[1]).read_text().strip()
+PY
 for attempt in {1..30}; do
   if hyprctl -j monitors | python3 -c 'import json, sys; sys.exit(not bool(json.load(sys.stdin)))' >/dev/null 2>&1; then
     break
@@ -281,7 +285,7 @@ mapfile -t PI_QS_PIDS < <(pgrep -u "$(id -u)" -x quickshell)
 ps -p "${PI_QS_PIDS[0]}" -o pid,comm,args
 ```
 
-The compositor must report no config errors, a Pi V3D renderer in its log, and exactly one usable output. With both HDMI ports disconnected, the reviewed `start-shell.sh` should create a headless output before launching Quickshell. If no output appears within its five-second wait, or the bar/IPC does not respond shortly afterward, capture the logs and stop. Do not create a headless output manually and then count this automatic-path test as passed. `omarchy-shell shell ping` confirms IPC readiness but does not prove visual rendering.
+The compositor must report no non-whitespace config errors, a Pi V3D renderer in its log, and exactly one usable output. With both HDMI ports disconnected, the reviewed `start-shell.sh` creates a headless output named `omarchy-pi` before launching Quickshell. If no output appears within its five-second wait, or the bar/IPC does not respond shortly afterward, capture the logs and stop. Do not create a headless output manually and then count this automatic-path test as passed. `omarchy-shell shell ping` confirms IPC readiness but does not prove visual rendering.
 
 Probe the terminal only after the bar is responding. The previous Lua-configured Hyprland accepted `hyprctl eval 'hl.exec_cmd(...)'`; its plain `dispatch exec` returned a Lua parser error. Confirm exactly one mapped Foot client in the selected instance after invoking the reviewed minimal command. A failure is recorded as a failure of this session stage, not worked around by direct Foot launch.
 
@@ -311,7 +315,7 @@ monitors = json.load(open(sys.argv[1], encoding="utf-8"))
 assert len(monitors) == 1, monitors
 monitor = monitors[0]
 assert (monitor["width"], monitor["height"]) == (1280, 720), monitor
-assert monitor["name"].startswith("HEADLESS-"), monitor
+assert monitor["name"] == "omarchy-pi", monitor
 print(monitor["name"])
 PY
 )
@@ -391,3 +395,35 @@ ssh -F /dev/null -o StrictHostKeyChecking=yes sierra@192.168.178.21 'findmnt -no
 ```
 
 Record separately whether the local seat, UWSM environment, automatic headless output, Quickshell IPC, mapped Foot client, rendered frame, ordered cleanup, and protected-state checks passed. A valid PNG or IPC ping alone is not proof of a usable desktop. Defer portals, audio, idle/lock, network UI, and remote desktop to their own reviewed stages.
+
+## Tested `start-hyprland` variant
+
+The direct `/usr/bin/Hyprland` command above produced a visible watchdog warning. The separately reviewed wrapper variant removed that warning in the [captured result](session-result.md). Hyprland's [launch guidance](https://wiki.hypr.land/Getting-Started/Master-Tutorial/) recommends `start-hyprland`, and its [v0.56.2 source](https://github.com/hyprwm/Hyprland/blob/v0.56.2/start/src/core/Instance.cpp) forks the compositor as a child. On this Pi, `/usr/share/uwsm/plugins/start_hyprland.sh` is a packaged symlink to `hyprland.sh`. Require that plugin and a clean no-write preview before using the variant:
+
+```bash
+[[ -L /usr/share/uwsm/plugins/start_hyprland.sh ]]
+[[ $(readlink /usr/share/uwsm/plugins/start_hyprland.sh) == hyprland.sh ]]
+source "$HOME/.config/uwsm/env.d/90-omarchy-pi"
+uwsm start -n -g -1 -U run -e -D Hyprland -- /usr/bin/start-hyprland -- --config /home/sierra/.config/hypr/hyprland.lua
+```
+
+The Pi's preview selected compositor ID `start-hyprland`, binary/plugin ID `start_hyprland`, and desktop name `Hyprland`. It named runtime drop-ins for `wayland-wm@start\x2dhyprland.service`; it did not write or start them. For a bounded live run, replace only the final executable and arguments of the `systemd-run` command above with `/usr/bin/start-hyprland -- --config /home/sierra/.config/hypr/hyprland.lua`. Keep the same tty8, PAM, environment, time limit, recovery connection and preservation gates. In addition, use an external 200-second timeout that sends `TERM` to the operator shell and gives its cleanup trap time to run.
+
+The user unit's `MainPID` is the wrapper, while `hyprctl instances -j` reports its Hyprland child. Check **both** identities before probing or stopping the session:
+
+```bash
+PI_WM_UNIT="wayland-wm@$(systemd-escape start-hyprland).service"
+PI_WRAPPER_PID=$(systemctl --user show "$PI_WM_UNIT" -p MainPID --value)
+[[ $PI_WRAPPER_PID =~ ^[1-9][0-9]*$ ]]
+[[ $(cat "/proc/$PI_WRAPPER_PID/comm") == start-hyprland ]]
+mapfile -t PI_HYPR_CHILDREN < <(pgrep -P "$PI_WRAPPER_PID" -x Hyprland)
+(( ${#PI_HYPR_CHILDREN[@]} == 1 ))
+PI_HYPR_PID=${PI_HYPR_CHILDREN[0]}
+[[ $(ps -o ppid= -p "$PI_HYPR_PID" | tr -d ' ') == "$PI_WRAPPER_PID" ]]
+PI_WM_CGROUP=$(systemctl --user show "$PI_WM_UNIT" -p ControlGroup --value)
+[[ -n $PI_WM_CGROUP ]]
+[[ $(cut -d : -f 3 "/proc/$PI_WRAPPER_PID/cgroup") == "$PI_WM_CGROUP" ]]
+[[ $(cut -d : -f 3 "/proc/$PI_HYPR_PID/cgroup") == "$PI_WM_CGROUP" ]]
+```
+
+Require a single `hyprctl instances -j` record whose PID equals `PI_HYPR_PID`; record its signature. Check the compositor's two named environment variables in `/proc/$PI_HYPR_PID/environ`, while using `PI_WRAPPER_PID` to identify the unit for targeted cleanup. Restore the saved VT first, then stop `PI_WM_UNIT` only if its live `MainPID` still equals `PI_WRAPPER_PID` and the recorded child remains directly parented to it or has exited. If an identity changed, inspect from the second SSH connection rather than guessing a process to kill. Then stop only `omarchy-pi-uwsm-smoke.service`, verify the recorded tty8 PAM session before terminating it if necessary, and perform every cleanup, fresh-SSH and protected-state check above. The successful wrapper run had no observed abort or remaining process after stop; it does not establish that all future wrapper exits will behave the same way.
