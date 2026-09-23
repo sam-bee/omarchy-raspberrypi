@@ -266,6 +266,23 @@ hyprctl -j clients
 sudo journalctl -u omarchy-pi-smoke.service --no-pager
 ```
 
+**Observed Pi fallback:** In the 23 September run, the selected instance initially returned `[]` for monitors despite the documented automatic headless output. Only if this identified instance is running and has no monitor, create one through that instance, then recheck:
+
+```bash
+hyprctl output create headless omarchy-smoke
+hyprctl -j monitors
+```
+
+That produced a 1280×720 at 60 Hz output under the wildcard monitor rule. Foot had not appeared after output creation. Only if this same instance still has no Foot client, launch the reviewed terminal command from its Lua environment and recheck:
+
+```bash
+hyprctl eval 'hl.exec_cmd("foot --config=/home/sierra/.config/omarchy-pi-smoke/foot.ini")'
+hyprctl -j clients
+hyprctl configerrors
+```
+
+These commands depend on `HYPRLAND_INSTANCE_SIGNATURE` being set to the verified experiment instance as instructed above. The plain `hyprctl dispatch exec` form produced a Lua parser error on Hyprland 0.56.2; the `eval` form succeeded. See the [observed result](smoke-result.md). Capture the compositor log under `/run/user/1000/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log` before stopping the session because it may disappear with the runtime directory.
+
 Set `PI_DEPLOY_SESSION_ID` to the **recorded new tty8 session** during the session check, never an SSH/manager session. Stop whether successful or not:
 
 ```bash
