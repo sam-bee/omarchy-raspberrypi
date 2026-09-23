@@ -1,12 +1,20 @@
 # Raspberry Pi 5 minimal session: installation and acceptance
 
-This guide describes the first repeatable deployment target for the Pi profile: an already booting Arch Linux ARM Raspberry Pi 5 with an administrator account, working network and SSH, and a recovery route. The profile installs Omarchy's minimal Hyprland, Quickshell and Foot session, with optional loopback-only RDP. The underlying session has been exercised on one 8 GB Pi 5 with encrypted NVMe; the account-independent deployment here has not yet been installed there or independently reproduced from a clean base. A package maintenance cycle remains a separate acceptance gate. The historical package and unit runbooks record the exact transactions on that machine, not package versions to copy into a new installation.
+This guide describes the first repeatable deployment target for the Pi profile: an already booting Arch Linux ARM Raspberry Pi 5 with an administrator account, working network and SSH, and a recovery route. The profile installs Omarchy's minimal Hyprland, Quickshell and Foot session, with optional loopback-only RDP. On 23 September 2026, the account-independent deployment was installed and launched from a clean Arch Linux ARM USB root on one 8 GB Pi 5; a headless session and mapped Foot window were verified with the Pi's V3D renderer. The encrypted-NVMe session has separate persistent-startup and RDP acceptance results. This remains a single-device rehearsal: a package maintenance cycle and physical-display/login acceptance are still open. The historical package and unit runbooks record exact transactions on that machine, not package versions to copy into a new installation.
 
 ## Base-system contract
 
 Record the target's architecture, Pi model, root and `/boot` mounts, bootloader/firmware, kernel, initramfs hooks, network and SSH state, user name/UID/home, and a recovery route before changing it. The Pi-native boot chain and Arch Linux ARM repository and keyring remain authoritative. If using the existing encrypted NVMe setup, preserve its LUKS keyslots and USB unlock key. The minimal profile does not provision disks, encryption, networking or accounts.
 
 Use a spare Pi or designated spare boot storage for the independent installation. Keep the working domestic Pi available while rehearsing this path. A clean-base rehearsal needs its own signed package resolution and a backup verified outside the target; the [first graphical package transaction](first-session/README.md), [minimal-session package stage](minimal-session/package-stage.md) and [RDP build-tool result](remote-desktop/build-tools-result.md) are worked examples of the package and hook review.
+
+This guide starts with an already booting Arch Linux ARM system. The [Pi 5 Arch Linux ARM base preparation procedure](pi5-arch-base.md) describes the separate signed-rootfs and boot setup rehearsal, along with the work still needed before calling it a complete install guide or image.
+
+## Clean-base USB rehearsal result — 23 September 2026
+
+A signed Arch Linux ARM aarch64 root filesystem was prepared on designated USB storage, updated with the Pi 5 kernel and firmware, and booted using a one-time USB-first boot order. The reviewed 138-package desktop transaction installed without package-database errors or pending upgrades. The source stager and account-independent UWSM service then ran on that root. Config verification passed with `OMARCHY_PATH` and `OMARCHY_PI_MINIMAL_SESSION=1` set; Hyprland reported a 1280×720 headless output with the V3D renderer, Quickshell reserved its bar area, Foot mapped as a client, and `hyprctl configerrors` was empty.
+
+This validates the clean-base software path on one Pi 5, not a finished installer. The rehearsal did not establish physical HDMI output, normal desktop login, RDP on the USB root, or package-upgrade and rollback behavior.
 
 ## Desktop packages
 
@@ -26,7 +34,8 @@ git rev-parse HEAD
 git status --porcelain --untracked-files=all
 bash install/arm64/stage-user-session.sh
 readlink "$HOME/.local/share/omarchy-pi/current"
-Hyprland --verify-config --config "$HOME/.config/hypr/hyprland.lua"
+OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current" OMARCHY_PI_MINIMAL_SESSION=1 \
+  Hyprland --verify-config --config "$HOME/.config/hypr/hyprland.lua"
 xdg-terminal-exec --print-id
 ```
 
