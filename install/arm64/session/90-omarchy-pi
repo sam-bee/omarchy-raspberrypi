@@ -1,0 +1,8 @@
+# Loaded by UWSM for this user's graphical session. The current symlink is
+# changed only by a separately reviewed release switch.
+export OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current"
+case ":$PATH:" in
+  *":$OMARCHY_PATH/bin:"*) ;;
+  *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
+esac
+export TERMINAL=xdg-terminal-exec
