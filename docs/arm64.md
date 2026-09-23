@@ -37,7 +37,7 @@ These guards are defense against normal accidental entry, not a sandbox or a com
 
 ## Local validation and next milestone
 
-The [reviewed first-session deployment plan](deployment/first-session/README.md) now specifies a smaller four-root compositor/terminal smoke, exact session files, backups, transaction gates, and rollback. A fresh read-only Pi inspection and partial workstation archive review informed it. Deployment is on hold pending fresh resolution, the missing archive, signature verification, complete hook checks, and verified backups; no Pi installation or graphical/reboot test has occurred.
+The [reviewed first-session deployment plan](deployment/first-session/README.md) now specifies a smaller four-root compositor/terminal smoke, exact session files, backups, transaction gates, and rollback. The [package-resolution follow-up](deployment/first-session/resolution.md) has now resolved the missing archive, verified all 107 current archives, and tested Bubblewrap in a temporary Pi sandbox. The transaction adds 106 packages and includes only the reviewed Expat patch update. Recovery backups and immediate pre-install checks come next; no package installation or graphical/reboot test has occurred.
 
 ```bash
 bash test/shell.d/arm64-plan-test.sh
