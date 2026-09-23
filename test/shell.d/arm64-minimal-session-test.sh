@@ -132,7 +132,7 @@ mkdir -p "$stub_bin"
 cat >"$stub_bin/ln" <<'SH'
 #!/bin/bash
 target=${@: -1}
-if [[ $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
+if [[ ${PI_FAIL_AFTER_LINK:-0} != 1 && $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
   mkdir -p "$(dirname "$target")"
   printf 'another writer\n' >"$target"
   if [[ ${PI_REPLACE_EARLIER:-0} == 1 ]]; then
