@@ -24,7 +24,7 @@ Build the lean software-encoding profile:
 cargo build --release --locked --no-default-features
 ```
 
-In v0.1.6, the default features are `vaapi` and `client-to-server`. `--no-default-features` omits the VA-API encoder and inbound file clipboard transfer. It retains the bundled OpenH264 software encoder, H.264/AVC420, capture, keyboard and pointer input, TLS, and text/image clipboard support. PipeWire remains an unconditional crate dependency; set `audio_mode = "off"` for this test so it does not try to set up audio or require `pactl`. The installed `libpipewire` library and headers are present on the Pi; the PipeWire daemon package is absent and is not needed for audio-off operation.
+In v0.1.6, the default features are `vaapi` and `client-to-server`. `--no-default-features` omits the VA-API encoder and client-to-server file transfer support. The remaining compile-time default can still allow server-to-client file transfer, so set `file_transfer_mode = "off"` explicitly to disable both directions. The build retains the bundled OpenH264 software encoder, H.264/AVC420, capture, keyboard and pointer input, TLS, and text/image clipboard support. PipeWire remains an unconditional crate dependency; set `audio_mode = "off"` for this test so it does not try to set up audio or require `pactl`. The installed `libpipewire` library and headers are present on the Pi; the PipeWire daemon package is absent and is not needed for audio-off operation.
 
 The source requires both virtual-input protocols used by its input path: `zwp_virtual_keyboard_manager_v1` and `zwlr_virtual_pointer_manager_v1`. If either protocol is missing or Hyprland rejects its bind, stop and record the error; do not relax compositor security or add a new input backend during this test.
 
@@ -71,6 +71,7 @@ resolution = "1280x720"
 fps = 20
 egfx_codec = "avc420"
 audio_mode = "off"
+file_transfer_mode = "off"
 ```
 
 The example path is a placeholder and must be replaced with the private test directory. Check for existing `~/.config/hypr-rdp/cert.pem` and `key.pem` before starting. If both exist, record and preserve them; v0.1.6 reuses them without checking their permissions. If exactly one exists, stop and review rather than allowing startup to replace the incomplete pair. If neither exists, the server generates a self-signed RSA certificate under that directory and creates its private key as mode `0600`; verify the resulting key and directory permissions. The certificate names `localhost` and `127.0.0.1`.
