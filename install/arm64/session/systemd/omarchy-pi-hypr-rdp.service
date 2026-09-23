@@ -1,0 +1,25 @@
+[Unit]
+Description=Omarchy Pi loopback hypr-rdp server
+After=graphical-session.target
+BindsTo=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionPathExists=/home/sierra/.config/omarchy-pi-rdp/config.toml
+
+[Service]
+Type=simple
+WorkingDirectory=/home/sierra
+Environment=HOME=/home/sierra
+UMask=0077
+KillMode=control-group
+TimeoutStopSec=15s
+Restart=no
+# Verify the tested build, loopback-only configuration, separate private
+# password file, and live Wayland socket before opening the RDP listener.
+ExecStartPre=/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py
+# hypr-rdp v0.1.6, source 8744778de2eb9add74224d57fac399aba6039a26
+# SHA-256 b466c691ebf62378a8eaf5498bbd7bb487035732cd96ba3f1be94b67dcd780d1
+ExecStart=/home/sierra/.local/src/hypr-rdp-v0.1.6-build-20260923/target/release/hypr-rdp --config /home/sierra/.config/omarchy-pi-rdp/config.toml
+
+[Install]
+WantedBy=graphical-session.target
