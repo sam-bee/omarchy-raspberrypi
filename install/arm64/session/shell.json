@@ -1,6 +1,15 @@
 {
   "version": 1,
-  "disabledPlugins": ["omarchy.idle"],
+  "disabledPlugins": [
+    "omarchy.background",
+    "omarchy.lock",
+    "omarchy.notifications",
+    "omarchy.polkit",
+    "omarchy.battery",
+    "omarchy.idle",
+    "omarchy.media",
+    "omarchy.nightlight"
+  ],
   "bar": {
     "position": "top",
     "centerAnchor": "omarchy.clock",

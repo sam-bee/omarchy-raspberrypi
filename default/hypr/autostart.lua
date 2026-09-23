@@ -3,11 +3,15 @@ hl.on("hyprland.start", function()
   hl.exec_cmd("systemctl --user import-environment $(env | cut -d'=' -f 1)")
   hl.exec_cmd("dbus-update-activation-environment --systemd --all")
 
-  hl.exec_cmd("omarchy-launch-shell")
-  -- A staged session can run the shell before optional first-run helpers and
-  -- system integration have been reviewed. The normal Omarchy path is unchanged.
-  if _G.omarchy_autostart_minimal == true then return end
+  -- A staged session can run the shell after output creation without invoking
+  -- first-run helpers or system integration. Normal Omarchy is unchanged.
+  if _G.omarchy_autostart_minimal == true then
+    local path = (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/install/arm64/session/start-shell.sh"
+    hl.exec_cmd("bash " .. o.shell_quote(path))
+    return
+  end
 
+  hl.exec_cmd("omarchy-launch-shell")
   hl.exec_cmd("omarchy-provision-first-run")
   hl.exec_cmd("omarchy-powerprofiles-init")
   hl.exec_cmd(o.launch("omarchy-hyprland-monitor-watch"))
