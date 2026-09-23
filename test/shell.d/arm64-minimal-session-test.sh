@@ -238,7 +238,7 @@ runtime_dir="$test_tmp/runtime"
 mkdir -p "$runtime_dir"
 monitor_file="$test_tmp/monitors.json"
 headless_log="$test_tmp/headless.log"
-helper="$test_checkout/install/arm64/session/start-shell.sh"
+helper="$ROOT/install/arm64/session/start-shell.sh"
 XDG_RUNTIME_DIR="$runtime_dir" HYPRLAND_INSTANCE_SIGNATURE=one PI_FAKE_MONITORS="$monitor_file" PI_FAKE_LOG="$headless_log" \
   PI_FAKE_LAUNCH_SLEEP=1 PATH="$headless_bin:$PATH" bash "$helper" &
 first_pid=$!
@@ -259,6 +259,20 @@ XDG_RUNTIME_DIR="$runtime_dir" HYPRLAND_INSTANCE_SIGNATURE=two PI_FAKE_MONITORS=
   PATH="$headless_bin:$PATH" bash "$helper" || fail "helper starts with an existing output"
 [[ $(cat "$headless_log") == "launch" ]] || fail "existing output skips headless creation"
 pass "existing physical output skips headless creation"
+
+printf '[{"name":"hypr-rdp"}]\n' >"$monitor_file"
+: >"$headless_log"
+XDG_RUNTIME_DIR="$runtime_dir" HYPRLAND_INSTANCE_SIGNATURE=rdp-only PI_FAKE_MONITORS="$monitor_file" PI_FAKE_LOG="$headless_log" \
+  PATH="$headless_bin:$PATH" bash "$helper" || fail "helper creates a local output when only RDP is present"
+[[ $(rg -c '^create$' "$headless_log") == 1 && $(rg -c '^launch$' "$headless_log") == 1 ]] || fail "RDP-only output does not suppress local fallback"
+pass "RDP-only output still creates the local headless display"
+
+printf '[{"name":"HDMI-A-1"},{"name":"hypr-rdp-1"}]\n' >"$monitor_file"
+: >"$headless_log"
+XDG_RUNTIME_DIR="$runtime_dir" HYPRLAND_INSTANCE_SIGNATURE=hdmi-and-rdp PI_FAKE_MONITORS="$monitor_file" PI_FAKE_LOG="$headless_log" \
+  PATH="$headless_bin:$PATH" bash "$helper" || fail "helper starts with physical and RDP outputs"
+[[ $(cat "$headless_log") == "launch" ]] || fail "physical output skips fallback even when RDP is present"
+pass "physical output alongside RDP skips headless creation"
 
 rm -f "$monitor_file"
 : >"$headless_log"
