@@ -2,7 +2,7 @@
 
 These are ordered operator steps, not one unattended script. Commands run in an **interactive SSH terminal as Sierra** unless labeled workstation. Preserve the second SSH connection throughout. Review the result of each stage before continuing. All `$PI_DEPLOY_*` variables are local shell variables, not system settings.
 
-## Backup and prestate (first permitted future Pi writes)
+## Backup and prestate (before installation)
 
 ```bash
 set -euo pipefail
@@ -18,6 +18,14 @@ test ! -e /var/lib/pacman/db.lck
 pacman -Q > "$B/before.packages"
 pacman -Qqe > "$B/before.explicit"
 pacman -Qqd > "$B/before.dependencies"
+test "$(pacman -Q expat)" = 'expat 2.8.4-1'
+install -d -m 0700 "$B/rollback"
+cp -a /var/cache/pacman/pkg/expat-2.8.4-1-aarch64.pkg.tar.xz \
+  /var/cache/pacman/pkg/expat-2.8.4-1-aarch64.pkg.tar.xz.sig "$B/rollback/"
+old_expat="$B/rollback/expat-2.8.4-1-aarch64.pkg.tar.xz"
+printf '95b99acc39cb71d84fe2a7de224b0efb2fd1f383f9f6386508c280601e8714ec  %s\n' "$old_expat" | sha256sum -c -
+test "$(pacman -Qp "$old_expat")" = 'expat 2.8.4-1'
+pacman-key --verify "$old_expat.sig" "$old_expat"
 systemctl get-default > "$B/default-target"
 systemctl list-unit-files --state=enabled --no-legend --no-pager > "$B/enabled-units"
 systemctl is-active sshd systemd-networkd wpa_supplicant@wld0 > "$B/services-active"
@@ -87,30 +95,46 @@ gpg --decrypt "$HOME/.local/state/omarchy-pi-recovery/omarchy-pi-recovery-$PI_DE
 
 ## Isolated package resolution and review
 
-Back on the Pi; these commands update only the private resolution database, not the live sync database:
+Back on the Pi; use a separate scratch directory because pacman's unprivileged downloader cannot traverse the mode-0700 backup directory. Only scratch metadata/cache ancestors are searchable; the recovery backup and copied keyring remain private. These commands update only the scratch resolution database. The existing verified investigation directory is recorded in `resolution.md`; the recipe below shows how to reproduce it without disabling the downloader sandbox.
 
 ```bash
-sudo install -d -m 0700 "$PI_DEPLOY_BACKUP/resolve" "$PI_DEPLOY_BACKUP/packages"
-sudo cp -a /var/lib/pacman/local "$PI_DEPLOY_BACKUP/resolve/"
-sudo cp -a /var/lib/pacman/sync "$PI_DEPLOY_BACKUP/resolve/"
-sudo pacman --dbpath "$PI_DEPLOY_BACKUP/resolve" -Sy
-sudo pacman --dbpath "$PI_DEPLOY_BACKUP/resolve" -Sup --print-format '%n %v %r'
-sudo pacman --dbpath "$PI_DEPLOY_BACKUP/resolve" -Sp --needed \
+export PI_DEPLOY_RESOLVE="$(sudo mktemp -d /var/tmp/omarchy-pi-resolution.XXXXXX)"
+sudo chmod 0711 "$PI_DEPLOY_RESOLVE"
+sudo install -d -m 0755 "$PI_DEPLOY_RESOLVE/db" "$PI_DEPLOY_RESOLVE/packages"
+sudo cp -a /var/lib/pacman/local "$PI_DEPLOY_RESOLVE/db/local"
+sudo cp -a /var/lib/pacman/sync "$PI_DEPLOY_RESOLVE/db/sync"
+sudo chmod 0755 "$PI_DEPLOY_RESOLVE/db/sync"
+sudo cp -a /etc/pacman.d/gnupg "$PI_DEPLOY_RESOLVE/gnupg"
+sudo chmod 0700 "$PI_DEPLOY_RESOLVE/gnupg"
+sudo find "$PI_DEPLOY_RESOLVE/gnupg" -type s -delete
+PI_DEPLOY_PACMAN=(--dbpath "$PI_DEPLOY_RESOLVE/db" --gpgdir "$PI_DEPLOY_RESOLVE/gnupg" --logfile "$PI_DEPLOY_RESOLVE/pacman.log")
+sudo pacman "${PI_DEPLOY_PACMAN[@]}" -Sy
+sudo pacman "${PI_DEPLOY_PACMAN[@]}" -Sup --print-format '%n %v %r'
+sudo pacman "${PI_DEPLOY_PACMAN[@]}" -Sup --needed \
   --print-format '%n %v %r %a %s %l' \
   extra/hyprland extra/mesa extra/foot extra/ttf-jetbrains-mono-nerd
 ```
 
-**Stop here for the package gate.** The full-upgrade preview must be empty and the install closure must receive the complete review specified in the plan. Recheck the real installed database has not changed since copying it. If refreshed metadata differs from the dated manifest, save a replacement manifest and review it before download/install; never assume the old 106-package count still applies. This private database is disposable and is never copied back over the live database.
+**Check the package gate.** The full-upgrade preview must contain only `expat 2.8.5-1 core`; the combined preview must match `packages-2026-09-23-resolved.tsv`: 106 additions and exactly the Expat `2.8.4-1 → 2.8.5-1` update, with no removals/replacements. Recheck the real installed database has not changed since copying it. If fresh metadata differs, review that difference before proceeding; do not silently omit a pending update. The scratch database is disposable and is never copied over the live database. Its copied keyring must not leave the Pi or be published.
 
 After a fresh manifest is approved, download against that exact resolution:
 
 ```bash
-sudo pacman --dbpath "$PI_DEPLOY_BACKUP/resolve" \
-  --cachedir "$PI_DEPLOY_BACKUP/packages" -Sw --needed \
+sudo pacman "${PI_DEPLOY_PACMAN[@]}" \
+  --cachedir "$PI_DEPLOY_RESOLVE/packages" -Suw --needed \
   extra/hyprland extra/mesa extra/foot extra/ttf-jetbrains-mono-nerd
 ```
 
-Before continuing, require matching detached `.sig` files for each approved archive (fetch the archive URL plus `.sig` if the downloader did not retain it), successful `sudo pacman-key --verify ARCHIVE.sig ARCHIVE`, expected SHA-256, exact metadata/file/hook review, and no extra archives in the private package directory. `ARCHIVE` here denotes each reviewed file, not a wildcard transaction. Save approved package names, one per line sorted under `LC_ALL=C`, as root-owned `$PI_DEPLOY_BACKUP/approved-new.names`. These must all be absent from the prestate. Keep the reviewed manifest and archive analysis with the private run record.
+Before continuing, require matching detached `.sig` files for each approved archive (fetch the archive URL plus `.sig` if needed), successful verification with the copied trusted keyring, expected SHA-256, exact metadata/file/hook review, and no extra archives. `pacman -Suw` is download-only and must finish its required/trusted integrity checks. Copy the verified archives into the private deployment record:
+
+```bash
+sudo install -d -m 0700 "$PI_DEPLOY_BACKUP/packages"
+sudo cp -a "$PI_DEPLOY_RESOLVE/packages/." "$PI_DEPLOY_BACKUP/packages/"
+sudo chmod 0700 "$PI_DEPLOY_BACKUP/packages"
+sudo cp -a "$PI_DEPLOY_RESOLVE/db/sync" "$PI_DEPLOY_BACKUP/reviewed-sync"
+```
+
+Retain the reviewed manifest, signatures and archive analysis with the private record. Save the **106 new names only**, sorted under `LC_ALL=C`, as root-owned `$PI_DEPLOY_BACKUP/approved-new.names`; these are the manifest rows with `operation=install`, excluding Expat. They must all be absent from the prestate. Expat is an upgrade and has its own saved rollback archive; never add it to the removal list. Keep the encrypted off-Pi recovery bundle containing that old archive, even if the new download cache is retained only on the Pi.
 
 ## Install with the temporary udev guard
 
@@ -119,11 +143,11 @@ First collect exactly the reviewed archives (no signatures/partial downloads), c
 ```bash
 mapfile -t PI_DEPLOY_ARCHIVES < <(sudo find "$PI_DEPLOY_BACKUP/packages" \
   -maxdepth 1 -type f -name '*.pkg.tar.*' ! -name '*.sig' ! -name '*.part' | LC_ALL=C sort)
-test "${#PI_DEPLOY_ARCHIVES[@]}" -gt 0
+test "${#PI_DEPLOY_ARCHIVES[@]}" -eq 107
 sudo pacman -Up --print-format '%n %v' -- "${PI_DEPLOY_ARCHIVES[@]}"
 ```
 
-Only after that preview is accepted, run the transaction. Keep other package maintenance stopped throughout install/removal; the lock check is a preflight, not a reservation against another administrator starting pacman. Answer its final prompt only if it contains exactly the approved additions and no other changes. The trap restores sentinel absence on normal completion/failure; if the shell is killed, inspect and restore it manually before finishing. A pre-existing sentinel must stay untouched.
+Only after that preview is accepted, run the transaction. Keep other package maintenance stopped throughout install/removal; the lock check is a preflight, not a reservation against another administrator starting pacman. Answer its final prompt only for the 106 approved additions and the exact Expat update, with no removals or other changes. The trap restores sentinel absence on normal completion/failure; if the shell is killed, inspect and restore it manually before finishing. A pre-existing sentinel must stay untouched.
 
 ```bash
 sudo bash -s -- "$PI_DEPLOY_BACKUP" "${PI_DEPLOY_ARCHIVES[@]}" <<'ROOT'
@@ -145,6 +169,12 @@ if [[ ! -e $guard && ! -L $guard ]]; then
 fi
 pacman -U --asdeps -- "$@" </dev/tty
 pacman -D --asexplicit hyprland mesa foot ttf-jetbrains-mono-nerd
+if grep -Fxq expat "$B/before.explicit"; then
+  pacman -D --asexplicit expat
+else
+  grep -Fxq expat "$B/before.dependencies"
+  pacman -D --asdeps expat
+fi
 ROOT
 ```
 
@@ -248,7 +278,7 @@ Only after those checks pass, clear the experiment shell's traps with `trap - EX
 
 ## Preservation checks, after every stage and after rollback
 
-Run `sudo sha256sum --check "$PI_DEPLOY_BACKUP/protected.sha256"` and the USB-key hash check privately; all pre-existing **protected** files must match. Compare every recorded symlink target and the absence of `protected-absent.paths`, LUKS JSON (`cryptsetup luksDump --dump-json-metadata`), `rpi-eeprom-config`, enabled-unit state, default target, firewall rule content, and the versions of **every** pre-existing package with the backup. Compare firewall rules ignoring the generated `iptables-save` timestamp comments; do not mistake elapsed counters or DHCP lifetimes for configuration changes. Inventory additions against `before-config.paths`: none in `/boot`, only reviewed package paths in `/etc`; a hash check of old files does not detect additions. The full `/etc` backup allows review of ordinary generated state outside the protected list: linker caches and font configuration may change, and `group`/`gshadow` plus their backup files may gain only the reviewed `seat` group. No existing account or membership may change. Inspect these differences privately rather than publishing credential files.
+Run `sudo sha256sum --check "$PI_DEPLOY_BACKUP/protected.sha256"` and the USB-key hash check privately; all pre-existing **protected** files must match. Compare every recorded symlink target and the absence of `protected-absent.paths`, LUKS JSON (`cryptsetup luksDump --dump-json-metadata`), `rpi-eeprom-config`, enabled-unit state, default target, firewall rule content, and the versions of **every** pre-existing package with the backup. During deployment, permit only the reviewed Expat `2.8.4-1 → 2.8.5-1` difference; after rollback, require every original version and install reason to match. Compare firewall rules ignoring the generated `iptables-save` timestamp comments; do not mistake elapsed counters or DHCP lifetimes for configuration changes. Inventory additions against `before-config.paths`: none in `/boot`, only reviewed package paths in `/etc`; a hash check of old files does not detect additions. The full `/etc` backup allows review of ordinary generated state outside the protected list: linker caches and font configuration may change, and `group`/`gshadow` plus their backup files may gain only the reviewed `seat` group. No existing account or membership may change. Inspect these differences privately rather than publishing credential files.
 
 ```bash
 pacman -Dk
@@ -274,7 +304,7 @@ rm -- "$HOME/.config/omarchy-pi-smoke/hyprland.lua" "$HOME/.config/omarchy-pi-sm
 rmdir -- "$HOME/.config/omarchy-pi-smoke"
 ```
 
-For package rollback, calculate the actual additions, including after an interrupted/failed transaction. Refuse unexpected additions, missing pre-existing packages or changes to any pre-existing version. No recursive dependency/orphan purge:
+For package rollback, calculate the actual additions, including after an interrupted/failed transaction. Refuse unexpected additions, missing pre-existing packages or version changes other than the exact reviewed Expat transition. Remove the new packages, then restore old Expat if it was upgraded. Normal dependency checks must still pass; no recursive dependency/orphan purge or dependency bypass:
 
 ```bash
 sudo bash -s -- "$PI_DEPLOY_BACKUP" <<'ROOT'
@@ -284,7 +314,7 @@ export LC_ALL=C
 test ! -e "$B/udev-guard-created"
 pacman -Q | sort > "$B/rollback.packages"
 join <(sort "$B/before.packages") "$B/rollback.packages" | \
-  awk '$2 != $3 {bad=1} END {exit bad}'
+  awk '$2 != $3 && !($1 == "expat" && $2 == "2.8.4-1" && $3 == "2.8.5-1") {bad=1} END {exit bad}'
 comm -23 <(awk '{print $1}' "$B/before.packages" | sort) \
   <(awk '{print $1}' "$B/rollback.packages" | sort) > "$B/missing-old.names"
 test ! -s "$B/missing-old.names"
@@ -293,6 +323,10 @@ comm -13 <(awk '{print $1}' "$B/before.packages" | sort) \
 comm -23 "$B/actual-new.names" "$B/approved-new.names" > "$B/unexpected-new.names"
 test ! -s "$B/unexpected-new.names"
 mapfile -t added < "$B/actual-new.names"
+old_expat="$B/rollback/expat-2.8.4-1-aarch64.pkg.tar.xz"
+printf '95b99acc39cb71d84fe2a7de224b0efb2fd1f383f9f6386508c280601e8714ec  %s\n' "$old_expat" | sha256sum -c -
+test "$(pacman -Qp "$old_expat")" = 'expat 2.8.4-1'
+pacman-key --verify "$old_expat.sig" "$old_expat"
 test ! -e /var/lib/pacman/db.lck
 guard=/etc/systemd/do-not-udevadm-trigger-on-update
 created=0
@@ -308,11 +342,23 @@ fi
 if (( ${#added[@]} )); then
   pacman -R -- "${added[@]}" </dev/tty
 fi
+if [[ $(pacman -Q expat) == 'expat 2.8.5-1' ]]; then
+  pacman -U -- "$old_expat" </dev/tty
+fi
+if grep -Fxq expat "$B/before.explicit"; then
+  pacman -D --asexplicit expat
+else
+  grep -Fxq expat "$B/before.dependencies"
+  pacman -D --asdeps expat
+fi
 pacman -Dk
+diff -u <(sort "$B/before.packages") <(pacman -Q | sort)
+diff -u <(sort "$B/before.explicit") <(pacman -Qqe | sort)
+diff -u <(sort "$B/before.dependencies") <(pacman -Qqd | sort)
 ROOT
 ```
 
-Review the removal prompt and permit only the recorded additions. Let dependency checks stop the removal if anything now needs them. Compare package versions and explicit/dependency reasons with prestate afterward. Retain backups/logs; do not delete pre-existing users/groups or caches indiscriminately. Inspect any newly generated config, cache, sysusers group or `.pacsave` against the archive review before cleaning it up. This restores the package set, not a byte-for-byte filesystem image.
+Review the removal prompt and permit only the recorded additions; the following downgrade prompt must name only Expat `2.8.5-1 → 2.8.4-1`. Let dependency checks stop either operation if anything now needs the new versions. Compare package versions and explicit/dependency reasons with prestate afterward. Retain backups/logs; do not delete pre-existing users/groups or caches indiscriminately. Inspect any newly generated config, cache, sysusers group or `.pacsave` against the archive review before cleaning it up. This restores the package set, not a byte-for-byte filesystem image. Before rollback, preservation comparisons allow the reviewed Expat version change only; after rollback, every original version/reason must match exactly.
 
 If a protected file changed unexpectedly, recover only the identified file after reviewing the difference. For example, **only if that exact file needs restoration**, while `/boot` is still the verified NVMe boot partition:
 

@@ -2,7 +2,7 @@
 
 This is a read-only inventory of the existing Arch Linux ARM Pi, not an install rehearsal or approval to apply the [ARM64 package policy](arm64-packages.md). No package database refresh, download, installation, service change, configuration write, or reboot was performed on the Pi.
 
-Subsequent work: the [23 September deployment plan](deployment/first-session/README.md) narrows the first operation to four roots, records a new read-only Pi baseline and a 106-package closure, and adds a partial workstation archive review. It identifies a udev re-trigger safeguard and a missing package archive. Deployment remains on hold.
+Subsequent work: the [23 September deployment plan](deployment/first-session/README.md) narrows the first operation to four roots, records a new read-only Pi baseline and a 106-package closure, and adds a partial workstation archive review. It identifies a udev re-trigger safeguard. The [subsequent package-resolution work](deployment/first-session/resolution.md) resolved the missing archive with signed Bubblewrap 0.13.0-1, verified the full 107-archive transaction, and reviewed the sole pending installed-package update (Expat). Installation remains unperformed; recovery-backup preparation is next.
 
 ## Method and freshness
 
