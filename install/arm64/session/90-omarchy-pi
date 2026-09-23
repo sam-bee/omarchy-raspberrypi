@@ -6,3 +6,4 @@ case ":$PATH:" in
   *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
 esac
 export TERMINAL=xdg-terminal-exec
+export OMARCHY_PI_MINIMAL_SESSION=1

@@ -30,11 +30,28 @@ ShellRoot {
   readonly property string firstPartyPluginsDir: shellPath + "/plugins"
   readonly property string defaultsPath: omarchyPath + "/config/omarchy/shell.json"
   readonly property string userConfigPath: home + "/.config/omarchy/shell.json"
+  readonly property bool piMinimalSession: Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"
+
+  // A FileView may load shell.json after the first plugin scan. Keep the Pi's
+  // initial bar minimal even before the user file is available.
+  readonly property var piMinimalShellConfig: ({
+    version: 1,
+    bar: {
+      position: "top",
+      centerAnchor: "omarchy.clock",
+      layout: {
+        left: [{ id: "omarchy.workspaces" }],
+        center: [{ id: "omarchy.clock", format: "HH:mm" }],
+        right: []
+      }
+    },
+    plugins: []
+  })
 
   // Bundled fallback so the shell can start even when the default shell.json is
   // missing or unreadable. The bar config here mirrors the on-disk defaults
   // closely enough to render a usable bar; not authoritative.
-  readonly property var builtinShellConfig: ({
+  readonly property var builtinShellConfig: piMinimalSession ? piMinimalShellConfig : ({
     version: 1,
     idle: {
       screensaver: 150,
@@ -89,6 +106,11 @@ ShellRoot {
   }
 
   function loadDefaults(raw) {
+    if (piMinimalSession) {
+      defaultsConfig = piMinimalShellConfig
+      applyShellConfig()
+      return
+    }
     var text = String(raw || "").trim()
     if (!text) {
       defaultsConfig = builtinShellConfig
@@ -940,6 +962,10 @@ ShellRoot {
   }
 
   function _syncServices() {
+    // The minimal Pi session has not validated any first-party service yet.
+    // Gate creation here as well as in shell.json: plugin discovery can finish
+    // before asynchronous user configuration loads.
+    if (piMinimalSession) return
     if (!pluginRegistry || !pluginRegistry.installedPlugins) return
     var plugins = pluginRegistry.installedPlugins
     for (var id in plugins) {

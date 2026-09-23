@@ -31,6 +31,14 @@ assert service_ids <= set(config["disabledPlugins"]), service_ids - set(config["
 widgets = [entry["id"] for section in config["bar"]["layout"].values() for entry in section]
 assert widgets == ["omarchy.workspaces", "omarchy.clock"]
 
+env = (root / "install/arm64/session/90-omarchy-pi").read_text()
+assert "export OMARCHY_PI_MINIMAL_SESSION=1" in env
+shell = (root / "shell/shell.qml").read_text()
+assert 'Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"' in shell
+assert "builtinShellConfig: piMinimalSession ? piMinimalShellConfig" in shell
+assert shell.index("if (piMinimalSession) return", shell.index("function _syncServices()")) < shell.index("ensureService(id)", shell.index("function _syncServices()"))
+assert shell.index("if (piMinimalSession) {", shell.index("function loadDefaults(raw)")) < shell.index("defaultsConfig = builtinShellConfig", shell.index("function loadDefaults(raw)"))
+
 hypr = (root / "install/arm64/session/hyprland.lua").read_text()
 assert hypr.index("omarchy_autostart_minimal = true") < hypr.index('require("default.hypr.omarchy")')
 assert hypr.index("omarchy_default_bindings = false") < hypr.index('require("default.hypr.omarchy")')
@@ -71,6 +79,9 @@ for mapping in \
   target_name=${mapping#*:}
   cmp -s "$release/install/arm64/session/$source_name" "$test_home/$target_name" || fail "staged $source_name matches committed payload"
 done
+if find "$test_home/.config" -name '.omarchy-pi.*' -print -quit | rg -q .; then
+  fail "successful staging removes its temporary publication links"
+fi
 pass "staging creates four user config files and the versioned source link"
 
 env_result=$(HOME="$test_home" bash -c 'PATH=/usr/bin:/bin; source "$HOME/.config/uwsm/env.d/90-omarchy-pi"; printf "%s\n%s\n%s\n" "$OMARCHY_PATH" "$PATH" "$TERMINAL"')
@@ -115,10 +126,10 @@ fi
 rm "$test_checkout/untracked-pi-test-file"
 pass "dirty source is refused independently of the clean-checkout functional test"
 
-real_install=$(command -v install)
+real_ln=$(command -v ln)
 stub_bin="$test_tmp/stub-bin"
 mkdir -p "$stub_bin"
-cat >"$stub_bin/install" <<'SH'
+cat >"$stub_bin/ln" <<'SH'
 #!/bin/bash
 target=${@: -1}
 if [[ $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
@@ -129,14 +140,18 @@ if [[ $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
   fi
   exit 77
 fi
-exec "$PI_REAL_INSTALL" "$@"
+if [[ ${PI_FAIL_AFTER_LINK:-0} == 1 && $target == "$HOME/.local/share/omarchy-pi/current" ]]; then
+  "$PI_REAL_LN" "$@" || exit
+  exit 77
+fi
+exec "$PI_REAL_LN" "$@"
 SH
-chmod +x "$stub_bin/install"
+chmod +x "$stub_bin/ln"
 
 for changed in 0 1; do
   partial_home="$test_tmp/partial-$changed"
   mkdir -p "$partial_home"
-  if HOME="$partial_home" PATH="$stub_bin:$PATH" PI_REAL_INSTALL="$real_install" PI_REPLACE_EARLIER="$changed" \
+  if HOME="$partial_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_REPLACE_EARLIER="$changed" \
     "$test_checkout/install/arm64/stage-user-session.sh" >"$test_tmp/partial-$changed.log" 2>&1; then
     fail "injected partial stage fails"
   fi
@@ -149,7 +164,17 @@ for changed in 0 1; do
   fi
   [[ ! -e $partial_home/.local/share/omarchy-pi/current ]] || fail "partial stage has no current release link"
 done
-pass "partial cleanup removes only unchanged files created by that run"
+pass "atomic publication preserves another writer's file and cleans only unchanged files"
+
+link_failure_home="$test_tmp/link-failure-home"
+mkdir -p "$link_failure_home"
+if HOME="$link_failure_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_FAIL_AFTER_LINK=1 \
+  "$test_checkout/install/arm64/stage-user-session.sh" >"$test_tmp/link-failure.log" 2>&1; then
+  fail "injected failure after current-link publication fails"
+fi
+[[ ! -e $link_failure_home/.local/share/omarchy-pi/current && ! -L $link_failure_home/.local/share/omarchy-pi/current ]] || fail "cleanup removes only its just-published current link"
+[[ ! -e $link_failure_home/.config/hypr/hyprland.lua ]] || fail "link failure cleans its unchanged user files"
+pass "failure after current-link publication removes that run's link and files"
 
 headless_bin="$test_tmp/headless-bin"
 mkdir -p "$headless_bin"
