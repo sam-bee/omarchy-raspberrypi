@@ -1,10 +1,10 @@
 # Hyprland RDP source-build and acceptance plan — 23 September 2026
 
-**Status: plan only. No RDP server has been built or started on the Pi, and no Pi package has been installed for the RDP build. Software, Pi build, and client compatibility remain unproven.** This runbook defines a bounded first test of actual RDP view, keyboard, pointer, and reconnect against the existing Hyprland session. A copied screenshot or a local compositor capture is not RDP evidence.
+**Status: build passed; client test pending.** The reviewed [build-tool transaction](build-tools-result.md) and [native source build](build-result.md) passed on the Pi. No RDP server has been started, and client compatibility remains unproven. This runbook defines a bounded first test of actual RDP view, keyboard, pointer, and reconnect against the existing Hyprland session. A copied screenshot or a local compositor capture is not RDP evidence.
 
 ## Scope and prerequisites
 
-Test [hypr-rdp v0.1.6](https://github.com/MuNeNICK/hypr-rdp/releases/tag/v0.1.6), built on the Pi from its pinned source, as the first RDP candidate. Its declared Hyprland minimum is 0.54; this Pi has Hyprland 0.56.2-3. The source implements capture and direct input for a logged-in Wayland session. Meeting the version floor and reading the protocol code do not prove that it builds or works on this Pi.
+Test [hypr-rdp v0.1.6](https://github.com/MuNeNICK/hypr-rdp/releases/tag/v0.1.6), built on the Pi from its pinned source, as the first RDP candidate. Its declared Hyprland minimum is 0.54; this Pi has Hyprland 0.56.2-3. The source implements capture and direct input for a logged-in Wayland session. The successful build does not establish capture, login, input or reconnect behavior on this Pi.
 
 Keep this experiment to one manually started process inside the existing Sierra Hyprland session. Do not create a system service, enable user lingering, change login behavior, expose a listener to the LAN, install a portal, or change boot, storage, encryption, network, or firewall configuration. RDP reachability does not prove unattended encrypted boot; it depends on a usable graphical user session already existing.
 
