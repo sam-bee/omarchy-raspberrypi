@@ -127,16 +127,14 @@ rm "$test_checkout/untracked-pi-test-file"
 pass "dirty source is refused independently of the clean-checkout functional test"
 
 real_ln=$(command -v ln)
+real_mv=$(command -v mv)
+export PI_REAL_MV="$real_mv"
 stub_bin="$test_tmp/stub-bin"
 mkdir -p "$stub_bin"
 cat >"$stub_bin/ln" <<'SH'
 #!/bin/bash
 target=${@: -1}
 if [[ ${PI_RACE_CONFIG_DIR:-0} == 1 && $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
-  mkdir -p -- "$target"
-  exec "$PI_REAL_LN" "$@"
-fi
-if [[ ${PI_RACE_CURRENT_DIR:-0} == 1 && $target == "$HOME/.local/share/omarchy-pi/current" ]]; then
   mkdir -p -- "$target"
   exec "$PI_REAL_LN" "$@"
 fi
@@ -148,13 +146,22 @@ if [[ ${PI_FAIL_AFTER_LINK:-0} != 1 && ${PI_RACE_CONFIG_DIR:-0} != 1 && ${PI_RAC
   fi
   exit 77
 fi
-if [[ ${PI_FAIL_AFTER_LINK:-0} == 1 && $target == "$HOME/.local/share/omarchy-pi/current" ]]; then
-  "$PI_REAL_LN" "$@" || exit
-  exit 77
-fi
 exec "$PI_REAL_LN" "$@"
 SH
 chmod +x "$stub_bin/ln"
+cat >"$stub_bin/mv" <<'SH'
+#!/bin/bash
+target=${@: -1}
+if [[ ${PI_RACE_CURRENT_DIR:-0} == 1 && $target == "$HOME/.local/share/omarchy-pi/current" ]]; then
+  mkdir -p -- "$target"
+fi
+if [[ ${PI_FAIL_AFTER_LINK:-0} == 1 && $target == "$HOME/.local/share/omarchy-pi/current" ]]; then
+  "$PI_REAL_MV" "$@" || exit
+  exit 77
+fi
+exec "$PI_REAL_MV" "$@"
+SH
+chmod +x "$stub_bin/mv"
 
 for changed in 0 1; do
   partial_home="$test_tmp/partial-$changed"
@@ -176,7 +183,7 @@ pass "atomic publication preserves another writer's file and cleans only unchang
 
 link_failure_home="$test_tmp/link-failure-home"
 mkdir -p "$link_failure_home"
-if HOME="$link_failure_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_FAIL_AFTER_LINK=1 \
+if HOME="$link_failure_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_REAL_MV="$real_mv" PI_FAIL_AFTER_LINK=1 \
   "$test_checkout/install/arm64/stage-user-session.sh" >"$test_tmp/link-failure.log" 2>&1; then
   fail "injected failure after current-link publication fails"
 fi
@@ -198,7 +205,7 @@ pass "config publication refuses a destination directory created after preflight
 
 race_current_home="$test_tmp/race-current-dir-home"
 mkdir -p "$race_current_home"
-if HOME="$race_current_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_RACE_CURRENT_DIR=1 \
+if HOME="$race_current_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_REAL_MV="$real_mv" PI_RACE_CURRENT_DIR=1 \
   "$test_checkout/install/arm64/stage-user-session.sh" >"$test_tmp/race-current-dir.log" 2>&1; then
   fail "staging refuses a current-link target that becomes a directory"
 fi
