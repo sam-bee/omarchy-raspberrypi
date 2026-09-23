@@ -21,6 +21,7 @@ pass "version, architecture, source commit, and source checksum are pinned"
 
 grep -Fq "depends=('gcc-libs' 'glibc' 'libpipewire' 'libxkbcommon' 'zlib')" "$pkgbuild" || fail "runtime dependency list matches the tested binary's shared libraries"
 grep -Fq "makedepends=('clang' 'cmake' 'fakeroot' 'gcc' 'git' 'make' 'pkgconf' 'rust')" "$pkgbuild" || fail "build dependency list covers native Rust and C build requirements"
+grep -Fqx "options=('!strip')" "$pkgbuild" || fail "makepkg must not change the executable after its digest is written"
 pass "runtime and source-build dependencies are declared"
 
 grep -Fq 'cargo fetch --locked' "$pkgbuild" || fail "Cargo fetch honors the committed lockfile"

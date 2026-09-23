@@ -7,6 +7,9 @@ url='https://github.com/MuNeNICK/hypr-rdp'
 license=('MIT')
 depends=('gcc-libs' 'glibc' 'libpipewire' 'libxkbcommon' 'zlib')
 makedepends=('clang' 'cmake' 'fakeroot' 'gcc' 'git' 'make' 'pkgconf' 'rust')
+# The package manifest hashes the executable in package(). A later automatic
+# makepkg strip would change those bytes and make the installed pin fail.
+options=('!strip')
 
 _hypr_rdp_commit=8744778de2eb9add74224d57fac399aba6039a26
 source=("$pkgname-$pkgver.tar.gz::https://github.com/MuNeNICK/hypr-rdp/archive/$_hypr_rdp_commit.tar.gz")
