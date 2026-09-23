@@ -2,7 +2,7 @@
 
 This is a read-only inventory of the existing Arch Linux ARM Pi, not an install rehearsal or approval to apply the [ARM64 package policy](arm64-packages.md). No package database refresh, download, installation, service change, configuration write, or reboot was performed on the Pi.
 
-Subsequent work: the [23 September deployment plan](deployment/first-session/README.md) narrows the first operation to four roots, records a new read-only Pi baseline and a 106-package closure, and adds a partial workstation archive review. It identifies a udev re-trigger safeguard. The [subsequent package-resolution work](deployment/first-session/resolution.md) resolved the missing archive with signed Bubblewrap 0.13.0-1, verified the full 107-archive transaction, and reviewed the sole pending installed-package update (Expat). Installation remains unperformed; recovery-backup preparation is next.
+Subsequent work: the [23 September deployment plan](deployment/first-session/README.md) narrowed the first operation to four roots, recorded a new read-only Pi baseline and a 106-package closure, and identified a udev re-trigger safeguard. [Package resolution](deployment/first-session/resolution.md) verified the full 107-archive transaction and reviewed the sole pending installed-package update (Expat). The later [first-session smoke](deployment/first-session/smoke-result.md) completed the encrypted off-Pi recovery backup, installed that transaction, and started Hyprland and Foot on the Pi. The findings below describe the 22 September audit, before that installation.
 
 ## Method and freshness
 
@@ -40,11 +40,11 @@ A second read-only preview omitted Nautilus and `egl-wayland`, and named the alr
 
 ## Runtime gaps still to resolve
 
-- The repository's Hyprland Lua configuration targets Quattro's newer Lua-capable compositor; version availability alone does not validate parsing, bindings, or the Pi graphics path.
+- The repository's full Hyprland Lua configuration targets Quattro's newer Lua-capable compositor; the later [isolated smoke configuration](deployment/first-session/smoke-result.md) validated parsing and Pi graphics startup, but not full Quattro configuration or bindings.
 - Quickshell imports Hyprland, Wayland, PipeWire, MPRIS, and Polkit modules. Their QML APIs and session behavior need a live test. Its network panel uses a NetworkManager backend while this Pi intentionally retains `systemd-networkd` and `wpa_supplicant`.
 - `default/hypr/autostart.lua` calls power-profile initialization and `udiskie`, but those helpers remain deferred. `config/hypr/xdph.conf` names the deferred `hyprland-preview-share-picker`; screen sharing needs a tested fallback or revised setting.
 - Deferring Nautilus temporarily leaves the stock graphical file-manager action without its target. A safer file manager or a separately reviewed Nautilus transaction is needed before claiming full desktop parity.
-- Audio user services, portal activation, Quickshell's Polkit agent, the terminal/font pairing, and the graphical session were not run on the Pi.
+- At this audit, audio user services, portal activation, Quickshell's Polkit agent, the terminal/font pairing, and the graphical session had not run on the Pi. The later [smoke](deployment/first-session/smoke-result.md) verified its Foot client and configured font, while the other components remain untested.
 
 ## Policy changes from this audit
 

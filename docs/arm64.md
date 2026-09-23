@@ -1,6 +1,6 @@
 # ARM64 / Raspberry Pi 5 compatibility layer
 
-This is the first local development milestone: platform detection, a complete package policy for the pinned upstream base manifest, a read-only plan, and refusal of selected unsafe upstream maintenance paths on ARM. There is no apply mode, installer, package build or deployed desktop in this milestone.
+This documents the first local development milestone: platform detection, a complete package policy for the pinned upstream base manifest, a read-only plan, and refusal of selected unsafe upstream maintenance paths on ARM. The planner still has no apply mode, installer or package build. The later [first-session smoke](deployment/first-session/smoke-result.md) installed a small graphical package set and started Hyprland and Foot on the Pi; it did not deploy a full Omarchy desktop.
 
 ## Provenance
 
@@ -37,7 +37,7 @@ These guards are defense against normal accidental entry, not a sandbox or a com
 
 ## Local validation and next milestone
 
-The [reviewed first-session deployment plan](deployment/first-session/README.md) now specifies a smaller four-root compositor/terminal smoke, exact session files, backups, transaction gates, and rollback. The [package-resolution follow-up](deployment/first-session/resolution.md) has now resolved the missing archive, verified all 107 current archives, and tested Bubblewrap in a temporary Pi sandbox. The transaction adds 106 packages and includes only the reviewed Expat patch update. Recovery backups and immediate pre-install checks come next; no package installation or graphical/reboot test has occurred.
+The [reviewed first-session deployment plan](deployment/first-session/README.md) specified a four-root compositor/terminal smoke, exact session files, backups, transaction gates, and rollback. After [package resolution](deployment/first-session/resolution.md) and a verified encrypted off-Pi recovery backup, the [smoke run](deployment/first-session/smoke-result.md) installed 106 new packages, upgraded only Expat, and started Hyprland with a V3D renderer and a mapped Foot client. It required explicit headless-output creation and a second Foot launch; the automatic output and initial Foot start did not occur. The transient session was stopped and protected boot/network state was verified afterward. Full Quattro startup and reboot remain untested.
 
 ```bash
 bash test/shell.d/arm64-plan-test.sh
@@ -45,6 +45,6 @@ bash test/shell.d/arm64-guards-test.sh
 ./test/cli
 ```
 
-Tests use local fixtures and command stubs, not the Pi. A [read-only package audit](arm64-package-audit.md) checked the Pi's cached repositories and identified a Nautilus dependency that would trigger its mkinitcpio hook. Before deployment, re-resolve availability and compatible Hyprland/Quickshell versions against fresh target metadata, inspect dependencies and package hooks, and design an allow-listed deployment of commands, shared assets and existing-user session configuration with backups and rollback. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
+These planner and guard tests use local fixtures and command stubs. A [read-only package audit](arm64-package-audit.md) checked the Pi's cached repositories and identified a Nautilus dependency that would trigger its mkinitcpio hook. The first-session transaction separately refreshed metadata and reviewed its bounded closure; broader desktop packages and configuration still need target-local resolution, hook review, backups and rollback. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
 
-A later on-device rehearsal must validate configuration parsing, shell/bar, terminal bindings, portals/audio, continued SSH/Wi-Fi and unattended encrypted reboot. Headless outputs and RDP are separate unimplemented work. No Pi package transaction, configuration write, service change or reboot was performed for this local milestone.
+The smoke validated its isolated Lua configuration, hardware renderer, Foot client, and continued SSH/Wi-Fi. A later on-device rehearsal must validate the full shell/bar, terminal bindings, portals/audio, a captured frame or remote viewing, and unattended encrypted reboot. Headless output creation was tested manually; automatic creation and RDP remain unimplemented. The local planner milestone itself performed no Pi transaction, configuration write, service change or reboot; see the [subsequent smoke result](deployment/first-session/smoke-result.md) for the later Pi changes.
