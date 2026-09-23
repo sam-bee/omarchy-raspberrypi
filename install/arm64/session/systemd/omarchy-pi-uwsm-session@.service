@@ -1,0 +1,32 @@
+[Unit]
+Description=Omarchy Pi UWSM session for %i on tty8
+Wants=systemd-logind.service
+After=systemd-logind.service systemd-user-sessions.service getty@tty8.service
+Conflicts=getty@tty8.service
+StartLimitIntervalSec=5min
+StartLimitBurst=1
+
+[Service]
+Type=exec
+User=%i
+PAMName=login
+SetLoginEnvironment=yes
+WorkingDirectory=~
+TTYPath=/dev/tty8
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+# TTYVHangup sends SIGHUP to the UWSM launcher on tty8. UWSM then stops its
+# graphical target and dependent RDP unit without opening a second PAM session.
+TTYVHangup=yes
+KillMode=control-group
+TimeoutStopSec=45s
+Restart=no
+# The helper confirms that %i, the service UID and the login environment all
+# identify the same account before setting per-user runtime paths.
+ExecStartPre=+/usr/bin/chvt 8
+ExecStart=/usr/local/libexec/omarchy-pi/start-uwsm-session.sh %i
+
+[Install]
+WantedBy=multi-user.target
