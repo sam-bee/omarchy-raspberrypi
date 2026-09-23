@@ -1,0 +1,40 @@
+pkgname=hypr-rdp
+pkgver=0.1.6
+pkgrel=1
+pkgdesc='Native RDP server for Hyprland, built for aarch64'
+arch=('aarch64')
+url='https://github.com/MuNeNICK/hypr-rdp'
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'libpipewire' 'libxkbcommon' 'zlib')
+makedepends=('clang' 'cmake' 'fakeroot' 'gcc' 'git' 'make' 'pkgconf' 'rust')
+
+_hypr_rdp_commit=8744778de2eb9add74224d57fac399aba6039a26
+source=("$pkgname-$pkgver.tar.gz::https://github.com/MuNeNICK/hypr-rdp/archive/$_hypr_rdp_commit.tar.gz")
+sha256sums=('5890af2c22e45994354f90ddf970ca7e4668dbdecb7553c48f0b7822d89a2cc7')
+
+prepare() {
+  cd "$srcdir/hypr-rdp-$_hypr_rdp_commit"
+
+  # Cargo.lock pins registry checksums and the IronRDP git revision. Fetch
+  # those inputs once, then build offline so Cargo cannot change the graph.
+  CARGO_HOME="$srcdir/cargo-home" cargo fetch --locked
+}
+
+build() {
+  cd "$srcdir/hypr-rdp-$_hypr_rdp_commit"
+
+  # Match the accepted Pi profile: software encoding, no client-to-server
+  # file-transfer feature, and a bounded job count for the 8 GiB Pi 5.
+  CARGO_HOME="$srcdir/cargo-home" cargo build --release --locked --offline --no-default-features --jobs 2
+}
+
+package() {
+  cd "$srcdir/hypr-rdp-$_hypr_rdp_commit"
+
+  install -Dm755 target/release/hypr-rdp "$pkgdir/usr/bin/hypr-rdp"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  install -d -m755 "$pkgdir/usr/share/omarchy-pi"
+  sha256sum "$pkgdir/usr/bin/hypr-rdp" | cut -d ' ' -f1 > "$pkgdir/usr/share/omarchy-pi/hypr-rdp.sha256"
+  chmod 644 "$pkgdir/usr/share/omarchy-pi/hypr-rdp.sha256"
+}
