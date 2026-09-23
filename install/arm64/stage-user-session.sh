@@ -67,7 +67,7 @@ publish_file() {
   created_paths+=("$temp" "$target")
   created_ids+=("$identity" "$identity")
   created_hashes+=("$digest" "$digest")
-  ln -- "$temp" "$target"
+  ln -T -- "$temp" "$target"
 }
 cleanup() {
   local status=$?
@@ -121,7 +121,7 @@ publish_file "$release_dir/install/arm64/session/xdg-terminals.list" "$terminal_
 link_dir=$(mktemp -d "$data_dir/.link.XXXXXXXX")
 ln -s "releases/$revision" "$link_dir/current"
 link_identity=$(stat -c '%d:%i' "$link_dir/current")
-ln -P -- "$link_dir/current" "$current_link"
+ln -P -T -- "$link_dir/current" "$current_link"
 
 complete=1
 echo "Staged Omarchy Pi session from $revision"

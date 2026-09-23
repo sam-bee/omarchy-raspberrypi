@@ -132,7 +132,15 @@ mkdir -p "$stub_bin"
 cat >"$stub_bin/ln" <<'SH'
 #!/bin/bash
 target=${@: -1}
-if [[ ${PI_FAIL_AFTER_LINK:-0} != 1 && $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
+if [[ ${PI_RACE_CONFIG_DIR:-0} == 1 && $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
+  mkdir -p -- "$target"
+  exec "$PI_REAL_LN" "$@"
+fi
+if [[ ${PI_RACE_CURRENT_DIR:-0} == 1 && $target == "$HOME/.local/share/omarchy-pi/current" ]]; then
+  mkdir -p -- "$target"
+  exec "$PI_REAL_LN" "$@"
+fi
+if [[ ${PI_FAIL_AFTER_LINK:-0} != 1 && ${PI_RACE_CONFIG_DIR:-0} != 1 && ${PI_RACE_CURRENT_DIR:-0} != 1 && $target == "$HOME/.config/hypr/hyprland.lua" ]]; then
   mkdir -p "$(dirname "$target")"
   printf 'another writer\n' >"$target"
   if [[ ${PI_REPLACE_EARLIER:-0} == 1 ]]; then
@@ -175,6 +183,29 @@ fi
 [[ ! -e $link_failure_home/.local/share/omarchy-pi/current && ! -L $link_failure_home/.local/share/omarchy-pi/current ]] || fail "cleanup removes only its just-published current link"
 [[ ! -e $link_failure_home/.config/hypr/hyprland.lua ]] || fail "link failure cleans its unchanged user files"
 pass "failure after current-link publication removes that run's link and files"
+
+race_config_home="$test_tmp/race-config-dir-home"
+mkdir -p "$race_config_home"
+if HOME="$race_config_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_RACE_CONFIG_DIR=1 \
+  "$test_checkout/install/arm64/stage-user-session.sh" >"$test_tmp/race-config-dir.log" 2>&1; then
+  fail "staging refuses a config target that becomes a directory"
+fi
+race_config_target="$race_config_home/.config/hypr/hyprland.lua"
+[[ -d $race_config_target && -z $(find "$race_config_target" -mindepth 1 -print -quit) ]] || fail "config publication does not write inside a competing directory"
+[[ ! -e $race_config_home/.config/uwsm/env.d/90-omarchy-pi ]] || fail "config directory race cleans earlier publication"
+[[ ! -e $race_config_home/.local/share/omarchy-pi/current ]] || fail "config directory race leaves no current link"
+pass "config publication refuses a destination directory created after preflight"
+
+race_current_home="$test_tmp/race-current-dir-home"
+mkdir -p "$race_current_home"
+if HOME="$race_current_home" PATH="$stub_bin:$PATH" PI_REAL_LN="$real_ln" PI_RACE_CURRENT_DIR=1 \
+  "$test_checkout/install/arm64/stage-user-session.sh" >"$test_tmp/race-current-dir.log" 2>&1; then
+  fail "staging refuses a current-link target that becomes a directory"
+fi
+race_current_target="$race_current_home/.local/share/omarchy-pi/current"
+[[ -d $race_current_target && -z $(find "$race_current_target" -mindepth 1 -print -quit) ]] || fail "current-link publication does not write inside a competing directory"
+[[ ! -e $race_current_home/.config/hypr/hyprland.lua ]] || fail "current-link directory race cleans earlier publication"
+pass "current-link publication refuses a destination directory created after preflight"
 
 headless_bin="$test_tmp/headless-bin"
 mkdir -p "$headless_bin"
