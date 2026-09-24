@@ -43,6 +43,8 @@ If SSH or boot is lost, remote commands cannot recover the machine. Use the avai
 
 The current ARM compatibility layer has no package apply mode. Its guards protect selected Omarchy entrypoints against ordinary accidental use; they are not a sandbox for raw pacman commands or individual helper scripts. A future automated updater needs a separate reviewed design and fail-closed tests before it can replace these manual gates.
 
+For a bounded, private, read-only snapshot of Pi stability evidence, use the [Pi stability collector](pi-stability-collector.md). It is a diagnostic aid and does not authorize a maintenance transaction.
+
 ## Related records
 
 - [ARM compatibility and guard limits](../../arm64.md)
