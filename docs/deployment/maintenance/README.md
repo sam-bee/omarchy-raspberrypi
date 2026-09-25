@@ -49,6 +49,8 @@ For a separate test OS reading an offline filesystem, the [buffered/direct file 
 
 The [bounded file-cache refill comparison](file-read-refills.md) adds three file-specific refill cycles, verifies page residency, and requires an off-machine baseline checkpoint before discarding any target file's cached pages.
 
+For the separate before/after desktop-start experiment, the [live-root checkpoint](live-file-read-checkpoint.md) reads a three-file corpus without requesting cache eviction. It records the expected boot and root identity and preserves the first discrepancy.
+
 ## Related records
 
 - [ARM compatibility and guard limits](../../arm64.md)
