@@ -47,6 +47,8 @@ For a bounded, private, read-only snapshot of Pi stability evidence, use the [Pi
 
 For a separate test OS reading an offline filesystem, the [buffered/direct file comparison](file-read-comparison.md) checks a fixed signed-package manifest and preserves the first mismatch. It does not repair files or establish that an intermittent fault is resolved.
 
+The [bounded file-cache refill comparison](file-read-refills.md) adds three file-specific refill cycles, verifies page residency, and requires an off-machine baseline checkpoint before discarding any target file's cached pages.
+
 ## Related records
 
 - [ARM compatibility and guard limits](../../arm64.md)
