@@ -45,6 +45,8 @@ The current ARM compatibility layer has no package apply mode. Its guards protec
 
 For a bounded, private, read-only snapshot of Pi stability evidence, use the [Pi stability collector](pi-stability-collector.md). It is a diagnostic aid and does not authorize a maintenance transaction.
 
+For a separate test OS reading an offline filesystem, the [buffered/direct file comparison](file-read-comparison.md) checks a fixed signed-package manifest and preserves the first mismatch. It does not repair files or establish that an intermittent fault is resolved.
+
 ## Related records
 
 - [ARM compatibility and guard limits](../../arm64.md)
