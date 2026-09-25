@@ -129,6 +129,8 @@ with tempfile.TemporaryDirectory(prefix="omarchy-file-refill-test.", dir="/tmp")
     with mock.patch.object(runner, "_mincore_call", side_effect=runner.RunnerError("mincore_error", "fixture mincore failure")):
         raises_kind(lambda: runner.residency(7, 4096), "mincore_error", "mincore failure is fail closed")
     check("if not cold:" in source and "cold_range_unsupported" in source, "partial eviction cannot be reported as a cold refill")
+    raises_kind(lambda: runner.check_deadline(runner.time.monotonic() - 1), "time_limit", "expired wall-clock deadline stops the runner")
+    check("target_planned = (1 + REFILL_CYCLES) * one_cycle" in source, "aggregate target budget includes baseline and every refill cycle")
 
     # Metadata drift is checked against the pinned identity after the path is
     # reopened.  Patch only the mount check: this is a unit fixture for the
@@ -149,6 +151,32 @@ with tempfile.TemporaryDirectory(prefix="omarchy-file-refill-test.", dir="/tmp")
             raises_kind(lambda: runner.open_pinned(root_fd, pinned), "pinned_identity_changed", "metadata and inode drift aborts a refill")
     finally:
         os.close(root_fd)
+
+    # The aggregate byte cap is checked before the residency control or any
+    # target advisory call, and includes all four target passes.
+    budget_root = tmp_path / "budget-root"
+    budget_root.mkdir()
+    budget_file = budget_root / "sample.bin"
+    budget_file.write_bytes(b"budget")
+    budget_manifest = tmp_path / "budget-manifest.json"
+    budget_manifest.write_text(json.dumps({"version": 1, "files": [{"path": "sample.bin", "size": 6, "sha256": hashlib.sha256(b"budget").hexdigest()}]}), encoding="utf-8")
+    budget_output = tmp_path / "budget-output"
+    budget_stat = os.stat(budget_file)
+    budget_entry = runner.HELPER.Entry("sample.bin", 6, hashlib.sha256(b"budget").hexdigest(), mmap.PAGESIZE, mmap.PAGESIZE)
+    budget_pinned = runner.PinnedEntry(budget_entry, runner.HELPER.stable(budget_stat), runner.HELPER.stat_record(budget_stat), 100)
+    with mock.patch.object(runner, "check_root_context", return_value={"euid": os.geteuid(), "egid": os.getegid(), "initial_user_namespace": True, "cap_fowner": False}), \
+         mock.patch.object(runner.HELPER, "check_mount"), \
+         mock.patch.object(runner.HELPER, "check_fd_mount"), \
+         mock.patch.object(runner, "require_disk_output_parent", return_value={"parent": str(tmp_path), "filesystem_type": "ext4"}), \
+         mock.patch.object(runner, "load_entries", return_value=([budget_pinned], 100)), \
+         mock.patch.object(runner, "run_residency_control") as control, \
+         mock.patch.object(runner, "fadvise_dontneed") as fadvise:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            budget_result = runner.main(["--root", str(budget_root), "--manifest", str(budget_manifest), "--output", str(budget_output), "--max-seconds", "2", "--max-total-bytes", "400"])
+        records = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
+        check(budget_result != 0 and control.call_count == 0 and fadvise.call_count == 0, "cumulative byte cap stops before residency or fadvise")
+        check(any(record.get("error", {}).get("kind") == "read_budget_exceeded" for record in records), "cumulative byte cap reports read_budget_exceeded")
 
     # A baseline mismatch is a hard pre-refill gate.  Mock only the I/O and
     # mount boundary here; the shared helper's independent full-retention
