@@ -48,6 +48,8 @@ Read-only verification found no tar content differences. An independent metadata
 
 An ordinary reboot using the unchanged USB-first order then booted the restored USB root and boot partition on `6.18.52-1-rpi`. The original package list and protected configuration hashes matched, the package database check passed, SSH/sudo and the UWSM/Hyprland/Quickshell desktop worked, the actual PCIe link remained Gen1, and no failed units, current-boot core events or checked storage alerts appeared. A further 60-second Foot workload exited normally, its screenshot was visually verified, and the subsequent checks again found no cores, configuration errors or checked storage alerts. NVMe and both external SSDs remained locked and unmounted while blue ran. This establishes a completed logical root plus raw boot restore rehearsal on this board; it does not claim a forensic recreation of ext4 allocation, inode numbers, filesystem counters or unused blocks.
 
+After the restore checks, the USB system was shut down and removed. The final normal NVMe boot again passed on its original kernel, encrypted root, Gen1 link and unchanged EEPROM order; all 13 baseline hashes matched, SSH/desktop were active and no checked failures, cores or storage alerts appeared. Only the dedicated unlock stick remained attached, with the separate external SSDs still locked and unmounted. The rehearsal is complete and the NVMe package set remains unupgraded.
+
 ## Remaining gates
 
 - Repeat actual-client RDP interaction and reconnect as part of broader maintenance acceptance.
