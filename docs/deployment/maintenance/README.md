@@ -16,6 +16,12 @@ Do not start until the current state has passed all of these checks:
 
 If these prerequisites have not passed, stop here. Record their evidence and the exact package state before using this maintenance plan.
 
+## Boot configuration preservation
+
+Treat the operator's selected Raspberry Pi 5 external PCIe generation in `/boot/config.txt` as protected configuration during kernel, firmware, and desktop maintenance. Before accepting or merging a package-provided `.pacnew`, compare it with the live file and preserve the chosen `dtparam=pciex1_gen` value and its effective conditional scope. Do not require a `[pi5]` section when the accepted live config uses `[all]`; preserve the operator's working configuration. Do not replace the live config or reset the speed automatically.
+
+Before a planned reboot, verify the selected stanza remains present. After reboot, verify the negotiated speed on the actual PCIe storage/device, not just the config text. The new-base preparation default is Gen1; Gen2 is an explicit opt-in because it has been associated with read corruption, NVMe I/O stalls, and boot/desktop failures on a tested system. This system-specific evidence is not proof of a universal Pi 5 hardware defect, and Gen2 stability is not guaranteed. If the selected Gen2 mode causes problems, return to Gen1 and reboot with recovery available. Do not change EEPROM or boot order, and do not offer Gen3 as an option.
+
 ## Prepare the reviewed transaction
 
 1. On the workstation, review the downstream branch against a freshly fetched `omarchy-upstream/quattro` and inspect any proposed rebase separately. Run the local ARM planner and guard tests for source changes. This is source review only; do not deploy upstream files or run an Omarchy update command on the Pi.

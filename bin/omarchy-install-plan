@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # omarchy:summary=Preview the ARM64 userspace compatibility plan without changing the system
-# omarchy:args=[--target auto|rpi5|arm64] [--format text|json]
-# omarchy:examples=omarchy install plan --target rpi5 | omarchy install plan --target rpi5 --format json
+# omarchy:args=[--target auto|rpi5|arm64] [--format text|json] [--pcie-gen 1|2 (Pi 5 only)]
+# omarchy:examples=omarchy install plan --target rpi5 | omarchy install plan --target rpi5 --format json | omarchy install plan --target rpi5 --pcie-gen 2
 
 set -euo pipefail
 

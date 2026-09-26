@@ -67,12 +67,21 @@ def check(condition, message):
     if not condition:
         raise SystemExit(message)
 
-check(data.get("schema_version") == 1, "schema_version is not 1")
+check(data.get("schema_version") == 2, "schema_version is not 2")
 check(data.get("mode") == "plan-only", "mode is not plan-only")
 check(data.get("baseline") == "947e2fc002d6831c7888b29b5761d59d29e69727", "baseline is not pinned")
 check(data.get("ready_to_apply") is False, "plan is marked ready to apply")
 check(data.get("allowed_system_changes") == [], "allowed_system_changes is not empty")
 check(data.get("target") == {"architecture": "aarch64", "profile": profile, "source": "explicit"}, "explicit target metadata is wrong")
+boot_policy = data.get("boot_policy")
+if profile == "rpi5":
+    check(boot_policy["external_pcie_generation"] == 1, "Pi 5 default is not Gen1")
+    check(boot_policy["selection"] == "default", "Pi 5 default selection is not labeled")
+    check(boot_policy["supported_generations"] == [1, 2], "Pi 5 supported generations drifted")
+    check(boot_policy["config_stanza"] == ["[pi5]", "dtparam=pciex1_gen=1", "[all]"], "Pi 5 Gen1 config stanza is wrong")
+    check("Gen2 is an explicit opt-in" in boot_policy["gen2_opt_in_warning"], "Pi 5 Gen2 warning is missing")
+else:
+    check(boot_policy is None, "generic ARM plan has Pi-specific boot policy")
 check(isinstance(data.get("preserve"), list) and data["preserve"], "preserve policy is empty")
 check(isinstance(data.get("blockers"), list) and data["blockers"], "blockers are empty")
 
@@ -111,6 +120,50 @@ if ! (cd /tmp && plan --target rpi5 --format json >"$rpi_json"); then
 fi
 json_contract "$rpi_json" rpi5
 
+gen1_json="$test_tmp/rpi5-gen1.json"
+if ! plan --target rpi5 --pcie-gen 1 --format json >"$gen1_json"; then
+  fail "explicit Gen1 plan succeeds"
+fi
+if ! python3 - "$gen1_json" <<'PY'
+import json
+import sys
+policy = json.load(open(sys.argv[1]))["boot_policy"]
+assert policy["external_pcie_generation"] == 1
+assert policy["selection"] == "explicit"
+PY
+then
+  fail "explicit Gen1 is represented as an operator selection"
+fi
+pass "explicit Gen1 plan is accepted and marked"
+
+gen2_json="$test_tmp/rpi5-gen2.json"
+if ! plan --target rpi5 --pcie-gen 2 --format json >"$gen2_json"; then
+  fail "explicit Gen2 plan succeeds"
+fi
+if ! python3 - "$gen2_json" <<'PY'
+import json
+import sys
+policy = json.load(open(sys.argv[1]))["boot_policy"]
+assert policy["external_pcie_generation"] == 2
+assert policy["selection"] == "explicit"
+assert policy["config_stanza"] == ["[pi5]", "dtparam=pciex1_gen=2", "[all]"]
+warning = policy["gen2_opt_in_warning"]
+for phrase in ("read corruption", "NVMe I/O stalls", "boot/desktop failures", "does not establish a universal Pi 5 hardware defect", "recovery route"):
+    assert phrase in warning, phrase
+PY
+then
+  fail "explicit Gen2 plan carries system-specific warning, recovery, and rollback context"
+fi
+pass "explicit Gen2 plan carries a scoped risk warning"
+
+gen2_text="$test_tmp/rpi5-gen2.txt"
+if ! plan --target rpi5 --pcie-gen 2 >"$gen2_text"; then
+  fail "explicit Gen2 text plan succeeds"
+fi
+grep -Fq "External PCIe: Gen2 (explicit; default Gen1)" "$gen2_text" || fail "text plan identifies explicit Gen2 selection"
+grep -Fq "Gen2 is an explicit opt-in" "$gen2_text" || fail "text plan prints the Gen2 warning"
+pass "explicit Gen2 text plan prints selection and warning"
+
 # Re-running from a different cwd must not change a plan whose source is the
 # pinned checkout. This catches accidental relative-path reads in the wrapper
 # or planner.
@@ -143,12 +196,18 @@ fi
 grep -Fq "Omarchy ARM64 compatibility plan — PLAN ONLY" "$text_output" || fail "text plan identifies plan-only mode"
 grep -Fq "Official baseline: 947e2fc002d6831c7888b29b5761d59d29e69727" "$text_output" || fail "text plan names the pinned baseline"
 grep -Fq "Allowed system changes: none. Ready to apply: no." "$text_output" || fail "text plan reports no allowed system changes"
+grep -Fq "External PCIe: Gen1 (default)" "$text_output" || fail "text plan reports Gen1 as the Pi 5 default"
+grep -Fq "dtparam=pciex1_gen=1" "$text_output" || fail "text plan shows the new-base Gen1 stanza"
 pass "text plan renders the read-only policy"
 
 expect_rejected "invalid target is rejected" --target nope
 expect_rejected "invalid format is rejected" --target rpi5 --format yaml
 expect_rejected "--apply is rejected" --target rpi5 --apply
 expect_rejected "unknown option is rejected" --target rpi5 --unknown
+expect_rejected "Gen3 is rejected" --target rpi5 --pcie-gen 3
+expect_rejected "invalid PCIe generation is rejected" --target rpi5 --pcie-gen fast
+expect_rejected "explicit Pi PCIe policy is rejected for generic ARM Gen1" --target arm64 --pcie-gen 1
+expect_rejected "explicit Pi PCIe policy is rejected for generic ARM Gen2" --target arm64 --pcie-gen 2
 
 if [[ -s $sentinel_log ]]; then
   fail "planning invokes no sudo, pacman, systemctl, or ssh" "$(cat "$sentinel_log")"

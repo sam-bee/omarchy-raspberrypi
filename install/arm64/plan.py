@@ -31,6 +31,12 @@ BLOCKERS = [
     "Live desktop, unattended boot/unlock and headless/RDP integration remain untested.",
     "Normal Omarchy install/update/reset workflows remain unsupported on ARM; guards are not a sandbox.",
 ]
+GEN2_WARNING = (
+    "Gen2 is an explicit opt-in. On our tested Raspberry Pi 5 system, Gen2 has been associated with read corruption, "
+    "NVMe I/O stalls, and boot/desktop failures. This system-specific evidence does not establish a universal Pi 5 "
+    "hardware defect, and Gen2 stability is not guaranteed. Keep a recovery route and rollback config available; "
+    "return to Gen1 if problems recur."
+)
 
 
 def detect_target(target, machine=None, model=None):
@@ -75,7 +81,32 @@ def read_policy(path):
     return rows
 
 
-def build_plan(target):
+def build_boot_policy(target, pcie_gen=None):
+    if pcie_gen not in (None, 1, 2):
+        raise ValueError("--pcie-gen must be 1 or 2")
+    if pcie_gen is not None and target["profile"] != "rpi5":
+        raise ValueError("--pcie-gen is available only for the Raspberry Pi 5 profile")
+    if target["profile"] != "rpi5":
+        return None
+
+    generation = pcie_gen or 1
+    return {
+        "external_pcie_generation": generation,
+        "selection": "explicit" if pcie_gen is not None else "default",
+        "default_generation": 1,
+        "supported_generations": [1, 2],
+        "config_stanza": ["[pi5]", f"dtparam=pciex1_gen={generation}", "[all]"],
+        "scope": "New Raspberry Pi 5 base preparation only; existing deployments and updates preserve the operator's choice.",
+        "gen2_opt_in_warning": GEN2_WARNING,
+        "verify_after_reboot": (
+            f"Verify the attached PCIe device negotiated {2.5 if generation == 1 else 5.0} GT/s after reboot; "
+            "do not infer link speed from config.txt alone."
+        ),
+        "rollback": "Keep recovery available. If the selected speed causes problems, set the stanza back to Gen1 and reboot.",
+    }
+
+
+def build_plan(target, pcie_gen=None):
     base = [line.split("#", 1)[0].strip() for line in (ROOT / "install/omarchy-base.packages").read_text().splitlines()]
     base = [name for name in base if name]
     if len(base) != len(set(base)) or any(not PACKAGE_NAME.fullmatch(name) for name in base):
@@ -94,10 +125,11 @@ def build_plan(target):
     if target["profile"] != "rpi5":
         packages = [row for row in packages if row["package"] != "vulkan-broadcom"]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "plan-only",
         "baseline": BASELINE,
         "target": target,
+        "boot_policy": build_boot_policy(target, pcie_gen),
         "ready_to_apply": False,
         "allowed_system_changes": [],
         "preserve": PRESERVE,
@@ -114,6 +146,21 @@ def render_text(plan):
     if target["source"] == "explicit":
         print("Target is an assumption for offline review; no Pi connection or inventory was performed.")
     print("Allowed system changes: none. Ready to apply: no.")
+    boot_policy = plan["boot_policy"]
+    if boot_policy:
+        print("\nRaspberry Pi 5 boot policy (proposal only; no installer apply exists):")
+        selection = "default" if boot_policy["selection"] == "default" else "explicit; default Gen1"
+        print(
+            f"  External PCIe: Gen{boot_policy['external_pcie_generation']} "
+            f"({selection})"
+        )
+        print("  New-base config stanza:")
+        for line in boot_policy["config_stanza"]:
+            print(f"    {line}")
+        print(f"  Scope: {boot_policy['scope']}")
+        print(f"  Gen2 warning: {boot_policy['gen2_opt_in_warning']}")
+        print(f"  Verify: {boot_policy['verify_after_reboot']}")
+        print(f"  Rollback: {boot_policy['rollback']}")
     print("\nProtected substrate (preservation policy, not a live verification):")
     for item in plan["preserve"]:
         print(f"  PRESERVE {item}")
@@ -132,9 +179,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", choices=("auto", "rpi5", "arm64"), default="auto")
     parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument(
+        "--pcie-gen",
+        type=int,
+        choices=(1, 2),
+        help="Pi 5 external PCIe generation (default 1; Gen2 is an explicit opt-in with a warning)",
+    )
     args = parser.parse_args()
     try:
-        plan = build_plan(detect_target(args.target))
+        plan = build_plan(detect_target(args.target), pcie_gen=args.pcie_gen)
     except (OSError, ValueError) as error:
         parser.exit(1, f"Cannot produce plan: {error}\n")
     if args.format == "json":

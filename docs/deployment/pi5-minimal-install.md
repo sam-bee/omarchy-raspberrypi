@@ -10,6 +10,12 @@ Use a spare Pi or designated spare boot storage for the independent installation
 
 This guide starts with an already booting Arch Linux ARM system. The [Pi 5 Arch Linux ARM base preparation procedure](pi5-arch-base.md) describes the separate signed-rootfs and boot setup rehearsal, along with the work still needed before calling it a complete install guide or image.
 
+## PCIe speed policy
+
+The Gen1 default applies to **new Pi 5 base preparation**, as described in the [base boot policy](pi5-arch-base.md#raspberry-pi-5-pcie-speed-policy). This minimal-session deployment and later desktop/source updates must preserve an existing operator's `pciex1_gen` selection in `/boot/config.txt`; do not reset it as an incidental install, update, or `.pacnew` merge. The read-only ARM planner previews Pi 5 Gen1 by default and permits explicit `--pcie-gen 2`, but it does not apply boot changes.
+
+Gen2 is an explicit opt-in, not a recommendation for existing systems. On our tested Pi 5 system, Gen2 has been associated with read corruption, NVMe I/O stalls, and boot/desktop failures; this does not establish a universal Pi 5 hardware defect, and stability is not guaranteed. After an operator-approved speed change, reboot and verify the actual negotiated link speed on the attached PCIe device. If the selected Gen2 setting causes problems, restore Gen1 and reboot with recovery available. This policy does not change EEPROM or boot order and does not offer Gen3.
+
 ## Clean-base USB rehearsal result — 23 September 2026
 
 A signed Arch Linux ARM aarch64 root filesystem was prepared on designated USB storage, updated with the Pi 5 kernel and firmware, and booted using a one-time USB-first boot order. The reviewed 138-package desktop transaction installed without package-database errors or pending upgrades. The source stager and account-independent UWSM service then ran on that root. Config verification passed with `OMARCHY_PATH` and `OMARCHY_PI_MINIMAL_SESSION=1` set; Hyprland reported a 1280×720 headless output with the V3D renderer, Quickshell reserved its bar area, Foot mapped as a client, and `hyprctl configerrors` was empty. An edited user config survived a committed-source upgrade and rollback.

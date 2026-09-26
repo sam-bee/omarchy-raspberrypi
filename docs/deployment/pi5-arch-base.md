@@ -107,6 +107,22 @@ initramfs initramfs-linux.img followkernel
 dtoverlay=vc4-kms-v3d-pi5
 ```
 
+## Raspberry Pi 5 PCIe speed policy
+
+For a **new base only**, use external PCIe Gen1 as the conservative default in `config.txt`. Place this stanza in the Pi 5 section and restore the following settings to the shared section:
+
+```ini
+[pi5]
+dtparam=pciex1_gen=1
+[all]
+```
+
+This default reflects stability testing on one Pi 5 system; it is not a claim that Gen2 is defective on all Pi 5 boards. Gen2 is an explicit operator opt-in: replace the value with `2` only after reviewing the risk, keeping a recovery route and rollback config available, and accepting that stability is not guaranteed. On our tested system, Gen2 has been associated with read corruption, NVMe I/O stalls, and boot/desktop failures. That system-specific evidence does not establish a universal Pi 5 hardware defect. Gen3 is not offered by this policy.
+
+After boot, verify the negotiated speed on the actual attached PCIe device rather than trusting `config.txt` alone; expect 2.5 GT/s for Gen1 or 5.0 GT/s for Gen2. The read-only ARM planner previews the new-base choice with `--pcie-gen 1` or `--pcie-gen 2`; it has no apply mode. If Gen2 causes problems or runtime speed differs from the selection, restore Gen1 in the stanza and reboot with the recovery route available. This does not require or authorize EEPROM or boot-order changes. This new-base default must not rewrite an existing system's selected speed during desktop deployment or updates; preserve the operator's choice.
+
+## Complete the root and boot configuration
+
 For an unencrypted ext4 root, make the target's `/etc/fstab` refer to the new root and boot UUIDs. For example:
 
 ```fstab

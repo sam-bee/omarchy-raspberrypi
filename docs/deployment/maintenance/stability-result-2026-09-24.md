@@ -1,5 +1,9 @@
 # Pi 5 stability investigation — 24 September 2026
 
+**26 September operating decision:** the operator has accepted persistent PCIe Gen1 on the existing encrypted NVMe as the ongoing setup. Three one-shot starts and an ordinary reboot on the original managed `6.18.52-1-rpi` kernel passed desktop/SSH, reference-file and storage-error checks. A final check at about 57 minutes uptime found the seven reference files intact, no current-boot core events or NVMe I/O alerts, and the desktop still running. The active setting is `dtparam=pciex1_gen=1`; EEPROM boot order and recovery access were preserved.
+
+The intervening 16 KiB Arch kernel trial reproduced a cached-file discrepancy, while an official Raspberry Pi 6.12 kernel at Gen2 had NVMe queue timeouts/controller reset. Gen1 provides an accepted operational mitigation, not a proven root cause or long-term reliability guarantee. Further diagnosis is no longer a project blocker; preserve evidence if symptoms recur. The [new-base policy](../pi5-arch-base.md#raspberry-pi-5-pcie-speed-policy) defaults to Gen1 with explicit Gen2 opt-in, and [maintenance](README.md#boot-configuration-preservation) must preserve the operator's choice. The original 24 September observations follow as historical evidence.
+
 The controlled reboot recovered encrypted NVMe boot, SSH, sudo and the persistent session services, but initially failed desktop acceptance: Quickshell crashed six times during Qt loading. The failure was traced to a difference between buffered and direct reads of one Qt library. Evicting only that file's cached pages restored its expected contents and the visible shell without rewriting the file or changing packages. The underlying cause of the cache discrepancy remains unresolved; this is not a stability acceptance pass.
 
 ## Checks and recovery
