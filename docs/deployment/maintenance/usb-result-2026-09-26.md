@@ -2,7 +2,7 @@
 
 A complete signed package upgrade succeeded on the disposable Arch Linux ARM USB installation on the same Raspberry Pi 5. The system subsequently booted `linux-rpi 6.18.53-1-rpi`, restored SSH/networking and its minimal UWSM/Hyprland/Quickshell desktop, and retained the selected PCIe Gen1 link and USB-first EEPROM order. The encrypted NVMe installation was not upgraded.
 
-This is one same-board USB upgrade/reboot result. It does not establish NVMe encrypted-root update acceptance, a complete Omarchy updater, independent reproduction or long-term reliability. Restoring the recovery backup and booting the restored system remain untested. RDP was not repeated in this run; the USB installation's earlier test profile had been removed after its original acceptance.
+This is one same-board USB upgrade/reboot result. It does not establish NVMe encrypted-root update acceptance, a complete Omarchy updater, independent reproduction or long-term reliability. The complete root/boot backup was subsequently restored offline and the restored baseline booted successfully. RDP was not repeated in this run; the USB installation's earlier test profile had been removed after its original acceptance.
 
 ## Transaction and recovery preparation
 
@@ -22,7 +22,7 @@ The USB installation started with 345 packages and a clean pacman database. A sc
 | util-linux | 2.42.3-1 | 2.42.4-1 |
 | util-linux-libs | 2.42.3-1 | 2.42.4-1 |
 
-Before the transaction, the clean offline USB root was archived with numeric ownership, hard links, sparse-file handling, ACLs and xattrs, then compared against its read-only source. The boot partition was imaged and independently compared by hash; partition metadata and the MBR/gap were also retained. These backups were encrypted off-machine and independently decrypted, decompressed and hash-verified before proceeding. This is a complete logical root-file backup plus a raw boot image, not a forensic copy of unused ext4 blocks. It is verified backup material, not a completed restore test.
+Before the transaction, the clean offline USB root was archived with numeric ownership, hard links, sparse-file handling, ACLs and xattrs, then compared against its read-only source. The boot partition was imaged and independently compared by hash; partition metadata and the MBR/gap were also retained. These backups were encrypted off-machine and independently decrypted, decompressed and hash-verified before proceeding. This is a complete logical root-file backup plus a raw boot image, not a forensic copy of unused ext4 blocks. The offline restore and restored-system boot are recorded below.
 
 The USB boot configuration was first brought into line with the accepted Gen1 policy. Its original config was preserved; only an explanatory comment and `dtparam=pciex1_gen=1` were added under the existing final `[all]` section. A clean read-only remount verified that edit. The running NVMe configuration and EEPROM order were not changed.
 
@@ -38,9 +38,18 @@ The post-upgrade boot had a new boot ID, the expected USB root and boot partitio
 
 A Foot window mapped on the headless 1280×720 output, displayed the new kernel version and ran for 60 seconds. Its screenshot was visually checked, then the window exited normally. Hyprland reported no configuration errors before or after, and there were no current-boot core events afterward. The existing centered Hyprland logo remains visible; this run does not claim to resolve that previously recorded visual limitation.
 
+## Complete restore rehearsal
+
+After the upgrade checks, the USB system was shut down and the operator switched back to the dedicated unlock stick. The original encrypted NVMe system booted its unchanged `6.18.52-1-rpi` baseline successfully, with Gen1, authentication, desktop and recorded file hashes intact. Once its unlock stick was confirmed unused, the operator replaced it with the experimental USB while NVMe kept running.
+
+The blue USB identity, partition sizes/UUIDs/layout and clean ext4 state were checked before restoration; both source backup hashes were checked again before writes. Its existing ext4 filesystem was retained, its offline root contents were cleared, and the complete archive was extracted with numeric ownership, permissions, hard links, sparse-file handling, ACLs and all xattr namespaces. The raw boot image was then restored only to partition 1. Partition 3 and the partition table were not written.
+
+Read-only verification found no tar content differences. An independent metadata/path check matched all 144,948 archived paths, including 1,887 hard-link entries and 35 xattrs containing the raw POSIX ACLs and capabilities. There were no extra or missing paths; ownership, modes, symlinks, file types and sizes matched. Installed package versions, explicit package reasons and account-file hashes matched the baseline. The raw boot partition matched its backup hash; the key partition and first 8 MiB boot gap retained their pre-restore hashes. The root filesystem was clean with its UUID retained.
+
+An ordinary reboot using the unchanged USB-first order then booted the restored USB root and boot partition on `6.18.52-1-rpi`. The original package list and protected configuration hashes matched, the package database check passed, SSH/sudo and the UWSM/Hyprland/Quickshell desktop worked, the actual PCIe link remained Gen1, and no failed units, current-boot core events or checked storage alerts appeared. A further 60-second Foot workload exited normally, its screenshot was visually verified, and the subsequent checks again found no cores, configuration errors or checked storage alerts. NVMe and both external SSDs remained locked and unmounted while blue ran. This establishes a completed logical root plus raw boot restore rehearsal on this board; it does not claim a forensic recreation of ext4 allocation, inode numbers, filesystem counters or unused blocks.
+
 ## Remaining gates
 
-- Restore the captured USB root and boot state, then prove that the restored system boots and its package/configuration state matches the baseline.
 - Repeat actual-client RDP interaction and reconnect as part of broader maintenance acceptance.
 - Review a separate complete NVMe transaction and repeat encrypted-root boot/access acceptance there; do not infer it from this unencrypted USB root.
 
