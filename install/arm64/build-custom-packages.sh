@@ -23,7 +23,7 @@ Usage:
   build-custom-packages.sh [--output DIRECTORY] [--metadata FILE]
   build-custom-packages.sh --check [--output DIRECTORY] [--metadata FILE]
 
-Build mode requires a native aarch64 host with makepkg and pacman. It never
+Build mode requires a native aarch64 host with makepkg, pacman and fakeroot. It never
 installs a package into the build host or target. The output directory must be
 new or empty and receives package archives, manifest.tsv, and SHA256SUMS.
 EOF
@@ -186,6 +186,8 @@ build_bundle() {
   load_metadata "$metadata"
   [[ $(uname -m) == aarch64 ]] || die "build must run on a native aarch64 host"
   command -v makepkg >/dev/null 2>&1 || die "makepkg is required"
+  command -v fakeroot >/dev/null 2>&1 || die "fakeroot is required"
+  fakeroot true >/dev/null 2>&1 || die "fakeroot cannot start with its installed library"
   command -v bsdtar >/dev/null 2>&1 || die "bsdtar is required for package metadata"
   command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
 
