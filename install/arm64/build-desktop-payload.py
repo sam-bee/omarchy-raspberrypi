@@ -381,6 +381,12 @@ def _validate_generic_root(target: Path, *, allow_stock_alarm: bool = False) -> 
     elif machine_id.exists() and machine_id.stat().st_size:
         raise DesktopPayloadError("target root has a machine-id; use a fresh generic root")
 
+    hostname = target / "etc/hostname"
+    if hostname.is_symlink():
+        raise DesktopPayloadError("target root has a symlink hostname")
+    if hostname.exists() and hostname.read_text(encoding="utf-8") not in ("", "alarm\n"):
+        raise DesktopPayloadError("target root has a configured hostname; use a fresh generic root")
+
     ssh = target / "etc/ssh"
     if ssh.is_dir() and not ssh.is_symlink():
         for item in ssh.glob("ssh_host_*"):
@@ -567,6 +573,8 @@ def build_payload(
         raise DesktopPayloadError("--apply requires --provisioner for generic desktop setup")
     stock_alarm = _has_stock_alarm_account(target)
     _validate_generic_root(target, allow_stock_alarm=stock_alarm)
+    hostname_path = target / "etc/hostname"
+    stock_hostname = hostname_path.exists() and hostname_path.read_text(encoding="utf-8") == "alarm\n"
     plan_document = _plan_document()
     roots, profile_roots = _select_roots(plan_document, profiles)
     custom = [_regular_file(path, name="custom package archive") for path in custom_packages]
@@ -613,6 +621,8 @@ def build_payload(
             _run(["userdel", "--root", os.fspath(target), "--remove", "alarm"])
             _run(["groupdel", "--root", os.fspath(target), "alarm"])
             _validate_generic_root(target)
+        if stock_hostname:
+            hostname_path.write_text("", encoding="utf-8")
         cache.mkdir(parents=True, exist_ok=True)
         hookdir.mkdir(parents=True, exist_ok=True)
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -670,6 +680,7 @@ def build_payload(
             "source": {"revision": revision, "revision_source": revision_source},
             "target": {"architecture": "aarch64", "profile": "rpi5", "rootfs": target.name},
             "stock_alarm_account": "removed" if apply and stock_alarm else ("present; apply removes it" if stock_alarm else "absent"),
+            "stock_hostname": "cleared" if apply and stock_hostname else ("present; apply clears it" if stock_hostname else "absent"),
             "profiles": {"selected": list(profiles) or ["full-desktop"], "roots": profile_roots},
             "transaction": {
                 "requested_roots": roots,
