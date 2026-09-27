@@ -25,10 +25,12 @@ for file in colors.toml shell.toml foot.ini pi.json; do
   printf 'rendered by the existing Omarchy theme renderer\n' >"$state/theme/$file"
 done
 printf 'unsupported background\n' >"$state/theme/backgrounds/0-winding-road.webp"
-if [[ ${ARM64_THEME_TEST_NO_STATIC:-0} != 1 ]]; then
+if [[ ${ARM64_THEME_TEST_NO_CITYSCAPE:-0} != 1 ]]; then
   printf 'baseline-compatible background\n' >"$state/theme/backgrounds/5-oma-cityscape.jpg"
 fi
-ln -s theme/backgrounds/0-winding-road.webp "$state/background"
+if [[ ${ARM64_THEME_TEST_NO_BACKGROUND:-0} != 1 ]]; then
+  ln -s theme/backgrounds/0-winding-road.webp "$state/background"
+fi
 SH
 chmod +x "$release/bin/omarchy-theme-set"
 
@@ -60,8 +62,8 @@ grep -Fx 'font=monospace:size=9' "$home/.config/foot/foot.ini" >/dev/null || \
   fail "the existing theme renderer produced the rendered theme state"
 [[ $(readlink -f "$home/.local/state/omarchy/current/background") == \
   "$home/.local/state/omarchy/current/theme/backgrounds/5-oma-cityscape.jpg" ]] || \
-  fail "fresh setup selects the first sorted baseline-compatible background"
-pass "empty-home setup renders the default theme and a usable Foot config"
+  fail "fresh setup keeps the Pi cityscape as its known default"
+pass "empty-home setup renders the default theme and preserves the Pi cityscape"
 
 jetbrains_home="$test_tmp/jetbrains-home"
 mkdir -p "$jetbrains_home"
@@ -98,16 +100,26 @@ grep -Fx 'Solitude' "$preserved_state/theme.name" >/dev/null || \
   fail "existing user-selected background is preserved"
 pass "existing theme and Foot configuration remain untouched"
 
-no_static_home="$test_tmp/no-static-home"
-mkdir -p "$no_static_home"
-if no_static_output=$(HOME="$no_static_home" OMARCHY_PATH="$release" PATH="$mock_bin:$PATH" \
-  OMARCHY_TEST_THEME_CALLS="$test_tmp/no-static-calls" ARM64_THEME_TEST_NO_STATIC=1 \
+webp_home="$test_tmp/webp-home"
+mkdir -p "$webp_home"
+HOME="$webp_home" OMARCHY_PATH="$release" PATH="$mock_bin:$PATH" \
+  OMARCHY_TEST_THEME_CALLS="$test_tmp/webp-calls" ARM64_THEME_TEST_NO_CITYSCAPE=1 \
+  bash "$script" >"$test_tmp/webp.log" || fail "WebP-only desktop theme setup succeeds"
+[[ $(readlink -f "$webp_home/.local/state/omarchy/current/background") == \
+  "$webp_home/.local/state/omarchy/current/theme/backgrounds/0-winding-road.webp" ]] || \
+  fail "fresh setup accepts the renderer's WebP background when no cityscape exists"
+pass "fresh setup accepts renderer-selected WebP backgrounds"
+
+no_background_home="$test_tmp/no-background-home"
+mkdir -p "$no_background_home"
+if no_background_output=$(HOME="$no_background_home" OMARCHY_PATH="$release" PATH="$mock_bin:$PATH" \
+  OMARCHY_TEST_THEME_CALLS="$test_tmp/no-background-calls" ARM64_THEME_TEST_NO_BACKGROUND=1 \
   bash "$script" 2>&1); then
-  fail "themes without a baseline-compatible background are rejected"
+  fail "themes without a selected background are rejected"
 fi
-grep -F 'no baseline-compatible JPG, JPEG or PNG background' <<<"$no_static_output" >/dev/null || \
-  fail "missing baseline-compatible background reports a clear error"
-pass "fresh setup fails clearly when no baseline-compatible background exists"
+grep -F 'did not select a usable background' <<<"$no_background_output" >/dev/null || \
+  fail "missing selected background reports a clear error"
+pass "fresh setup fails clearly when the renderer selects no background"
 
 partial_home="$test_tmp/partial-home"
 mkdir -p "$partial_home/.local/state/omarchy/current"

@@ -108,7 +108,6 @@ Item {
   }
 
   function openSelector() {
-    if (piMinimalSession) return
     if (!bgSwitchProc.running) bgSwitchProc.running = true
   }
 
@@ -318,11 +317,15 @@ Item {
 
       MouseArea {
         anchors.fill: parent
-        enabled: !root.piMinimalSession
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onDoubleClicked: function(mouse) {
-          if (mouse.button === Qt.RightButton) root.openThemeSwitcher()
-          else root.openSelector()
+          if (mouse.button === Qt.RightButton) {
+            // The Pi profile supports selecting a background, but its
+            // minimal session does not enable the complete theme post-hooks.
+            if (!root.piMinimalSession) root.openThemeSwitcher()
+          } else if (mouse.button === Qt.LeftButton) {
+            root.openSelector()
+          }
           mouse.accepted = true
         }
       }

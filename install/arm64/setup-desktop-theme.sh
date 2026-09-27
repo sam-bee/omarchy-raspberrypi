@@ -91,21 +91,20 @@ for rendered in colors.toml shell.toml foot.ini; do
     exit 1
   }
 done
-# The baseline Qt image plugins do not include WebP support. The upstream
-# renderer chooses from a broader set of formats, so select the first sorted
-# static image from this fresh render after it has created state.
-# Existing theme state is left completely untouched above.
+# Qt image format support is part of the Pi package policy, so accept the
+# renderer's selected image regardless of whether it is WebP, JPEG or PNG.
+# Keep the known Tokyo Night cityscape as the Pi's intentional fresh default;
+# this preserves the established first-login appearance without imposing a
+# JPEG-only format restriction on the rest of the theme.
 if (( fresh_render )); then
-  mapfile -d '' -t static_backgrounds < <(
-    find -L "$theme_dir/backgrounds" -maxdepth 1 -type f \
-      \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) \
-      -print0 2>/dev/null | sort -z
-  )
-  if (( ${#static_backgrounds[@]} == 0 )); then
-    echo "Theme '$active_theme' has no baseline-compatible JPG, JPEG or PNG background under $theme_dir/backgrounds" >&2
+  [[ -L $background_link && -f $background_link ]] || {
+    echo "Theme rendering did not select a usable background: $background_link" >&2
     exit 1
+  }
+  preferred_background="$theme_dir/backgrounds/5-oma-cityscape.jpg"
+  if [[ -f $preferred_background && ! -L $preferred_background ]]; then
+    ln -nsf -- "$preferred_background" "$background_link"
   fi
-  ln -nsf -- "${static_backgrounds[0]}" "$background_link"
 else
   [[ -L $background_link && -f $background_link ]] || {
     echo "Existing theme has no selected background: $background_link" >&2

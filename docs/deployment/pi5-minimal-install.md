@@ -60,7 +60,7 @@ OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current" \
   bash "$HOME/.local/share/omarchy-pi/current/install/arm64/setup-desktop-theme.sh"
 ```
 
-The default is Tokyo Night; pass a theme name only when there is no existing theme state. The helper refuses an unmarked non-empty `~/.local/state/omarchy/current`, preserves an existing `theme.name` and `background` selection, and preserves an existing `~/.config/foot/foot.ini`. On a new setup it renders `colors.toml`, `shell.toml`, `foot.ini` and the theme backgrounds under `~/.local/state/omarchy/current/theme/`, then replaces the renderer's initial background choice with the first sorted JPG, JPEG or PNG from that freshly rendered directory; the baseline Qt image plugins do not include WebP support. It fails clearly when the fresh theme has no such static image. It creates `~/.config/foot/foot.ini` from the committed `config/foot/foot.ini` template only when that file is absent. If `JetBrainsMono Nerd Font` is unavailable, the copied config uses Foot's generic `monospace` family.
+The default is Tokyo Night; pass a theme name only when there is no existing theme state. The helper refuses an unmarked non-empty `~/.local/state/omarchy/current`, preserves an existing `theme.name` and `background` selection, and preserves an existing `~/.config/foot/foot.ini`. On a new setup it renders `colors.toml`, `shell.toml`, `foot.ini` and the theme backgrounds under `~/.local/state/omarchy/current/theme/`, accepts the renderer's selected image format, and keeps Tokyo Night's `5-oma-cityscape.jpg` as the Pi's intentional fresh default when that asset is present. The Pi package policy includes `qt6-imageformats`, so WebP and other supported image formats remain available for the image viewer and background selector. It fails clearly when the fresh theme has no selected background. It creates `~/.config/foot/foot.ini` from the committed `config/foot/foot.ini` template only when that file is absent. If `JetBrainsMono Nerd Font` is unavailable, the copied config uses Foot's generic `monospace` family.
 
 Check the rendered state before refreshing the live surfaces:
 
@@ -73,7 +73,28 @@ test -f "$HOME/.config/foot/foot.ini"
 
 Use `hyprctl reload` and `omarchy-restart-shell` only after those checks pass. Keep the existing second SSH connection available while refreshing the session. Capture a Wayland frame with `grim` after the bar and background are visible, then use `SUPER+Return` to open Foot, `SUPER+B` for normal Chromium and `SUPER+Shift+B` for a private Chromium window. The current Pi profile also exposes the Omarchy audio panel at `SUPER+Ctrl+A`, XF86 volume raise/lower/mute, and Alt+XF86 fine volume steps. Verify the panel reports the selected PipeWire/Pulse sink and that its volume and mute controls change the reported state; audible speaker acceptance and browser routing remain separate checks.
 
-The bounded Pi baseline currently has `wpctl`, `pactl`, `grim` and `gtk-launch` available for these controls. `jq`, ImageMagick and `wtype` are not baseline dependencies, so a control must not rely on them unless its package transaction is separately reviewed. The profile allowlists only the static background renderer; lock, notifications, polkit, battery, idle, nightlight and media services remain deferred. If theme rendering or live refresh fails, leave the release pointer and previous user configuration in place and inspect the helper's rendered-state checks. A release rollback changes the staged source and managed session files but deliberately does not roll back `~/.local/state/omarchy/current`; the newly rendered theme may therefore continue to color a rolled-back source. Restore a prior theme only by selecting it through a compatible renderer or by restoring an exact pre-change backup; do not delete theme state recursively.
+The bounded Pi baseline currently has `wpctl`, `pactl`, `grim` and `gtk-launch` available for these controls. The still-image profile also includes `jq` and ImageMagick for the reviewed desktop helpers; `wtype` remains outside this profile, so a control must not rely on it unless its package transaction is separately reviewed. The profile allowlists only the static background renderer; lock, notifications, polkit, battery, idle, nightlight and media services remain deferred. If theme rendering or live refresh fails, leave the release pointer and previous user configuration in place and inspect the helper's rendered-state checks. A release rollback changes the staged source and managed session files but deliberately does not roll back `~/.local/state/omarchy/current`; the newly rendered theme may therefore continue to color a rolled-back source. Restore a prior theme only by selecting it through a compatible renderer or by restoring an exact pre-change backup; do not delete theme state recursively.
+
+### Image viewing and background selection
+
+After the theme is prepared and the reviewed image packages are installed, configure the target user's image workflow:
+
+```bash
+OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current" \
+  bash "$HOME/.local/share/omarchy-pi/current/install/arm64/setup-desktop-images.sh"
+```
+
+The helper requires the `imv` binary and desktop entry, assigns the image MIME types advertised by `applications/imv.desktop` to `imv.desktop` through the user's XDG MIME configuration, and leaves unrelated defaults such as directories, web links and mail handlers unchanged. It never edits the system MIME defaults. On a fresh user profile it creates a minimal `~/.config/imv/config` with `Ctrl+B` bound to `omarchy-theme-bg-set`; an existing imv configuration is preserved byte-for-byte because the stock configuration can reference optional image tools that are outside the Pi baseline. The helper requires `XDG_CONFIG_HOME` to be unset or `$HOME/.config`, matching the rest of the Pi desktop helpers.
+
+Press `Super+Shift+F` to open Files (Nautilus), then double-click an image, or launch `imv` directly to view it. While an image is open, press `Ctrl+B` to set that image as the current background. The binding is seeded only when no imv config exists; if an existing config was preserved, add the equivalent binding yourself or use its existing background action. The action updates `~/.local/state/omarchy/current/background` and refreshes the running shell when one is active. The helper creates the active theme's user background directory at `~/.config/omarchy/backgrounds/<theme-name>/`; copy additional still images there with Files. The desktop background picker (`Super+Ctrl+Space`, or double-click the desktop with the left mouse button) then includes those files alongside the theme's shipped backgrounds. This setup covers still images; animated/video backgrounds remain outside this helper. Verify the association, user directory and unchanged selection before refreshing the session:
+
+```bash
+xdg-mime query default image/png
+test -d "$HOME/.config/omarchy/backgrounds/$(cat "$HOME/.local/state/omarchy/current/theme.name")"
+test -f "$HOME/.config/imv/config"
+test -L "$HOME/.local/state/omarchy/current/background" && \
+  test -f "$HOME/.local/state/omarchy/current/background"
+```
 
 ## Persistent session unit
 

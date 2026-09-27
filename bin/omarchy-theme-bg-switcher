@@ -8,7 +8,15 @@
 theme_name=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)
 current_background=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null)
 
+menu_args=()
+if [[ ${OMARCHY_PI_MINIMAL_SESSION:-} == 1 ]]; then
+  # The Pi profile renders still images only; OWE/video support is not part of
+  # its bounded desktop package or session configuration.
+  menu_args+=(--still-only)
+fi
+
 omarchy-menu-images \
+  "${menu_args[@]}" \
   --selected "$current_background" \
   "$HOME/.local/state/omarchy/current/theme/backgrounds" \
   "$HOME/.config/omarchy/backgrounds/$theme_name"

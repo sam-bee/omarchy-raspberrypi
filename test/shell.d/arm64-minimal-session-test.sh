@@ -48,8 +48,12 @@ assert "shell.piMinimalServiceAllowed(authenticationId, authenticationManifest)"
 assert shell.index("if (piMinimalSession) {", shell.index("function loadDefaults(raw)")) < shell.index("defaultsConfig = builtinShellConfig", shell.index("function loadDefaults(raw)"))
 background = (root / "shell/plugins/background/Background.qml").read_text()
 assert 'Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"' in background
-assert "enabled: !root.piMinimalSession" in background
-assert background.index("if (piMinimalSession) return", background.index("function openSelector")) < background.index("bgSwitchProc.running", background.index("function openSelector"))
+selector_start = background.index("function openSelector")
+theme_start = background.index("function openThemeSwitcher")
+assert "if (piMinimalSession) return" not in background[selector_start:theme_start]
+assert "if (piMinimalSession) return" in background[theme_start:background.index("Process {", theme_start)]
+assert "if (!root.piMinimalSession) root.openThemeSwitcher()" in background
+assert "root.openSelector()" in background
 assert background.index("if (piMinimalSession) return", background.index("function openThemeSwitcher")) < background.index("themeSwitchProc.running", background.index("function openThemeSwitcher"))
 
 hypr = (root / "install/arm64/session/hyprland.lua").read_text()
