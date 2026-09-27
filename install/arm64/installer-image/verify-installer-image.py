@@ -41,6 +41,7 @@ BUILDER_MARKER = Path("usr/lib/omarchy-pi/installer-image.marker")
 BUILDER_MARKER_CONTENT = b"omarchy-pi-installer-image-v1\n"
 SETTINGS_EXAMPLE = "installer-settings.example.toml"
 SETTINGS_FILE = "installer-settings.toml"
+REQUIRED_FONT = "usr/share/fonts/TTF/DejaVuSansMono.ttf"
 
 SYSTEM_UNITS = (
     "omarchy-pi-provision-access.service",
@@ -433,11 +434,16 @@ def _verify_services(root: Path) -> None:
             raise ImageVerificationError(f"service link target is missing: {expected}")
 
 
+def _verify_fonts(root: Path) -> None:
+    _regular_file(_root_path(root, REQUIRED_FONT), description="DejaVu Sans Mono font")
+
+
 def _verify_root(root: Path, boot_uuid: str, root_uuid: str) -> None:
     _require_directory(root, description="root filesystem")
     _require_directory(_root_path(root, "boot"), description="target /boot directory")
     _verify_fstab(root, boot_uuid, root_uuid)
     _verify_identities(root)
+    _verify_fonts(root)
     _verify_services(root)
 
 
