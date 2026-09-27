@@ -31,6 +31,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from typing import Any, Sequence
 
@@ -620,7 +621,9 @@ def build_payload(
             # The official tarball includes the default alarm login. Remove
             # it from this disposable target before bundling a generic image.
             _run(["userdel", "--root", os.fspath(target), "--remove", "alarm"])
-            _run(["groupdel", "--root", os.fspath(target), "alarm"])
+            groups = (target / "etc/group").read_text(encoding="utf-8").splitlines()
+            if any(line.startswith("alarm:") for line in groups):
+                _run(["groupdel", "--root", os.fspath(target), "alarm"])
             _validate_generic_root(target)
         if stock_hostname:
             hostname_path.write_text("", encoding="utf-8")
