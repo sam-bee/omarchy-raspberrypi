@@ -31,6 +31,7 @@ class VerifyInstallerRdpRuntimeTests(unittest.TestCase):
         password_path = config / "password"
         expected = (
             'bind = "0.0.0.0:3389"\n'
+            'output = "omarchy-installer"\n'
             'username = "installer"\n'
             f'password_file = "{password_path}"\n'
             'resolution = "1280x720"\n'
@@ -63,7 +64,21 @@ class VerifyInstallerRdpRuntimeTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             runtime.check_config(home, uid, "installer")
         config.write_text(
-            config.read_text(encoding="utf-8").replace('bind = "127.0.0.1:3389"\n', 'bind = "0.0.0.0:3389"\npassword = "secret"\n'),
+            config.read_text(encoding="utf-8").replace('bind = "127.0.0.1:3389"\n', 'bind = "0.0.0.0:3389"\n'),
+            encoding="utf-8",
+        )
+        config.write_text(
+            config.read_text(encoding="utf-8").replace('output = "omarchy-installer"\n', 'output = "hypr-rdp"\n'),
+            encoding="utf-8",
+        )
+        with self.assertRaises(SystemExit):
+            runtime.check_config(home, uid, "installer")
+        config.write_text(
+            config.read_text(encoding="utf-8").replace('output = "hypr-rdp"\n', 'output = "omarchy-installer"\n'),
+            encoding="utf-8",
+        )
+        config.write_text(
+            config.read_text(encoding="utf-8").replace('file_transfer_mode = "off"\n', 'password = "secret"\nfile_transfer_mode = "off"\n'),
             encoding="utf-8",
         )
         with self.assertRaises(SystemExit):

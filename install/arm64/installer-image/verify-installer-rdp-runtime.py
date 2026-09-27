@@ -198,6 +198,7 @@ def check_config(home: Path, uid: int, username: str) -> tuple[Path, Path]:
         fail("plaintext password in config is forbidden; use password_file")
     expected = {
         "bind": "0.0.0.0:3389",
+        "output": "omarchy-installer",
         "username": username,
         "resolution": "1280x720",
         "fps": 20,
