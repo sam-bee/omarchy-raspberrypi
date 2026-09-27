@@ -46,6 +46,8 @@ RUNTIME_ROOTS = (
     "hyprland",
     "uwsm",
     "foot",
+    # Foot needs a concrete fallback family for the installer session.
+    "ttf-dejavu",
     "qt6-wayland",
     "xdg-terminal-exec",
     "dosfstools",

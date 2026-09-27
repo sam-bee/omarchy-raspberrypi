@@ -104,6 +104,7 @@ class StageArmPackagesTests(unittest.TestCase):
             self.assertEqual(manifest["transaction"]["runtime_roots"], list(stage.RUNTIME_ROOTS))
             self.assertIn("pipewire", manifest["transaction"]["runtime_roots"])
             self.assertIn("iw", manifest["transaction"]["runtime_roots"])
+            self.assertIn("ttf-dejavu", manifest["transaction"]["runtime_roots"])
             self.assertNotIn("hypr-rdp", json.dumps(manifest))
             self.assertTrue(package_manifest.is_file())
             preview = next(command for command in calls if "--print" in command)
