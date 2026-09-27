@@ -29,9 +29,26 @@ assertEqual(
 )
 assertEqual(
   serviceAllowed(true, 'omarchy.media', { __isFirstParty: true }),
-  false,
-  'Pi profile keeps unrelated first-party services gated'
+  true,
+  'Pi profile admits the first-party media service'
 )
+assertEqual(
+  serviceAllowed(true, 'omarchy.nightlight', { __isFirstParty: true }),
+  true,
+  'Pi profile admits the first-party nightlight service'
+)
+assertEqual(
+  serviceAllowed(true, 'omarchy.polkit', { __isFirstParty: true }),
+  true,
+  'Pi profile admits the first-party polkit service'
+)
+for (const id of ['omarchy.idle', 'omarchy.lock']) {
+  assertEqual(
+    serviceAllowed(true, id, { __isFirstParty: true }),
+    true,
+    'Pi profile admits the first-party ' + id + ' service'
+  )
+}
 assertEqual(
   serviceAllowed(true, 'omarchy.notifications', { __isFirstParty: false }),
   false,
@@ -54,6 +71,24 @@ assert(
   !fallbackMatch[1].includes('"omarchy.notifications"'),
   'Pi fallback shell configuration does not disable notifications'
 )
+for (const id of ['omarchy.media', 'omarchy.nightlight', 'omarchy.polkit']) {
+  assert(!fallbackMatch[1].includes('"' + id + '"'), 'Pi fallback shell configuration does not disable ' + id)
+}
+for (const id of ['omarchy.idle', 'omarchy.lock']) {
+  assert(!fallbackMatch[1].includes('"' + id + '"'), 'Pi fallback shell configuration does not disable ' + id)
+}
+for (const id of [
+  'omarchy.indicators',
+  'omarchy.clock',
+  'omarchy.keyboard-layout',
+  'omarchy.tray',
+  'omarchy.bluetooth',
+  'omarchy.network',
+  'omarchy.audio'
+]) {
+  assert(fallbackMatch[1].includes('id: "' + id + '"'),
+    'Pi fallback bar retains ' + id)
+}
 
 assert(
   menuQml.includes('readonly property bool piMinimalSession: Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"'),
@@ -65,4 +100,4 @@ assert(
 )
 JS
 
-pass "Pi service allowlist covers the bounded notification profile"
+pass "Pi service allowlist covers the Pi desktop services"

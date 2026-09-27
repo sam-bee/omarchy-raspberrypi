@@ -31,9 +31,10 @@ disabled = set(config["disabledPlugins"])
 assert "omarchy.background" in service_ids
 assert "omarchy.background" not in disabled
 assert "omarchy.notifications" not in disabled
-assert service_ids - {"omarchy.background", "omarchy.notifications"} <= disabled, service_ids - {"omarchy.background", "omarchy.notifications"} - disabled
+assert disabled == {"omarchy.battery"}
+assert service_ids - {"omarchy.battery"} >= {"omarchy.background", "omarchy.notifications", "omarchy.media", "omarchy.nightlight", "omarchy.idle", "omarchy.lock", "omarchy.polkit"}
 widgets = [entry["id"] for section in config["bar"]["layout"].values() for entry in section]
-assert widgets == ["omarchy.workspaces", "omarchy.clock", "omarchy.bluetooth", "omarchy.audio"]
+assert widgets == ["omarchy.workspaces", "omarchy.indicators", "omarchy.clock", "omarchy.keyboard-layout", "omarchy.tray", "omarchy.bluetooth", "omarchy.network", "omarchy.audio"]
 assert config["bar"]["transparent"] is False
 assert "omarchy.osd" not in disabled
 
@@ -53,10 +54,11 @@ assert 'Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"' in background
 selector_start = background.index("function openSelector")
 theme_start = background.index("function openThemeSwitcher")
 assert "if (piMinimalSession) return" not in background[selector_start:theme_start]
-assert "if (piMinimalSession) return" in background[theme_start:background.index("Process {", theme_start)]
-assert "if (!root.piMinimalSession) root.openThemeSwitcher()" in background
+assert "if (piMinimalSession) return" not in background[theme_start:background.index("Process {", theme_start)]
+assert "if (!root.piMinimalSession) root.openThemeSwitcher()" not in background
+assert "root.openThemeSwitcher()" in background
 assert "root.openSelector()" in background
-assert background.index("if (piMinimalSession) return", background.index("function openThemeSwitcher")) < background.index("themeSwitchProc.running", background.index("function openThemeSwitcher"))
+assert "themeSwitchProc.running = true" in background[theme_start:background.index("Process {", theme_start)]
 
 hypr = (root / "install/arm64/session/hyprland.lua").read_text()
 assert hypr.index("omarchy_autostart_minimal = true") < hypr.index('require("default.hypr.omarchy")')
@@ -65,6 +67,7 @@ assert 'hl.bind("SUPER + B", hl.dsp.exec_cmd("omarchy-launch-browser")' in hypr
 assert 'hl.bind("SUPER + SHIFT + B", hl.dsp.exec_cmd("omarchy-launch-browser --private")' in hypr
 assert 'o.bind("SUPER + CTRL + B", "Bluetooth", "omarchy-shell shell toggle omarchy.bluetooth")' in hypr
 
+assert 'require("default.hypr.bindings.tiling")' in hypr
 assert 'require("default.hypr.bindings.clipboard")' in hypr
 assert 'o.bind("PRINT", "Screenshot", "omarchy-capture-screenshot")' in hypr
 assert 'o.bind("SHIFT + PRINT", "Full-screen screenshot", "omarchy-capture-screenshot fullscreen")' in hypr

@@ -1,22 +1,49 @@
 {
   "version": 1,
   "disabledPlugins": [
-    "omarchy.battery",
-    "omarchy.idle",
-    "omarchy.lock",
-    "omarchy.media",
-    "omarchy.nightlight",
-    "omarchy.polkit"
+    "omarchy.battery"
   ],
   "bar": {
     "position": "top",
     "transparent": false,
     "centerAnchor": "omarchy.clock",
     "layout": {
-      "left": [{ "id": "omarchy.workspaces" }],
-      "center": [{ "id": "omarchy.clock", "format": "HH:mm" }],
-      "right": [{ "id": "omarchy.bluetooth" }, { "id": "omarchy.audio" }]
+      "left": [
+        {
+          "id": "omarchy.workspaces"
+        }
+      ],
+      "center": [
+        {
+          "id": "omarchy.indicators"
+        },
+        {
+          "id": "omarchy.clock",
+          "format": "HH:mm"
+        },
+        {
+          "id": "omarchy.keyboard-layout"
+        }
+      ],
+      "right": [
+        {
+          "id": "omarchy.tray"
+        },
+        {
+          "id": "omarchy.bluetooth"
+        },
+        {
+          "id": "omarchy.network"
+        },
+        {
+          "id": "omarchy.audio"
+        }
+      ]
     }
   },
-  "plugins": []
+  "plugins": [],
+  "idle": {
+    "screensaver": 150,
+    "lock": 300
+  }
 }

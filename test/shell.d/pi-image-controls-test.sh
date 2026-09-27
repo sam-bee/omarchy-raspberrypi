@@ -101,18 +101,17 @@ selector = source.index("function openSelector()")
 theme = source.index("function openThemeSwitcher()")
 selector_body = source[selector:theme]
 assert "if (piMinimalSession) return" not in selector_body, "minimal mode must allow background selection"
-assert "if (piMinimalSession) return" in source[theme:source.index("Process {", theme)], "minimal mode must keep full theme switching gated"
-assert "if (!root.piMinimalSession) root.openThemeSwitcher()" in source, "right desktop click must keep theme switching gated"
+assert "if (piMinimalSession) return" not in source[theme:source.index("Process {", theme)], "minimal mode must allow full theme switching"
+assert "root.openThemeSwitcher()" in source, "right desktop double-click must open full theme selection"
 assert "root.openSelector()" in source, "left desktop double-click must open background selection"
 PY
-pass "Pi background selection stays available while full theme switching remains gated"
+pass "Pi background and full theme selection remain available"
 
 grep -qF 'o.bind("SUPER + CTRL + SPACE", "Background switcher", "omarchy-menu toggle background")' "$pi_hypr" ||
   fail "Pi profile keeps the upstream background shortcut"
 grep -qF 'o.bind("SUPER + SHIFT + F", "File manager", { omarchy = "nautilus" })' "$pi_hypr" ||
   fail "Pi profile exposes the upstream file-manager shortcut"
 
-if grep -qF 'omarchy-theme-switcher' "$pi_hypr"; then
-  fail "Pi profile does not expose the unavailable full theme switcher"
-fi
-pass "Pi profile exposes discoverable background and image-file workflows only"
+grep -qF 'o.bind("SUPER + SHIFT + CTRL + SPACE", "Theme menu", "omarchy-menu toggle theme")' "$pi_hypr" ||
+  fail "Pi profile exposes the upstream full theme-switcher shortcut"
+pass "Pi profile exposes discoverable theme, background, and image-file workflows"

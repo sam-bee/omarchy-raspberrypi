@@ -32,6 +32,8 @@ Item {
   property bool pendingStayAwakePersist: false
   property bool idledThisCycle: false
   property bool screensaverStartedThisCycle: false
+  property bool screensaverAvailable: false
+  property bool screensaverCapabilityLoaded: false
   property string lastEvent: "starting"
   property string lastEventAt: ""
   property var screensaverWindows: ({})
@@ -64,6 +66,20 @@ Item {
   }
 
   function launchScreensaver() {
+    if (!root.screensaverCapabilityLoaded) {
+      logEvent("screensaver-capability-pending")
+      if (!screensaverCapabilityProbe.running) screensaverCapabilityProbe.running = true
+      return
+    }
+
+    // ttfx is an optional package on ARM. Keep the normal idle-to-lock path
+    // useful when it is absent by skipping only the visual screensaver; the
+    // lock timer remains armed for the configured timeout.
+    if (!root.screensaverAvailable) {
+      logEvent("screensaver-unavailable", "ttfx or socat is not installed")
+      return
+    }
+
     root.screensaverStartedThisCycle = true
     screensaverLaunchGraceTimer.restart()
     runProcess(screensaverProcess, "screensaver", "[[ $(omarchy-shell lock isLocked 2>/dev/null) == \"true\" ]] || omarchy-launch-screensaver")
@@ -189,6 +205,8 @@ Item {
       screensaverStarted: root.screensaverStartedThisCycle,
       screensaver: root.screensaverTimeoutSeconds,
       lock: root.lockTimeoutSeconds,
+      screensaverAvailable: root.screensaverAvailable,
+      screensaverCapabilityLoaded: root.screensaverCapabilityLoaded,
       screensaverDelay: root.screensaverDelaySeconds,
       lockDelay: root.lockDelaySeconds,
       screensaverWindows: root.screensaverWindowCount,
@@ -300,6 +318,15 @@ Item {
   }
 
   Process {
+    id: screensaverCapabilityProbe
+    command: ["bash", "-c", "if command -v ttfx >/dev/null 2>&1 && command -v socat >/dev/null 2>&1; then echo yes; else echo no; fi"]
+    stdout: SplitParser {
+      onRead: function(line) { root.screensaverAvailable = String(line).trim() === "yes" }
+    }
+    onExited: root.screensaverCapabilityLoaded = true
+  }
+
+  Process {
     id: stayAwakeStateProbe
     command: ["bash", "-c", "mkdir -p \"$HOME/.local/state/omarchy/indicators\"; if [[ -f $HOME/.local/state/omarchy/indicators/stay-awake ]]; then echo yes; else echo no; fi"]
     stdout: SplitParser {
@@ -332,6 +359,7 @@ Item {
 
   Component.onCompleted: {
     logEvent("service-ready")
+    screensaverCapabilityProbe.running = true
     refreshStayAwakeState()
   }
 

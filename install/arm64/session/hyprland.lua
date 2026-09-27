@@ -4,6 +4,7 @@ _G.omarchy_default_bindings = false
 
 dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")
 require("default.hypr.omarchy")
+require("default.hypr.bindings.tiling")
 
 hl.monitor({ output = "", mode = "1280x720@60", position = "0x0", scale = 1 })
 hl.config({ animations = { enabled = false } })
@@ -43,3 +44,21 @@ o.bind("SUPER + SHIFT + comma", "Dismiss all notifications", "omarchy-shell noti
 o.bind("SUPER + CTRL + comma", "Toggle silencing notifications", "omarchy-shell notifications toggleDnd")
 o.bind("SUPER + ALT + comma", "Invoke last notification", "omarchy-shell notifications invokeLast")
 o.bind("SUPER + SHIFT + ALT + comma", "Open notification history", "omarchy-shell notifications showHistory")
+
+-- Upstream desktop controls supported by the Pi's Wayland session.
+o.bind("SUPER + SHIFT + CTRL + SPACE", "Theme menu", "omarchy-menu toggle theme")
+o.bind_toggle("SUPER + CTRL + N", "Toggle nightlight", "nightlight")
+o.bind_toggle("SUPER + CTRL + I", "Toggle locking on idle", "idle")
+o.bind("SUPER + CTRL + L", "Lock screen", "omarchy-system-lock")
+o.bind("SUPER + CTRL + W", "Network", "omarchy-shell shell toggle omarchy.network")
+o.bind_toggle("SUPER + SHIFT + SPACE", "Toggle top bar", "bar")
+o.bind("XF86AudioMicMute", "Mute microphone", "omarchy-audio-input-mute", { locked = true })
+o.bind("XF86AudioNext", "Next track", "omarchy-shell media next", { locked = true })
+o.bind("ALT + XF86AudioPlay", "Next track", "omarchy-shell media next", { locked = true })
+o.bind("XF86AudioPause", "Pause", "omarchy-shell media playPause", { locked = true })
+o.bind("XF86AudioPlay", "Play", "omarchy-shell media playPause", { locked = true })
+o.bind("XF86AudioPrev", "Previous track", "omarchy-shell media previous", { locked = true })
+o.bind("ALT + SHIFT + XF86AudioPlay", "Previous track", "omarchy-shell media previous", { locked = true })
+o.bind("SHIFT + XF86AudioMute", "Switch audio output", "omarchy-audio-output-switch", { locked = true })
+o.bind("SHIFT + XF86AudioPause", "Switch media source", "omarchy-audio-source-switch", { locked = true })
+o.bind("SHIFT + XF86AudioPlay", "Switch media source", "omarchy-audio-source-switch", { locked = true })

@@ -35,6 +35,13 @@ assertDeepEqual(
 )
 JS
 
+idle_service="$ROOT/shell/plugins/services/idle/Service.qml"
+rg -q 'screensaverCapabilityProbe' "$idle_service" || fail "idle service probes screensaver capabilities"
+rg -q 'command -v ttfx' "$idle_service" || fail "idle service treats ttfx as an optional capability"
+rg -q 'screensaver-unavailable' "$idle_service" || fail "idle service records the no-ttfx fallback"
+rg -q 'lock timer remains armed' "$idle_service" || fail "idle service documents lock fallback behavior"
+pass "idle service falls through to lock when the optional screensaver is unavailable"
+
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 

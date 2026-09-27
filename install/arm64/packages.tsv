@@ -13,7 +13,7 @@ bluez	defer	-	Optional Bluetooth stack; defer hardware service changes.
 bluez-tools	defer	-	Optional Bluetooth tools; not required by the first session.
 bluez-utils	defer	-	Optional Bluetooth utilities; not required by the first session.
 bolt	defer	-	Optional Thunderbolt support, unrelated to the Pi baseline.
-brightnessctl	defer	-	Laptop/backlight helper; no Pi display-backlight requirement is established.
+brightnessctl	candidate	-	Upstream lock/idle wake helpers query backlights and LEDs; no device is required on a headless Pi.
 btop	defer	-	Optional system monitor.
 chromium	candidate	-	Selected ARM64 browser for the initial Pi desktop; review its complete package transaction and test browser launch/playback on the target.
 clang	defer	-	Developer toolchain; not needed for the first desktop.
@@ -63,7 +63,7 @@ imv	candidate	-	Selected ARM64 image viewer; applications/imv.desktop and defaul
 inetutils	defer	-	Optional network diagnostics; avoid changing the working network substrate.
 inotify-tools	candidate	-	File-watch utility used by desktop/config workflows.
 inxi	defer	-	Optional hardware-reporting tool.
-networkmanager	exclude	-	Do not replace the working systemd-networkd and wpa_supplicant path on the Pi.
+networkmanager	candidate	-	Required by the upstream network panel; existing networkd installations need an explicit controlled migration with rollback, not an incidental session update.
 jq	candidate	-	JSON processing tool used by menus and configuration helpers.
 kdenlive	defer	-	Optional video editor; defer GPU and application validation.
 kernel-modules-hook	exclude	-	Kernel lifecycle hook is outside this desktop layer and could affect the protected boot substrate.
@@ -119,7 +119,7 @@ ripgrep	candidate	-	Baseline fast text-search tool used by Omarchy workflows.
 ruby	defer	-	Optional language runtime; not needed for the first session.
 sddm	exclude	-	Do not change display-manager or boot-session ownership while the Pi remains SSH/headless infrastructure.
 slurp	candidate	-	Wayland region selector used by screenshot actions.
-socat	defer	-	Optional socket utility; not required by the initial session.
+socat	candidate	-	Upstream screensaver launcher subscribes to Hyprland window events through its Unix socket.
 starship	candidate	-	Baseline shell prompt integration.
 sushi	defer	-	Optional file previewer.
 system-config-printer	defer	-	Optional printer configuration UI.

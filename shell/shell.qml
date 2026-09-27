@@ -33,18 +33,12 @@ ShellRoot {
   readonly property bool piMinimalSession: Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"
 
   // A FileView may load shell.json after the first plugin scan. Keep the Pi's
-  // initial bar bounded even before the user file is available. Bluetooth and
-  // audio are the interactive panels deliberately included in the desktop
-  // profile; the OSD is a keep-loaded panel and therefore needs no bar entry.
+  // initial bar bounded even before the user file is available. This mirrors
+  // the Pi session's normal desktop indicators while leaving battery disabled.
   readonly property var piMinimalShellConfig: ({
     version: 1,
     disabledPlugins: [
-      "omarchy.battery",
-      "omarchy.idle",
-      "omarchy.lock",
-      "omarchy.media",
-      "omarchy.nightlight",
-      "omarchy.polkit"
+      "omarchy.battery"
     ],
     bar: {
       position: "top",
@@ -52,8 +46,17 @@ ShellRoot {
       centerAnchor: "omarchy.clock",
       layout: {
         left: [{ id: "omarchy.workspaces" }],
-        center: [{ id: "omarchy.clock", format: "HH:mm" }],
-        right: [{ id: "omarchy.bluetooth" }, { id: "omarchy.audio" }]
+        center: [
+          { id: "omarchy.indicators" },
+          { id: "omarchy.clock", format: "HH:mm" },
+          { id: "omarchy.keyboard-layout" }
+        ],
+        right: [
+          { id: "omarchy.tray" },
+          { id: "omarchy.bluetooth" },
+          { id: "omarchy.network" },
+          { id: "omarchy.audio" }
+        ]
       }
     },
     plugins: []
@@ -1058,7 +1061,13 @@ ShellRoot {
   function piMinimalServiceAllowed(pluginId, manifest) {
     if (!piMinimalSession) return true
     var id = String(pluginId || "")
-    return (id === "omarchy.background" || id === "omarchy.notifications")
+    // These services are the upstream desktop surfaces. The idle service
+    // probes the optional terminal screensaver and safely falls through to
+    // the lock timer when ttfx is unavailable; the lock service gates itself
+    // on the reviewed password PAM file.
+    return (id === "omarchy.background" || id === "omarchy.notifications"
+      || id === "omarchy.media" || id === "omarchy.nightlight" || id === "omarchy.polkit"
+      || id === "omarchy.idle" || id === "omarchy.lock")
       && !!manifest && manifest.__isFirstParty === true
   }
 

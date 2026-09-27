@@ -112,7 +112,6 @@ Item {
   }
 
   function openThemeSwitcher() {
-    if (piMinimalSession) return
     if (!themeSwitchProc.running) themeSwitchProc.running = true
   }
 
@@ -320,9 +319,7 @@ Item {
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onDoubleClicked: function(mouse) {
           if (mouse.button === Qt.RightButton) {
-            // The Pi profile supports selecting a background, but its
-            // minimal session does not enable the complete theme post-hooks.
-            if (!root.piMinimalSession) root.openThemeSwitcher()
+            root.openThemeSwitcher()
           } else if (mouse.button === Qt.LeftButton) {
             root.openSelector()
           }
