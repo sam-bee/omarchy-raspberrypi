@@ -2,6 +2,10 @@
 
 This guide describes the first repeatable deployment target for the Pi profile: an already booting Arch Linux ARM Raspberry Pi 5 with an administrator account, working network and SSH, and a recovery route. The profile installs Omarchy's minimal Hyprland, Quickshell and Foot session, with optional loopback-only RDP. On 23 September 2026, the account-independent deployment was installed and booted from a clean Arch Linux ARM USB root on one 8 GB Pi 5 under a second account. The V3D session, mapped Foot window, native RDP package, tunneled real-client input/reconnect, and persistent session/RDP services passed on that root. This remains a single-device rehearsal: a package maintenance cycle and physical-display/login acceptance are still open. The historical package and unit runbooks record exact transactions on that machine, not package versions to copy into a new installation.
 
+## Desktop experience before images
+
+The next milestone is a pleasant everyday desktop before publishing disk images: a usable browser, audible media, an Omarchy background and theme, discoverable application and volume controls, and a practical terminal/editor workflow. The minimal session remains the bring-up foundation. [Bluetooth audio on 27 September](bluetooth-audio/result-2026-09-27.md) records the first user-confirmed speaker playback; browser playback, desktop controls and persistence checks remain part of this milestone.
+
 ## Base-system contract
 
 Record the target's architecture, Pi model, root and `/boot` mounts, bootloader/firmware, kernel, initramfs hooks, network and SSH state, user name/UID/home, and a recovery route before changing it. The Pi-native boot chain and Arch Linux ARM repository and keyring remain authoritative. If using the existing encrypted NVMe setup, preserve its LUKS keyslots and USB unlock key. The minimal profile does not provision disks, encryption, networking or accounts.
