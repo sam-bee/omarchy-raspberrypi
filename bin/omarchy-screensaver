@@ -2,6 +2,14 @@
 
 # omarchy:summary=Run the Omarchy screensaver using random effects from TTE.
 
+# Fresh staged sessions may not have custom branding yet.
+branding="$HOME/.config/omarchy/branding/screensaver.txt"
+[[ -f $branding ]] || branding="$OMARCHY_PATH/logo.txt"
+if [[ ! -r $branding ]]; then
+  echo "Screensaver branding is unavailable: $branding" >&2
+  exit 1
+fi
+
 screensaver_in_focus() {
   hyprctl activewindow -j | jq -e '.class == "org.omarchy.screensaver"' >/dev/null 2>&1
 }
@@ -36,7 +44,7 @@ wait_for_terminal_resize() {
 wait_for_terminal_resize
 
 while true; do
-  ttfx -i ~/.config/omarchy/branding/screensaver.txt \
+  ttfx -i "$branding" \
     --frame-rate 120 --canvas-width 0 --canvas-height 0 --reuse-canvas --anchor-canvas c --anchor-text c\
     --random-effect --no-eol --no-restore-cursor &
 
