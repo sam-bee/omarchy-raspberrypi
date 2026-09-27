@@ -11,6 +11,13 @@ stub_bin="$test_tmp/bin"
 output_dir="$test_tmp/pictures"
 mkdir -p "$stub_bin"
 
+# Exercise the fallback even on workstations with Omasnap installed. Never
+# launch a real screenshot UI from this fixture.
+cat >"$stub_bin/omarchy-cmd-present" <<'SH'
+#!/bin/bash
+exit 1
+SH
+
 cat >"$stub_bin/hyprctl" <<'SH'
 #!/bin/bash
 if [[ $1 == getoption ]]; then

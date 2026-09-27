@@ -323,7 +323,10 @@ trap cleanup_freeze EXIT
 case "$MODE" in
 region)
   freeze_screen
-  SELECTION=$(pick)
+  # Freeform selection does not consume rectangle hints. Close inherited
+  # stdin so slurp can map its selection layer when called from a pipe or SSH
+  # command whose stdin would otherwise remain open.
+  SELECTION=$(pick </dev/null)
   ;;
 windows)
   freeze_screen
