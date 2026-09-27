@@ -58,7 +58,8 @@ assert "if (piMinimalSession) return" not in background[theme_start:background.i
 assert "if (!root.piMinimalSession) root.openThemeSwitcher()" not in background
 assert "root.openThemeSwitcher()" in background
 assert "root.openSelector()" in background
-assert "themeSwitchProc.running = true" in background[theme_start:background.index("Process {", theme_start)]
+assert 'root.shell.summon("omarchy.image-picker", payload)' in background[theme_start:background.index("Process {", theme_start)]
+assert 'Util.execArgv(["omarchy-shell", "shell", "summon", "omarchy.image-picker", payload])' in background[theme_start:background.index("Process {", theme_start)]
 
 hypr = (root / "install/arm64/session/hyprland.lua").read_text()
 assert hypr.index("omarchy_autostart_minimal = true") < hypr.index('require("default.hypr.omarchy")')
