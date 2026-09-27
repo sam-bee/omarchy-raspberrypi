@@ -1,0 +1,4 @@
+# package<TAB>package_version<TAB>source_revision<TAB>source_sha256
+# The package version includes pkgrel, as reported by pacman -Qip.
+hypr-rdp	0.1.6-1	8744778de2eb9add74224d57fac399aba6039a26	5890af2c22e45994354f90ddf970ca7e4668dbdecb7553c48f0b7822d89a2cc7
+ttfx	0.3.2-1	7203e35	d0c0df4867e7f03142fb7f77c66670d0e8da15534239c1a7abfd89f19dfc00f6
