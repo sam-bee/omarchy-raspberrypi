@@ -55,8 +55,13 @@ declare -a SOURCE_SHA256S=()
 BUILD_TEMPORARY_ROOT=
 
 cleanup_build_temporary_root() {
+  local result=$?
   if [[ -n ${BUILD_TEMPORARY_ROOT:-} ]]; then
-    rm -rf -- "$BUILD_TEMPORARY_ROOT"
+    if (( result == 0 )); then
+      rm -rf -- "$BUILD_TEMPORARY_ROOT"
+    else
+      echo "build-custom-packages: failed build files retained at $BUILD_TEMPORARY_ROOT" >&2
+    fi
   fi
 }
 
@@ -227,7 +232,7 @@ build_bundle() {
     archive_name=$(basename -- "$archive")
     [[ $archive_name == "$(basename -- "$archive_name")" ]] || die "invalid package archive name: $archive_name"
 
-    package_info=$(bsdtar -xOf -- "$archive" .PKGINFO) ||
+    package_info=$(bsdtar -xOf "$archive" .PKGINFO) ||
       die "bsdtar could not read package metadata: $archive_name"
     actual_package=$(awk -F ' = ' '$1 == "pkgname" { print $2; exit }' <<< "$package_info")
     actual_version=$(awk -F ' = ' '$1 == "pkgver" { print $2; exit }' <<< "$package_info")
