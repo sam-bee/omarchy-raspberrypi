@@ -10,6 +10,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("assemble-image.py")
@@ -172,12 +173,18 @@ class AssembleImageTests(unittest.TestCase):
             with self.assertRaisesRegex(assemble_image.ImageAssemblyError, "symlink path component"):
                 assemble_image.validate_output_path(directory / "output-link" / ".." / "image.img")
 
-    def test_mkfs_fat_executable_requires_native_elf_and_version(self) -> None:
+    def test_mkfs_fat_executable_requires_native_elf_and_help(self) -> None:
         executable = Path(sys.executable).resolve()
-        self.assertEqual(
-            assemble_image.validate_mkfs_fat_executable(executable),
-            os.fspath(executable),
-        )
+        with mock.patch.object(
+            assemble_image.subprocess,
+            "run",
+            wraps=assemble_image.subprocess.run,
+        ) as run:
+            self.assertEqual(
+                assemble_image.validate_mkfs_fat_executable(executable),
+                os.fspath(executable),
+            )
+        self.assertEqual(run.call_args.args[0][-1], "--help")
         with tempfile.TemporaryDirectory() as temporary:
             script = Path(temporary) / "mkfs.fat"
             script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")

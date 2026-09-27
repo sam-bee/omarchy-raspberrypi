@@ -149,16 +149,16 @@ def validate_mkfs_fat_executable(executable: Path | str = "mkfs.fat") -> str:
         )
     try:
         result = subprocess.run(
-            [os.fspath(path), "--version"],
+            [os.fspath(path), "--help"],
             check=False,
             capture_output=True,
             text=True,
             timeout=5,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise ImageAssemblyError(f"mkfs.fat --version failed to run: {path}") from exc
+        raise ImageAssemblyError(f"mkfs.fat --help failed to run: {path}") from exc
     if result.returncode != 0:
-        raise ImageAssemblyError(f"mkfs.fat --version failed: {path}")
+        raise ImageAssemblyError(f"mkfs.fat --help failed: {path}")
     return os.fspath(path)
 
 
