@@ -96,7 +96,7 @@ test_checkout="$test_tmp/checkout"
 git clone -q --shared "$ROOT" "$test_checkout" || fail "clean test checkout is available"
 git -C "$test_checkout" checkout -q --detach "$(git -C "$ROOT" rev-parse HEAD)" || fail "test checkout selects the current base commit"
 cp "$ROOT/install/arm64/stage-user-session.sh" "$test_checkout/install/arm64/stage-user-session.sh"
-for source_name in hyprland.lua chromium-flags.conf portals.conf; do
+for source_name in 90-omarchy-pi hyprland.lua chromium-flags.conf portals.conf; do
   cp "$ROOT/install/arm64/session/$source_name" "$test_checkout/install/arm64/session/$source_name"
 done
 cp "$ROOT/install/arm64/session/shell.json" "$test_checkout/install/arm64/session/shell.json"
@@ -104,8 +104,8 @@ cp "$ROOT/shell/shell.qml" "$test_checkout/shell/shell.qml"
 cp "$ROOT/shell/plugins/background/Background.qml" "$test_checkout/shell/plugins/background/Background.qml"
 git -C "$test_checkout" config user.name "Pi Minimal Session Test"
 git -C "$test_checkout" config user.email "pi-minimal-session-test@example.invalid"
-git -C "$test_checkout" add install/arm64/stage-user-session.sh install/arm64/session/hyprland.lua install/arm64/session/chromium-flags.conf install/arm64/session/portals.conf install/arm64/session/shell.json shell/shell.qml shell/plugins/background/Background.qml
-git -C "$test_checkout" commit -q -m "browser-enabled minimal session test fixture"
+git -C "$test_checkout" add install/arm64/stage-user-session.sh install/arm64/session/90-omarchy-pi install/arm64/session/hyprland.lua install/arm64/session/chromium-flags.conf install/arm64/session/portals.conf install/arm64/session/shell.json shell/shell.qml shell/plugins/background/Background.qml
+git -C "$test_checkout" commit -q --allow-empty -m "browser-enabled minimal session test fixture"
 revision=$(git -C "$test_checkout" rev-parse HEAD)
 [[ -z $(git -C "$test_checkout" status --porcelain) ]] || fail "test checkout is clean"
 
@@ -137,7 +137,7 @@ pass "staging creates six user config files and the versioned source link"
 
 env_result=$(HOME="$test_home" bash -c 'PATH=/usr/bin:/bin; source "$HOME/.config/uwsm/env.d/90-omarchy-pi"; printf "%s\n%s\n%s\n" "$OMARCHY_PATH" "$PATH" "$TERMINAL"')
 expected_path="$test_home/.local/share/omarchy-pi/current"
-[[ $env_result == "$expected_path"$'\n'"$expected_path/bin:/usr/bin:/bin"$'\n'"xdg-terminal-exec" ]] || fail "UWSM environment selects the staged release and Foot launcher"
+[[ $env_result == "$expected_path"$'\n'"$expected_path/bin:/usr/bin:/bin:$test_home/.local/share/mise/shims:$test_home/.local/bin"$'\n'"xdg-terminal-exec" ]] || fail "UWSM environment selects the staged release, agent tools, and Foot launcher"
 pass "UWSM environment selects the user-owned release"
 
 if HOME="$test_home" "$test_checkout/install/arm64/stage-user-session.sh" >"$test_tmp/repeat.log" 2>&1; then
