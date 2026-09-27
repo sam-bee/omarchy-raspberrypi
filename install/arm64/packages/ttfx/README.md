@@ -32,9 +32,11 @@ sudo pacman -U ./ttfx-0.3.2-1-aarch64.pkg.tar.*
 ```
 
 The Pi-native review on 27 September 2026 used the existing Cargo cache and a
-temporary build-only fakeroot wrapper because `fakeroot` was not installed;
-no package or build dependency was installed. It ran the recipe's build and
-packaging steps, then `pacman -Qip` confirmed `ttfx 0.3.2-1`, `aarch64`,
-runtime dependencies `gcc-libs` and `glibc`, no install script, and only the
-binary, documentation, license, and shell-completion files. Rebuild with real
-`fakeroot` before treating the review artifact as a distributable package.
+detached-signature-verified ARM `fakeroot` archive extracted under `/var/tmp`;
+it did not install fakeroot or any build dependency system-wide. Genuine
+`makepkg` produced `ttfx-0.3.2-1-aarch64.pkg.tar.xz` using the target's
+`PKGEXT` setting. `pacman -Qip` confirmed `ttfx 0.3.2-1`, `aarch64`, runtime
+dependencies `gcc-libs` and `glibc`, no install script, and only the binary,
+documentation, license, and shell-completion files. The archive's entries and
+mtree are root-owned; it is unsigned and still requires the separate reviewed
+`pacman -U` step.
