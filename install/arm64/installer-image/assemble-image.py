@@ -35,7 +35,9 @@ SECTOR_SIZE = 512
 MIB = 1024 * 1024
 FIRST_PARTITION_SECTOR = 2048
 DEFAULT_BOOT_SIZE_MIB = 512
-DEFAULT_ROOT_EXTRA_MIB = 256
+# Leave room for ext4 metadata, allocation rounding, and files whose on-disk
+# footprint exceeds their apparent size when copying a prepared package root.
+DEFAULT_ROOT_EXTRA_MIB = 1024
 MIN_ROOT_SIZE_MIB = 1024
 LOOP_DEVICE_PATTERN = re.compile(r"^/dev/loop[0-9]+$")
 UUID_PATTERN = re.compile(r"^[0-9A-Fa-f-]+$")

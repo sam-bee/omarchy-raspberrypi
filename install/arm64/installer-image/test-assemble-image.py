@@ -81,6 +81,14 @@ class AssembleImageTests(unittest.TestCase):
             (boot / "kernel8.img").write_bytes(b"kernel")
             self.assertEqual(assemble_image.validate_staging_directory(staging), staging.resolve())
 
+    def test_recommended_root_size_uses_conservative_default_reserve(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            staging = Path(temporary)
+            (staging / "usr").mkdir()
+            (staging / "usr/payload").write_bytes(b"payload")
+            self.assertEqual(assemble_image.DEFAULT_ROOT_EXTRA_MIB, 1024)
+            self.assertEqual(assemble_image.recommended_root_size_mib(staging), 1025)
+
     def test_fat_boot_tree_rejects_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             staging = Path(temporary)
