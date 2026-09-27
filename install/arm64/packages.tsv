@@ -98,7 +98,7 @@ omacalc	exclude	-	First-party Omarchy application source for ARM is unresolved; 
 omacut	exclude	-	First-party Omarchy application source for ARM is unresolved; leave out of the initial baseline.
 omawrite	exclude	-	First-party Omarchy application source for ARM is unresolved; leave out of the initial baseline.
 omarchy-nvim	exclude	-	First-party editor configuration package source for ARM is unresolved; use the generic editor baseline.
-omasnap	defer	-	Optional screenshot annotation/editor tool; defer screenshot workflow and ARM source resolution.
+omasnap	defer	-	Optional screenshot annotation/editor tool; basic Pi screenshots use grim/slurp, while the Omasnap ARM build remains deferred.
 owe	defer	-	Optional desktop video-background service; defer GPU/session integration and do not claim video backgrounds yet.
 owe-lockfeed	defer	-	Optional lock-screen video-feed module used with OWE; defer and record the feature gap until its default shader/session path is validated.
 pacman-contrib	candidate	-	Package update helpers used by Omarchy maintenance commands.

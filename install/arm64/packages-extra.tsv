@@ -4,7 +4,7 @@
 
 egl-wayland	exclude	-	NVIDIA EGLStream platform has no identified consumer on the Pi V3D desktop; it is not a generic Wayland EGL dependency.
 gtk3	candidate	-	gtk-launch runtime used by the installed application launcher.
-libnotify	candidate	-	Notification client runtime used by Omarchy notification helpers.
+libnotify	candidate	-	Standard desktop notification client runtime and notify-send utility.
 gtk4-layer-shell	candidate	-	Layer-shell support used by compatible GTK desktop components; verify at deployment.
 libpulse	candidate	-	PulseAudio client API used by desktop applications and controls.
 mesa	candidate	-	Pi graphics userspace baseline for the V3D/DRM stack; preserve the existing firmware and overlay.
