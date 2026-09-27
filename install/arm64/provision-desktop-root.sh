@@ -324,11 +324,25 @@ append_headless_hook() {
     'end)' >>"$file"
 }
 
+install_hypr_autostart() {
+  local source=$1 destination=$2 owner_uid=${3:-0} owner_gid=${4:-0}
+  if [[ -f $destination && ! -L $destination ]] &&
+    grep -Fqx -- '-- Omarchy Pi headless output hook (managed)' "$destination"; then
+    return 0
+  fi
+  install_file "$source" "$destination" 0644 "$owner_uid" "$owner_gid"
+  append_headless_hook "$destination"
+}
+
 stage_user_defaults() {
   local destination="$rootfs/etc/skel/.config/hypr" source
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
-    install_file "$source" "$destination/$(basename -- "$source")" 0644
+    if [[ $(basename -- "$source") == autostart.lua ]]; then
+      install_hypr_autostart "$source" "$destination/autostart.lua"
+    else
+      install_file "$source" "$destination/$(basename -- "$source")" 0644
+    fi
   done
   install_file "$source_checkout/config/omarchy/shell.json" \
     "$rootfs/etc/skel/.config/omarchy/shell.json" 0644
@@ -350,7 +364,6 @@ export TERMINAL=xdg-terminal-exec
 EOF
 )
   install_text "$rootfs/etc/skel/.config/uwsm/env.d/90-omarchy-pi" 0644 0 0 "$env_content"$'\n'
-  append_headless_hook "$rootfs/etc/skel/.config/hypr/autostart.lua"
 }
 
 target_account_line() {
@@ -410,7 +423,11 @@ seed_selected_user() {
   home_in_target=$(realpath -m -s -- "$rootfs$selected_home") || die "could not normalize target home"
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
-    install_file "$source" "$home_in_target/.config/hypr/$(basename -- "$source")" 0644 "$uid" "$gid"
+    if [[ $(basename -- "$source") == autostart.lua ]]; then
+      install_hypr_autostart "$source" "$home_in_target/.config/hypr/autostart.lua" "$uid" "$gid"
+    else
+      install_file "$source" "$home_in_target/.config/hypr/$(basename -- "$source")" 0644 "$uid" "$gid"
+    fi
   done
   install_file "$source_checkout/config/omarchy/shell.json" "$home_in_target/.config/omarchy/shell.json" 0644 "$uid" "$gid"
   install_file "$source_checkout/install/arm64/session/chromium-flags.conf" "$home_in_target/.config/chromium-flags.conf" 0644 "$uid" "$gid"
@@ -432,7 +449,6 @@ EOF
     env_content=$(<"$rootfs/etc/skel/.config/uwsm/env.d/90-omarchy-pi")
   fi
   install_text "$home_in_target/.config/uwsm/env.d/90-omarchy-pi" 0644 "$uid" "$gid" "$env_content"$'\n'
-  append_headless_hook "$home_in_target/.config/hypr/autostart.lua"
   local release_dir="$home_in_target/.local/share/omarchy-pi/releases/$SOURCE_REVISION"
   if (( dry_run )); then
     announce "copy Omarchy release $SOURCE_REVISION into $release_dir"
