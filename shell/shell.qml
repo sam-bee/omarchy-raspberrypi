@@ -33,9 +33,9 @@ ShellRoot {
   readonly property bool piMinimalSession: Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"
 
   // A FileView may load shell.json after the first plugin scan. Keep the Pi's
-  // initial bar bounded even before the user file is available. Audio is the
-  // one interactive panel deliberately included in the desktop profile; the
-  // OSD is a keep-loaded panel and therefore needs no bar entry here.
+  // initial bar bounded even before the user file is available. Bluetooth and
+  // audio are the interactive panels deliberately included in the desktop
+  // profile; the OSD is a keep-loaded panel and therefore needs no bar entry.
   readonly property var piMinimalShellConfig: ({
     version: 1,
     disabledPlugins: [
@@ -53,7 +53,7 @@ ShellRoot {
       layout: {
         left: [{ id: "omarchy.workspaces" }],
         center: [{ id: "omarchy.clock", format: "HH:mm" }],
-        right: [{ id: "omarchy.audio" }]
+        right: [{ id: "omarchy.bluetooth" }, { id: "omarchy.audio" }]
       }
     },
     plugins: []

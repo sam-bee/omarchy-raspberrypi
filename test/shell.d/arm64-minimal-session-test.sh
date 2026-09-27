@@ -33,7 +33,7 @@ assert "omarchy.background" not in disabled
 assert "omarchy.notifications" not in disabled
 assert service_ids - {"omarchy.background", "omarchy.notifications"} <= disabled, service_ids - {"omarchy.background", "omarchy.notifications"} - disabled
 widgets = [entry["id"] for section in config["bar"]["layout"].values() for entry in section]
-assert widgets == ["omarchy.workspaces", "omarchy.clock", "omarchy.audio"]
+assert widgets == ["omarchy.workspaces", "omarchy.clock", "omarchy.bluetooth", "omarchy.audio"]
 assert config["bar"]["transparent"] is False
 assert "omarchy.osd" not in disabled
 
@@ -63,6 +63,7 @@ assert hypr.index("omarchy_autostart_minimal = true") < hypr.index('require("def
 assert hypr.index("omarchy_default_bindings = false") < hypr.index('require("default.hypr.omarchy")')
 assert 'hl.bind("SUPER + B", hl.dsp.exec_cmd("omarchy-launch-browser")' in hypr
 assert 'hl.bind("SUPER + SHIFT + B", hl.dsp.exec_cmd("omarchy-launch-browser --private")' in hypr
+assert 'o.bind("SUPER + CTRL + B", "Bluetooth", "omarchy-shell shell toggle omarchy.bluetooth")' in hypr
 
 assert 'require("default.hypr.bindings.clipboard")' in hypr
 assert 'o.bind("PRINT", "Screenshot", "omarchy-capture-screenshot")' in hypr
