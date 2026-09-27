@@ -1,0 +1,22 @@
+[Unit]
+Description=Omarchy Pi first-boot direct-LAN RDP provisioning
+RequiresMountsFor=/boot
+Requires=omarchy-pi-provision-access.service
+AssertPathExists=/usr/lib/omarchy-pi/installer-image.marker
+ConditionPathExists=!/var/lib/omarchy-pi/rdp-provisioned
+After=local-fs.target omarchy-pi-provision-access.service
+# Do not launch the graphical session until the profile has been created or
+# this independent, non-required service has failed.  SSH remains governed by
+# the access/network units and does not require RDP provisioning.
+Before=omarchy-installer-launch.service graphical.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/omarchy-pi/provision-rdp.py --settings /boot/installer-settings.toml
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target

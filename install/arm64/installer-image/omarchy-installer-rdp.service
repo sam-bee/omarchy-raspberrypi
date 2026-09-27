@@ -1,0 +1,30 @@
+[Unit]
+Description=Omarchy installer direct-LAN hypr-rdp server
+After=graphical-session.target
+BindsTo=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionPathIsDirectory=%t
+ConditionPathIsDirectory=%h/.config/omarchy-installer-rdp
+ConditionPathIsDirectory=%h/.config/hypr-rdp
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+UMask=0077
+KillMode=control-group
+TimeoutStopSec=15s
+# A failed preflight prevents ExecStart from running; Restart=on-failure is
+# for a server that exits after a successful preflight.
+Restart=on-failure
+RestartSec=2s
+Environment=HOME=%h
+ExecStartPre=/usr/bin/python3 /usr/local/libexec/omarchy-pi/verify-installer-rdp-runtime.py --uid %U --home ${HOME} --runtime %t
+ExecStart=/usr/bin/hypr-rdp --config %h/.config/omarchy-installer-rdp/config.toml
+
+[Install]
+WantedBy=graphical-session.target
+# Image builders must install the user unit globally, without enabling it in
+# one particular user's home:
+# /etc/systemd/user/graphical-session.target.wants/omarchy-installer-rdp.service
+# -> ../omarchy-installer-rdp.service
