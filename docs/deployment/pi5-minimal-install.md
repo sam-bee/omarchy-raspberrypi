@@ -60,7 +60,7 @@ OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current" \
   bash "$HOME/.local/share/omarchy-pi/current/install/arm64/setup-desktop-theme.sh"
 ```
 
-The default is Tokyo Night; pass a theme name only when there is no existing theme state. The helper refuses an unmarked non-empty `~/.local/state/omarchy/current`, preserves an existing `theme.name`, and preserves an existing `~/.config/foot/foot.ini`. On a new setup it renders `colors.toml`, `shell.toml`, `foot.ini` and the selected background under `~/.local/state/omarchy/current/theme/`, then creates the `background` link. It creates `~/.config/foot/foot.ini` from the committed `config/foot/foot.ini` template only when that file is absent. If `JetBrainsMono Nerd Font` is unavailable, the copied config uses Foot's generic `monospace` family.
+The default is Tokyo Night; pass a theme name only when there is no existing theme state. The helper refuses an unmarked non-empty `~/.local/state/omarchy/current`, preserves an existing `theme.name` and `background` selection, and preserves an existing `~/.config/foot/foot.ini`. On a new setup it renders `colors.toml`, `shell.toml`, `foot.ini` and the theme backgrounds under `~/.local/state/omarchy/current/theme/`, then replaces the renderer's initial background choice with the first sorted JPG, JPEG or PNG from that freshly rendered directory; the baseline Qt image plugins do not include WebP support. It fails clearly when the fresh theme has no such static image. It creates `~/.config/foot/foot.ini` from the committed `config/foot/foot.ini` template only when that file is absent. If `JetBrainsMono Nerd Font` is unavailable, the copied config uses Foot's generic `monospace` family.
 
 Check the rendered state before refreshing the live surfaces:
 

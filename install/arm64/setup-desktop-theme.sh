@@ -30,6 +30,7 @@ background_link="$state_dir/background"
 foot_dir="$config_dir/foot"
 foot_config="$foot_dir/foot.ini"
 active_theme=""
+fresh_render=0
 
 : "${OMARCHY_PATH:?OMARCHY_PATH must point at the staged Omarchy release}"
 [[ $OMARCHY_PATH == /* && -d $OMARCHY_PATH ]] || {
@@ -78,6 +79,7 @@ else
   # IPC and post-theme hooks that require a live desktop.
   OMARCHY_THEME_HEADLESS=1 "$theme_set" "$theme_name"
   active_theme=$(<"$theme_name_path")
+  fresh_render=1
 fi
 
 # Do not claim a prepared desktop when a renderer helper failed part-way
@@ -89,10 +91,27 @@ for rendered in colors.toml shell.toml foot.ini; do
     exit 1
   }
 done
-[[ -L $background_link && -f $background_link ]] || {
-  echo "Theme rendering did not select a background: $background_link" >&2
-  exit 1
-}
+# The baseline Qt image plugins do not include WebP support. The upstream
+# renderer chooses from a broader set of formats, so select the first sorted
+# static image from this fresh render after it has created state.
+# Existing theme state is left completely untouched above.
+if (( fresh_render )); then
+  mapfile -d '' -t static_backgrounds < <(
+    find -L "$theme_dir/backgrounds" -maxdepth 1 -type f \
+      \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) \
+      -print0 2>/dev/null | sort -z
+  )
+  if (( ${#static_backgrounds[@]} == 0 )); then
+    echo "Theme '$active_theme' has no baseline-compatible JPG, JPEG or PNG background under $theme_dir/backgrounds" >&2
+    exit 1
+  fi
+  ln -nsf -- "${static_backgrounds[0]}" "$background_link"
+else
+  [[ -L $background_link && -f $background_link ]] || {
+    echo "Existing theme has no selected background: $background_link" >&2
+    exit 1
+  }
+fi
 
 if path_exists "$foot_config"; then
   echo "Preserving existing Foot configuration: $foot_config"
