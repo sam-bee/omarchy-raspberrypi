@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -173,6 +176,10 @@ class StageArmPackagesTests(unittest.TestCase):
             self.assertTrue((rootfs / "var/cache/pacman/pkg").is_dir())
             self.assertTrue((rootfs / "etc/pacman.d/hooks").is_dir())
             self.assertIn("installed_requested_packages", manifest["transaction"])
+            keyring_cleanup = manifest["repositories"]["keyring"]["post_transaction_cleanup"]
+            self.assertEqual(keyring_cleanup["agents_stopped"], ["gpg-agent", "scdaemon"])
+            self.assertTrue(keyring_cleanup["special_files_verified"])
+            self.assertTrue(manifest["repositories"]["keyring"]["release_sanitization"]["generated_pacman_master_key_retained"])
 
     def test_apply_network_preflight_failure_leaves_target_unprepared(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -338,6 +345,59 @@ class StageArmPackagesTests(unittest.TestCase):
             (boot / "kernel-link").symlink_to("kernel8.img")
             with self.assertRaisesRegex(stage.PackageStageError, "symlink unsupported by FAT"):
                 stage._validate_fat_boot_tree(boot)
+
+    def test_gpg_cleanup_stops_only_target_agents_and_removes_sockets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            gpgdir = Path(temporary) / "gnupg"
+            gpgdir.mkdir()
+            (gpgdir / "pubring.kbx").write_bytes(b"public keyring")
+            private_key = gpgdir / "private-keys-v1.d"
+            private_key.mkdir()
+            (private_key / "master.key").write_bytes(b"private key retained for step 2")
+            socket_path = gpgdir / "S.gpg-agent"
+            socket_path.write_bytes(b"mock agent socket")
+            real_lstat = Path.lstat
+
+            def pretend_socket(path: Path):
+                info = real_lstat(path)
+                if path == socket_path:
+                    return SimpleNamespace(st_mode=stat.S_IFSOCK | 0o700)
+                return info
+
+            with patch.object(stage.Path, "lstat", pretend_socket):
+                with patch.object(
+                    stage.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, stdout=b"", stderr=b""),
+                ) as run:
+                    removed = stage._cleanup_target_gpg_sockets(gpgdir)
+            self.assertEqual(removed, ["S.gpg-agent"])
+            self.assertFalse(socket_path.exists())
+            self.assertTrue((gpgdir / "pubring.kbx").is_file())
+            self.assertTrue((private_key / "master.key").is_file())
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertEqual(
+                commands,
+                [
+                    ["gpgconf", "--homedir", str(gpgdir.resolve()), "--kill", "gpg-agent"],
+                    ["gpgconf", "--homedir", str(gpgdir.resolve()), "--kill", "scdaemon"],
+                ],
+            )
+
+    def test_gpg_cleanup_rejects_non_socket_special_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            gpgdir = Path(temporary) / "gnupg"
+            gpgdir.mkdir()
+            fifo = gpgdir / "unexpected.fifo"
+            os.mkfifo(fifo, 0o600)
+            with patch.object(
+                stage.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, stdout=b"", stderr=b""),
+            ):
+                with self.assertRaisesRegex(stage.PackageStageError, "unsupported special files"):
+                    stage._cleanup_target_gpg_sockets(gpgdir)
+            self.assertTrue(fifo.exists())
 
 
 if __name__ == "__main__":

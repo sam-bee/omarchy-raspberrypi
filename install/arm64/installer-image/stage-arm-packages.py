@@ -59,6 +59,7 @@ GENERIC_BOOT_PACKAGES = ("linux-aarch64", "uboot-raspberrypi")
 TRANSACTION_TARGETS = PI_BOOT_PACKAGES + RUNTIME_ROOTS
 PACMAN_PRINT_FORMAT = "%n\t%v\t%r"
 NSPAWN_CONFIG_PATH = "/run/omarchy-pi-pacman.conf"
+GPGCONF_COMMAND = "gpgconf"
 DEFAULT_REPO_SERVER = "https://mirror.archlinuxarm.org/$arch/$repo"
 PACKAGE_NAME = re.compile(r"[A-Za-z0-9@_+][A-Za-z0-9@._+:-]*\Z")
 VERSION = re.compile(r"[^\s]+\Z")
@@ -297,6 +298,55 @@ def _prepare_gpgdir(
             raise PackageStageError("target pacman GPG directory is not a real directory")
     destination = source if apply else temporary_root / "gpgdir"
     return destination, _bootstrap_gpgdir(target, destination)
+
+
+def _cleanup_target_gpg_sockets(gpgdir: Path) -> list[str]:
+    """Stop target GnuPG daemons and remove only their socket entries.
+
+    ``pacman-key`` starts an agent in the target GPG home while bootstrapping
+    the package trust graph.  Its Unix sockets are build-host endpoints and
+    cannot be copied into an image.  Keep the public keyring, trust database,
+    and generated private master key intact for this experimental step-2
+    image; release-image sanitation is recorded in the package manifest.
+    """
+
+    candidate = _absolute_lexical(gpgdir)
+    _reject_symlink_components(candidate)
+    try:
+        info = candidate.lstat()
+    except FileNotFoundError as exc:
+        raise PackageStageError("target pacman GPG directory disappeared before cleanup") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise PackageStageError("target pacman GPG directory is not a real directory")
+
+    # GPGCONF scopes the shutdown to this exact homedir.  Do not use a broad
+    # process kill: the build host may have unrelated agents, including the
+    # live Pi's own keyring when staging is performed over SSH.
+    for component in ("gpg-agent", "scdaemon"):
+        command = [GPGCONF_COMMAND, "--homedir", os.fspath(candidate), "--kill", component]
+        try:
+            result = subprocess.run(command, check=False, capture_output=True, text=False)
+        except OSError as exc:
+            raise PackageStageError(f"could not stop target {component}: {exc.strerror}") from exc
+        if result.returncode != 0:
+            detail = result.stderr.decode(errors="replace").strip() if result.stderr else "no diagnostic"
+            raise PackageStageError(f"could not stop target {component}: {detail}")
+
+    removed: list[str] = []
+    remaining_special: list[Path] = []
+    for root, dirs, files in os.walk(candidate, followlinks=False):
+        for name in (*dirs, *files):
+            entry = Path(root) / name
+            mode = entry.lstat().st_mode
+            if stat.S_ISSOCK(mode):
+                entry.unlink()
+                removed.append(os.fspath(entry.relative_to(candidate)))
+            elif not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                remaining_special.append(entry)
+    if remaining_special:
+        details = ", ".join(os.fspath(path.relative_to(candidate)) for path in remaining_special)
+        raise PackageStageError(f"target GPG directory contains unsupported special files: {details}")
+    return sorted(removed)
 
 
 def _validate_fat_boot_tree(boot: Path) -> None:
@@ -575,6 +625,7 @@ def stage_packages(
         preview_result = _run_pacman(preview_command, capture=True)
         resolved = _parse_preview(preview_result.stdout)
         installed: list[str] | None = None
+        removed_gpg_sockets: list[str] = []
         if apply:
             # Verify the exact nspawn network path used by both mutating
             # commands before removing the existing boot packages.  A DNS or
@@ -609,6 +660,10 @@ def stage_packages(
                 nspawn=True,
             )
             _run_pacman(apply_command, capture=False)
+            # pacman-key's target-local agents are no longer needed after the
+            # transaction.  Stop only those agents and remove their sockets
+            # before any later image assembler copies this root tree.
+            removed_gpg_sockets = _cleanup_target_gpg_sockets(target_paths["gpgdir"])
             _validate_fat_boot_tree(_target_child(target, "boot"))
             query_after_command = _pacman_command(
                 pacman_command,
@@ -656,6 +711,20 @@ def stage_packages(
                     "bootstrap": "target pacman-key --init, then --populate archlinux archlinuxarm in nspawn",
                     "gpgdir": os.fspath(paths["gpgdir"]),
                     "bootstrapped_from_target_files": keyring_sources,
+                    "post_transaction_cleanup": {
+                        "agents_stopped": ["gpg-agent", "scdaemon"] if apply else [],
+                        "removed_socket_paths": removed_gpg_sockets,
+                        "special_files_verified": apply,
+                    },
+                    "release_sanitization": {
+                        "generated_pacman_master_key_retained": apply,
+                        "review_item": apply,
+                        "action": (
+                            "review the generated private master key and revocation certificate before distributing "
+                            "the image; this experimental step retains them, and a future per-device policy may "
+                            "remove them and regenerate with pacman-key --init and --populate on first boot"
+                        ),
+                    },
                 },
             },
             "transaction": {
