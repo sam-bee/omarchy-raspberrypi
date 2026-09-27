@@ -289,6 +289,7 @@ def _profile_payload(home: Path, username: str) -> bytes:
     password_path = home / ".config" / PROFILE_DIRECTORY_NAME / PASSWORD_NAME
     return (
         'bind = "0.0.0.0:3389"\n'
+        'output = "omarchy-installer"\n'
         f"username = {json.dumps(username)}\n"
         f"password_file = {json.dumps(str(password_path))}\n"
         'resolution = "1280x720"\n'

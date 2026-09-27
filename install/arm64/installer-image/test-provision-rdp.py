@@ -46,6 +46,7 @@ class ProvisionRdpTests(unittest.TestCase):
             profile = provision.create_profile(self.settings(), account)
             self.assertEqual(profile.config.read_text(encoding="utf-8").splitlines()[0], 'bind = "0.0.0.0:3389"')
             config = profile.config.read_text(encoding="utf-8")
+            self.assertEqual(config.count('output = "omarchy-installer"'), 1)
             self.assertIn('username = "installer"', config)
             self.assertIn('resolution = "1280x720"', config)
             self.assertIn("fps = 20", config)
