@@ -1,6 +1,8 @@
 # Pi everyday desktop
 
-The bounded Pi session exposes the installed application launcher, universal clipboard shortcuts and history, screenshots, and notifications. It retains the accepted theme, browser, Files and audio controls. This profile does not run the full upstream installer or enable additional system setup, authentication, lock or network services.
+The bounded Pi session exposes the installed application launcher, universal clipboard shortcuts and history, screenshots, notifications and the upstream Bluetooth panel. It retains the accepted theme, browser, Files and audio controls. This profile does not run the full upstream installer or enable unrelated system setup, authentication, lock or network services.
+
+The goal is the upstream Omarchy user experience on supported Pi hardware. This reduced profile is an incremental porting mechanism; exclusions are compatibility or validation gaps to resolve, rather than a separate desktop design.
 
 ## Shortcuts
 
@@ -9,6 +11,7 @@ The bounded Pi session exposes the installed application launcher, universal cli
 | Super+Space or Super+Alt+Space | Search installed applications |
 | Super+C / Super+V | Copy / paste; terminal windows receive Ctrl+Shift+C / Ctrl+Shift+V |
 | Super+Ctrl+V | Clipboard history |
+| Super+Ctrl+B | Bluetooth panel |
 | Print | Select a screenshot region; Escape cancels |
 | Shift+Print | Full-screen screenshot |
 | Super+comma | Dismiss last notification |
