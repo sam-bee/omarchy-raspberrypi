@@ -194,6 +194,26 @@ class ConfigureInstallerBootTests(unittest.TestCase):
         )
         self.assertTrue(result.generated)
 
+    def test_merged_usr_lib_link_is_followed_only_when_exact(self) -> None:
+        root = self.make_root()
+        version = "6.18.53-1-rpi"
+        modules = root / "lib/modules" / version
+        (modules / "modules.builtin").unlink()
+        modules.rmdir()
+        (root / "lib/modules").rmdir()
+        (root / "lib").rmdir()
+        (root / "usr/lib/modules" / version).mkdir(parents=True)
+        (root / "usr/lib/modules" / version / "modules.builtin").write_text("", encoding="utf-8")
+        (root / "lib").symlink_to("usr/lib")
+
+        versions = configure._kernel_module_versions(root)
+
+        self.assertEqual(versions, [root / "usr/lib/modules" / version])
+        (root / "lib").unlink()
+        (root / "lib").symlink_to("etc")
+        with self.assertRaisesRegex(configure.BootConfigurationError, "merged-/usr"):
+            configure._kernel_module_versions(root)
+
     def test_staged_luks_cmdline_is_rejected_before_any_boot_write(self) -> None:
         root = self.make_root()
         cmdline = root / "boot/cmdline.txt"

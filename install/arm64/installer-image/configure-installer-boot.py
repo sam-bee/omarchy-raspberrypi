@@ -308,7 +308,19 @@ def _validate_linux_rpi_preset(root: Path) -> None:
 
 
 def _kernel_module_versions(root: Path) -> list[Path]:
-    modules = root / "lib/modules"
+    lib = root / "lib"
+    if os.path.islink(lib):
+        try:
+            target = os.readlink(lib)
+        except OSError as exc:
+            raise BootConfigurationError("target /lib symlink is unreadable") from exc
+        if target != "usr/lib":
+            raise BootConfigurationError("target /lib symlink is not the reviewed merged-/usr link")
+        # Arch Linux ARM uses the standard merged-/usr layout.  Validate the
+        # link exactly, then continue checks from the real target so a random
+        # symlink cannot redirect module inspection outside the rootfs.
+        lib = root / "usr/lib"
+    modules = lib / "modules"
     if not os.path.lexists(modules):
         return []
     _reject_symlink_components(modules)
