@@ -1,0 +1,19 @@
+[Unit]
+Description=Omarchy Pi installer NetworkManager provisioning
+RequiresMountsFor=/boot
+Requires=omarchy-pi-provision-access.service
+AssertPathExists=/usr/lib/omarchy-pi/installer-image.marker
+After=local-fs.target omarchy-pi-provision-access.service
+Before=network-pre.target NetworkManager.service sshd.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/omarchy-pi/provision-network.py
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=no
+
+[Install]
+RequiredBy=network-pre.target NetworkManager.service sshd.service
+WantedBy=multi-user.target
