@@ -113,6 +113,9 @@ class VerifyInstallerImageTests(unittest.TestCase):
             path = root_source / "etc/systemd/user" / unit
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("[Unit]\n", encoding="utf-8")
+        firstboot_mask = root_source / "etc/systemd/system/systemd-firstboot.service"
+        firstboot_mask.parent.mkdir(parents=True, exist_ok=True)
+        firstboot_mask.symlink_to("/dev/null")
         network_manager = root_source / "usr/lib/systemd/system/NetworkManager.service"
         sshd = root_source / "usr/lib/systemd/system/sshd.service"
         network_manager.parent.mkdir(parents=True, exist_ok=True)
@@ -204,6 +207,17 @@ class VerifyInstallerImageTests(unittest.TestCase):
         (root_source / "etc/ssh/ssh_host_ed25519_key").write_text("cloned", encoding="utf-8")
         runner = FakeRunner(root_source, boot_source)
         with self.assertRaisesRegex(verify.ImageVerificationError, "cloned SSH host keys"):
+            verify.verify_image(image, runner=runner)
+
+    def test_interactive_firstboot_must_be_masked(self) -> None:
+        temporary, image, root_source, boot_source = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        mask = root_source / "etc/systemd/system/systemd-firstboot.service"
+        mask.unlink()
+        mask.write_text("[Service]\n", encoding="utf-8")
+        runner = FakeRunner(root_source, boot_source)
+
+        with self.assertRaisesRegex(verify.ImageVerificationError, "systemd-firstboot.service"):
             verify.verify_image(image, runner=runner)
 
     def test_legacy_kernel_fails_closed(self) -> None:

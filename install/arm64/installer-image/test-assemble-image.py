@@ -238,6 +238,29 @@ class AssembleImageTests(unittest.TestCase):
             self.assertFalse((root / "etc/ssh/ssh_host_rsa_key").exists())
             self.assertTrue((root / "etc/ssh/authorized_keys").exists())
 
+    def test_interactive_firstboot_is_masked_for_headless_boot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "etc").mkdir()
+
+            assemble_image.mask_interactive_firstboot(root)
+
+            mask = root / "etc/systemd/system/systemd-firstboot.service"
+            self.assertTrue(mask.is_symlink())
+            self.assertEqual(mask.readlink(), Path("/dev/null"))
+
+    def test_interactive_firstboot_mask_replaces_a_stale_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            mask = root / "etc/systemd/system/systemd-firstboot.service"
+            mask.parent.mkdir(parents=True)
+            mask.write_text("[Service]\n", encoding="utf-8")
+
+            assemble_image.mask_interactive_firstboot(root)
+
+            self.assertTrue(mask.is_symlink())
+            self.assertEqual(mask.readlink(), Path("/dev/null"))
+
 
 if __name__ == "__main__":
     unittest.main()

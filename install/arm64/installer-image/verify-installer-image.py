@@ -412,6 +412,15 @@ def _verify_services(root: Path) -> None:
         _regular_file(_root_path(root, f"etc/systemd/system/{unit}"), description=f"system unit {unit}")
     for unit in USER_UNITS:
         _regular_file(_root_path(root, f"etc/systemd/user/{unit}"), description=f"user unit {unit}")
+    firstboot_mask = _root_path(
+        root,
+        "etc/systemd/system/systemd-firstboot.service",
+        allow_leaf_symlink=True,
+    )
+    if not firstboot_mask.is_symlink() or os.readlink(firstboot_mask) != "/dev/null":
+        raise ImageVerificationError(
+            "interactive systemd-firstboot.service is not masked"
+        )
     for relative, expected in EXPECTED_LINKS.items():
         path = _root_path(root, relative, allow_leaf_symlink=True)
         if not path.is_symlink() or os.readlink(path) != expected:

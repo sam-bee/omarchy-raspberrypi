@@ -528,6 +528,36 @@ def sanitize_identity_files(root_mount: Path) -> None:
                 _unlink_if_present(entry)
 
 
+def mask_interactive_firstboot(root_mount: Path) -> None:
+    """Mask systemd's console-based first-boot wizard in the image copy.
+
+    The installer deliberately starts with no machine-id so the access
+    provisioner can create a unique one from the installer settings.  The
+    stock ``systemd-firstboot.service`` interprets that state as permission
+    to prompt on the console, which is unavailable for a headless Pi boot
+    and blocks ``sysinit.target`` before the installer services can run.
+    """
+
+    etc = root_mount / "etc"
+    if os.path.lexists(etc) and (etc.is_symlink() or not etc.is_dir()):
+        raise ImageAssemblyError("image /etc must be a real directory")
+    etc.mkdir(parents=True, exist_ok=True)
+
+    systemd = etc / "systemd"
+    if os.path.lexists(systemd) and (systemd.is_symlink() or not systemd.is_dir()):
+        raise ImageAssemblyError("image /etc/systemd must be a real directory")
+    systemd.mkdir(exist_ok=True)
+
+    system_units = systemd / "system"
+    if os.path.lexists(system_units) and (system_units.is_symlink() or not system_units.is_dir()):
+        raise ImageAssemblyError("image /etc/systemd/system must be a real directory")
+    system_units.mkdir(exist_ok=True)
+
+    mask = system_units / "systemd-firstboot.service"
+    _unlink_if_present(mask)
+    mask.symlink_to("/dev/null")
+
+
 def _read_regular_or_empty(path: Path) -> str:
     if path.is_symlink():
         raise ImageAssemblyError(f"refusing to rewrite symlink: {path}")
@@ -693,6 +723,7 @@ def assemble_image(
         copy_boot_tree(stage / "boot", boot_mount)
         adapt_copied_configuration(mount_root, boot_mount, root_uuid=root_uuid, boot_uuid=boot_uuid)
         sanitize_identity_files(mount_root)
+        mask_interactive_firstboot(mount_root)
         _run(["sync"])
         completed = True
     finally:
