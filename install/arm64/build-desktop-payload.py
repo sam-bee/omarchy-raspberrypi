@@ -571,7 +571,7 @@ def build_payload(
     if apply and source_checkout is None:
         raise DesktopPayloadError("--apply requires --source-checkout so the clean source can be bundled")
     if apply and provisioner is None:
-        raise DesktopPayloadError("--apply requires --provisioner for generic desktop setup")
+        provisioner = source_checkout / "install/arm64/provision-desktop-root.sh"
     stock_alarm = _has_stock_alarm_account(target)
     _validate_generic_root(target, allow_stock_alarm=stock_alarm)
     hostname_path = target / "etc/hostname"
@@ -747,7 +747,7 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--source-revision", help="full 40-character source commit")
     parser.add_argument("--custom-package", action="append", default=[], type=Path, help="prebuilt .pkg.tar.* archive (repeatable)")
     parser.add_argument("--custom-package-manifest", type=Path, help="manifest recording custom archive hashes and package names")
-    parser.add_argument("--provisioner", type=Path, help="generic root provisioner run after package installation")
+    parser.add_argument("--provisioner", type=Path, help="generic root provisioner (default: the one in --source-checkout)")
     parser.add_argument("--repo-server", default="https://ca.us.mirror.archlinuxarm.org/$arch/$repo")
     parser.add_argument("--pacman", default="pacman", help=argparse.SUPPRESS)
     parser.add_argument("--preview", action="store_true", help="resolve in a scratch database without changing the target or writing a payload")
