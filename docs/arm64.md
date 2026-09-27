@@ -4,7 +4,7 @@ This is the ARM64/Raspberry Pi 5 compatibility guide for the current `quattro-rp
 
 ## Provenance
 
-The authoritative branch is `quattro-rpi5` in `sam-bee/omarchy-raspberrypi`. Its official Quattro baseline is `947e2fc002d6831c7888b29b5761d59d29e69727` from `omacom/omarchy`, recorded on 22 September 2026. The implementation adds to that history; it does not merge or continue the third-party ARM branch. The current Pi release was staged from the tested `8f7cb5efc70b53e488cf5549de960221631cdaa9` source state; no reboot has yet validated its persistence.
+The authoritative branch is `quattro-rpi5` in `sam-bee/omarchy-raspberrypi`. Its official Quattro baseline is `947e2fc002d6831c7888b29b5761d59d29e69727` from `omacom/omarchy`, recorded on 22 September 2026. The implementation adds to that history; it does not merge or continue the third-party ARM branch. The current Pi release was staged from the tested `8f7cb5efc70b53e488cf5549de960221631cdaa9` source state; its controlled reboot and persistence check passed on 27 September 2026.
 
 The reference examined in earlier project research is `alexisraitano-myffu/omarchy-arm` at `579f15c699dab01e2b3b12e2c4d2503873359be9`, compared with its upstream base `2c247e390e357ae0fee3f8565b0c816adb705e6a`. Its useful ideas are explicit package classification and separation of ARM hardware from x86 setup. Our planner and guards are independently implemented. We do not source, copy or execute its installer. In particular, its retained upstream networking setup was unsuitable for this Pi's previous networkd connection.
 
@@ -50,13 +50,14 @@ NetworkManager ownership of Wi-Fi was validated through the controlled migration
 
 The pinned `ttfx` ARM recipe is at [`install/arm64/packages/ttfx/PKGBUILD`](../install/arm64/packages/ttfx/PKGBUILD). Native makepkg/fakeroot packaging, installation and file-integrity checks passed. The actual renderer appeared after a shortened idle timeout, followed by a secure automatic lock and successful existing-password unlock. Normal 150-second screensaver and 300-second lock timeouts were restored with idle enabled. Fresh sessions use the shipped logo when custom branding is absent. The package policy keeps installation separate from the desktop source stage. Final shell health passed, with the original background and disconnected speaker preserved.
 
+The operator-authorized reboot passed on 27 September 2026. The Pi returned unattended on encrypted NVMe with kernel `6.18.53-1-rpi`, matching installed modules, unchanged USB-first EEPROM order and the accepted Gen1 link. NetworkManager restored Wi-Fi; SSH, the desktop, audio services, clipboard watchers and fresh-login agent paths persisted. The active release, theme, background, idle timers, 599-package set, boot files, LUKS metadata and protected configuration matched the pre-reboot baseline. There were no failed system/user units or current-boot cores; the earlier binfmt mount failure did not recur. A bounded 30-second terminal workload passed, followed by clean service, crash and checked storage-error results. The additional `omarchy-pi` virtual output is the intentional disconnected-desktop fallback alongside `hypr-rdp`. This establishes the tested reboot, not sustained stress or physical-display acceptance.
+
 ## Remaining gates
 
-Before installer distribution or declaring a persistent Pi desktop, complete the following bounded checks:
+Before installer distribution, complete the following bounded checks:
 
 - finish the network-panel visual check if screenshot transfer is approved;
-- perform a controlled reboot and persistence check, including rechecking the kernel/module mismatch and the unrelated `proc-sys-fs-binfmt_misc.mount` failure;
-- replay the deployment from a clean installation and compare the protected boot, encryption, SSH and network state;
+- replay the deployment from a clean installation and compare the protected boot, encryption, SSH and network state (deferred at the operator’s request until a later conversation);
 - verify physical keyboard/pointer input and physical display color.
 
 The speaker must remain disconnected during these checks. Preserve boot order, Gen1 policy, encrypted NVMe root, credentials and recovery media.
@@ -73,4 +74,4 @@ bash test/shell.d/arm64-guards-test.sh
 
 These planner and guard tests use local fixtures and command stubs. A [read-only package audit](arm64-package-audit.md) checked the Pi's cached repositories and identified a Nautilus dependency that would trigger its mkinitcpio hook. The first-session transaction separately refreshed metadata and reviewed its bounded closure; any further package or configuration change still needs target-local resolution, hook review, backups and rollback. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
 
-The smoke validated its isolated Lua configuration, hardware renderer, Foot client, and continued SSH/Wi-Fi. The active release has since passed the supported desktop-control and theme checks; idle/screensaver and network-panel functional checks have also passed. Physical input/display, controlled reboot and clean replay remain separate gates above. These checks used the virtual `hypr-rdp` output; physical display and RDP client acceptance are not established by them. The local planner milestone itself performed no Pi transaction, configuration write, service change or reboot; see the [subsequent smoke result](deployment/first-session/smoke-result.md) for the later Pi changes.
+The smoke validated its isolated Lua configuration, hardware renderer, Foot client, and continued SSH/Wi-Fi. The active release has since passed the supported desktop-control and theme checks; idle/screensaver and network-panel functional checks have also passed. Controlled reboot/persistence also passed. Physical input/display and clean replay remain separate gates above. These checks used the virtual `hypr-rdp` output; physical display and RDP client acceptance are not established by them. The local planner milestone itself performed no Pi transaction, configuration write, service change or reboot; see the [subsequent smoke result](deployment/first-session/smoke-result.md) for the later Pi changes.
