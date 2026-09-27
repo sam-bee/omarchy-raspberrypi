@@ -1,0 +1,24 @@
+# Copy this file to the FAT partition as installer-settings.toml and edit it
+# before booting the installer. Do not put private keys or reusable secrets in
+# the published image.
+
+[installer]
+hostname = "omarchy-pi"
+username = "omarchy"
+
+# Ethernet-only mode: leave the entire [wifi] table omitted. To use Wi-Fi,
+# uncomment all three fields and replace their example values.
+# [wifi]
+# country = "GB"
+# ssid = "your-network-name"
+# password = "your-wifi-password"
+
+[ssh]
+# Supply at least one of these. The password is the login password for the
+# installer account; authorized_key must be one complete OpenSSH public key.
+# authorized_key = "ssh-ed25519 AAAA..."
+# password = "choose-a-login-password"
+
+[rdp]
+# RDP connects directly to the installer desktop. Use a separate password.
+# password = "choose-an-rdp-password"
