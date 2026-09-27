@@ -43,6 +43,7 @@ PACKAGE_PROFILES = {
         "scope": "Image viewing, still-image desktop background selection, native file chooser support, and upstream Files integration; video backgrounds remain a separate profile.",
         "roots": [
             "imv",
+            "rav1e",
             "libvips",
             "qt6-imageformats",
             "nautilus",

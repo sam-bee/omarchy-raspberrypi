@@ -12,6 +12,7 @@ pipewire-alsa	candidate	-	ALSA compatibility for the audio baseline.
 pipewire-jack	candidate	-	Explicit PipeWire JACK provider selected by the reviewed image-desktop transaction; avoid an ambiguous jack2 provider choice.
 pipewire-pulse	candidate	-	PulseAudio-compatible server expected by desktop applications and audio controls.
 qt6-wayland	candidate	-	Qt Wayland platform integration for graphical applications.
+rav1e	candidate	-	HEIF/AVIF support for imv: libheif's optional rav1e plugin is loaded by the viewer and otherwise fails because librav1e.so.0.8 is absent.
 python	candidate	-	Python interpreter used by helper/runtime components; verify the dependency closure at deployment.
 ttf-liberation	candidate	-	Practical fallback font coverage for the selected Chromium browser.
 vulkan-broadcom	candidate	-	Pi-specific Vulkan userspace candidate; verify package/provider without changing firmware.
