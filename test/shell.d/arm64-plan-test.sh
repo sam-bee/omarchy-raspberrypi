@@ -87,6 +87,10 @@ check(isinstance(data.get("blockers"), list) and data["blockers"], "blockers are
 
 profiles = data.get("package_profiles")
 check(isinstance(profiles, dict) and "still-image-desktop" in profiles, "still-image-desktop profile is missing")
+everyday = profiles["everyday-desktop"]
+check(set(everyday["roots"]) >= {"gtk3", "wl-clipboard", "wtype", "grim", "slurp", "libnotify", "jq", "python"}, "everyday desktop runtime roots are incomplete")
+for source_path in everyday["integration"].values():
+    check((root / source_path).is_file(), f"everyday integration source is missing: {source_path}")
 image_profile = profiles["still-image-desktop"]
 check(image_profile["roots"] == ["imv", "rav1e", "libvips", "qt6-imageformats", "nautilus", "python-gobject", "xdg-desktop-portal-gtk", "jq", "imagemagick", "pipewire-jack"], "still-image-desktop roots drifted")
 check(image_profile["file_chooser_roots"] == ["python-gobject", "xdg-desktop-portal-gtk"], "file chooser roots drifted")

@@ -6,7 +6,6 @@
     "omarchy.lock",
     "omarchy.media",
     "omarchy.nightlight",
-    "omarchy.notifications",
     "omarchy.polkit"
   ],
   "bar": {

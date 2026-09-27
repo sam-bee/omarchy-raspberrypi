@@ -28,3 +28,17 @@ o.bind("XF86AudioMute", "Mute", "omarchy-audio-output-volume mute-toggle", { loc
 o.bind("ALT + XF86AudioRaiseVolume", "Volume up precise", "omarchy-audio-output-volume +1", { locked = true, repeating = true })
 o.bind("ALT + XF86AudioLowerVolume", "Volume down precise", "omarchy-audio-output-volume -1", { locked = true, repeating = true })
 o.bind("SUPER + CTRL + A", "Audio", "omarchy-shell shell toggle omarchy.audio")
+
+-- Everyday actions use the existing Omarchy overlays. Keep the launcher on
+-- installed applications while the broader system/setup menus are deferred.
+o.bind("SUPER + SPACE", "Apps menu", "omarchy-menu toggle apps")
+o.bind("SUPER + ALT + SPACE", "Apps menu", "omarchy-menu toggle apps")
+require("default.hypr.bindings.clipboard")
+o.bind("PRINT", "Screenshot", "omarchy-capture-screenshot")
+o.bind("SHIFT + PRINT", "Full-screen screenshot", "omarchy-capture-screenshot fullscreen")
+
+o.bind("SUPER + comma", "Dismiss last notification", "omarchy-shell notifications dismissOne")
+o.bind("SUPER + SHIFT + comma", "Dismiss all notifications", "omarchy-shell notifications dismissAll")
+o.bind("SUPER + CTRL + comma", "Toggle silencing notifications", "omarchy-shell notifications toggleDnd")
+o.bind("SUPER + ALT + comma", "Invoke last notification", "omarchy-shell notifications invokeLast")
+o.bind("SUPER + SHIFT + ALT + comma", "Open notification history", "omarchy-shell notifications showHistory")

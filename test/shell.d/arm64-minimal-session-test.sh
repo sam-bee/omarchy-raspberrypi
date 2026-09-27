@@ -30,7 +30,8 @@ for manifest_path in (root / "shell/plugins").rglob("manifest.json"):
 disabled = set(config["disabledPlugins"])
 assert "omarchy.background" in service_ids
 assert "omarchy.background" not in disabled
-assert service_ids - {"omarchy.background"} <= disabled, service_ids - {"omarchy.background"} - disabled
+assert "omarchy.notifications" not in disabled
+assert service_ids - {"omarchy.background", "omarchy.notifications"} <= disabled, service_ids - {"omarchy.background", "omarchy.notifications"} - disabled
 widgets = [entry["id"] for section in config["bar"]["layout"].values() for entry in section]
 assert widgets == ["omarchy.workspaces", "omarchy.clock", "omarchy.audio"]
 assert config["bar"]["transparent"] is False
@@ -41,7 +42,8 @@ assert "export OMARCHY_PI_MINIMAL_SESSION=1" in env
 shell = (root / "shell/shell.qml").read_text()
 assert 'Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"' in shell
 assert "builtinShellConfig: piMinimalSession ? piMinimalShellConfig" in shell
-assert 'String(pluginId || "") === "omarchy.background"' in shell
+assert '"omarchy.background"' in shell
+assert '"omarchy.notifications"' in shell
 assert shell.index("if (!shell.piMinimalServiceAllowed(id, m)) continue", shell.index("function _syncServices()")) < shell.index("ensureService(id)", shell.index("function _syncServices()"))
 assert shell.index("if (stillService && stillEnabled && shell.piMinimalServiceAllowed(existingId, stillThere)) continue") < shell.index("function piMinimalServiceAllowed")
 assert "shell.piMinimalServiceAllowed(authenticationId, authenticationManifest)" in shell
@@ -61,6 +63,14 @@ assert hypr.index("omarchy_autostart_minimal = true") < hypr.index('require("def
 assert hypr.index("omarchy_default_bindings = false") < hypr.index('require("default.hypr.omarchy")')
 assert 'hl.bind("SUPER + B", hl.dsp.exec_cmd("omarchy-launch-browser")' in hypr
 assert 'hl.bind("SUPER + SHIFT + B", hl.dsp.exec_cmd("omarchy-launch-browser --private")' in hypr
+
+assert 'require("default.hypr.bindings.clipboard")' in hypr
+assert 'o.bind("PRINT", "Screenshot", "omarchy-capture-screenshot")' in hypr
+assert 'o.bind("SHIFT + PRINT", "Full-screen screenshot", "omarchy-capture-screenshot fullscreen")' in hypr
+assert 'o.bind("SUPER + SPACE", "Apps menu", "omarchy-menu toggle apps")' in hypr
+assert 'o.bind("SUPER + ALT + SPACE", "Apps menu", "omarchy-menu toggle apps")' in hypr
+for action in ("dismissOne", "dismissAll", "toggleDnd", "invokeLast", "showHistory"):
+    assert "omarchy-shell notifications " + action in hypr
 
 flags = (root / "install/arm64/session/chromium-flags.conf").read_text().splitlines()
 assert flags == ["--ozone-platform=wayland"]

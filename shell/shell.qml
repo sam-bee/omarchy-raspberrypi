@@ -44,7 +44,6 @@ ShellRoot {
       "omarchy.lock",
       "omarchy.media",
       "omarchy.nightlight",
-      "omarchy.notifications",
       "omarchy.polkit"
     ],
     bar: {
@@ -978,10 +977,12 @@ ShellRoot {
   }
 
   function _syncServices() {
-    // Minimal Pi mode has a deliberately tiny service allowlist. The static
+    // Minimal Pi mode has a deliberately small service allowlist. The static
     // background renderer reads the already-selected image link and has no
-    // compositor or device side effects; all other first-party services stay
-    // gated even if discovery wins the race with shell.json loading.
+    // compositor or device side effects. Notifications are part of the
+    // everyday desktop surface and only own the per-user notification bus and
+    // overlay; all other first-party services stay gated even if discovery
+    // wins the race with shell.json loading.
     if (!pluginRegistry || !pluginRegistry.installedPlugins) return
     var plugins = pluginRegistry.installedPlugins
     for (var id in plugins) {
@@ -1056,7 +1057,8 @@ ShellRoot {
 
   function piMinimalServiceAllowed(pluginId, manifest) {
     if (!piMinimalSession) return true
-    return String(pluginId || "") === "omarchy.background"
+    var id = String(pluginId || "")
+    return (id === "omarchy.background" || id === "omarchy.notifications")
       && !!manifest && manifest.__isFirstParty === true
   }
 

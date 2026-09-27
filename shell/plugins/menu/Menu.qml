@@ -11,6 +11,7 @@ Item {
 
   // Injected by omarchy-shell when this plugin is summoned.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
+  readonly property bool piMinimalSession: Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"
   property var shell: null
   property var manifest: null
 
@@ -743,6 +744,12 @@ Item {
 
   function goBack() {
     if (root.activeMenu === "root") return false
+
+    // The Pi's launcher shortcut opens Apps directly. Keep the bounded profile
+    // from making the full setup/system menu reachable through Backspace or
+    // Left; an explicit root-menu summon remains available for administration.
+    if (root.piMinimalSession && root.activeMenu === "apps" && root.navStack.length === 0)
+      return false
 
     if (root.navStack.length > 0) {
       var previous = root.navStack[root.navStack.length - 1]

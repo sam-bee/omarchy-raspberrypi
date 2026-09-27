@@ -39,6 +39,18 @@ GEN2_WARNING = (
 )
 
 PACKAGE_PROFILES = {
+    "everyday-desktop": {
+        "scope": "Installed application launcher, text/PNG clipboard history, bounded screenshots, and desktop notifications.",
+        "roots": ["gtk3", "wl-clipboard", "wtype", "grim", "slurp", "libnotify", "jq", "python"],
+        "file_chooser_roots": [],
+        "not_required": ["omasnap"],
+        "integration": {
+            "session_bindings": "install/arm64/session/hyprland.lua",
+            "clipboard_plugin": "shell/plugins/clipboard/Clipboard.qml",
+            "screenshot_command": "bin/omarchy-capture-screenshot",
+            "notification_plugin": "shell/plugins/notifications/Service.qml",
+        },
+    },
     "still-image-desktop": {
         "scope": "Image viewing, still-image desktop background selection, native file chooser support, and upstream Files integration; video backgrounds remain a separate profile.",
         "roots": [
