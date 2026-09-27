@@ -23,3 +23,9 @@ Choose an agent with `omarchy default agent <name>` or its graphical picker. The
 `mise self-update` updates this standalone mise installation. `omarchy-update-mise` (or `MISE_MINIMUM_RELEASE_AGE=0 mise up`) updates its managed tools. The Pi's general full-system Omarchy updater remains outside the accepted ARM update workflow.
 
 Verify that a fresh Bash login finds mise and the stubs; run a selected agent's `--version` through its stub to exercise a real first-use install. Verify the picker in the running desktop and confirm that existing SSH and desktop services remain available. An installed CLI and working picker do not prove provider authentication, an agent task, or local-model performance. Usage-panel and crash-notification integration have separate acceptance requirements.
+
+## Pi validation — 27 September 2026
+
+Release `0749038b` passed live provisioning and repeat-run checks on the 8GB Raspberry Pi 5. The official mise `2026.9.14` ARM64 binary passed its pinned checksum, and upstream provisioning installed Node `26.10.0`/npm `11.19.1`. First-use launcher checks installed and ran OpenCode `1.18.32`, Claude Code `2.1.283`, and Codex CLI `0.157.1`. Fresh Bash login resolved these tools and the remaining lazy stubs. Omarchy skills resolve through the stable release pointer; repeat provisioning preserved the Bash startup files byte-for-byte.
+
+The registered agent shortcut's command opened the default-agent picker through the running compositor, and its captured layout was visually checked. The picker was closed and the original workspace restored. The default remains unset; no provider login or model request was made. The deployment preserved the theme, background, stay-awake marker and boot ID, and the shell and SSH remained available. Physical keypresses, authenticated tasks, other agent runtimes and reboot persistence were not tested by this acceptance.
