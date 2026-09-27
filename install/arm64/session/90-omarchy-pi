@@ -5,5 +5,13 @@ case ":$PATH:" in
   *":$OMARCHY_PATH/bin:"*) ;;
   *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
 esac
+# Match upstream's non-interactive lookup of mise shims and lazy launchers.
+for tool_path in "$HOME/.local/share/mise/shims" "$HOME/.local/bin"; do
+  case ":$PATH:" in
+    *":$tool_path:"*) ;;
+    *) export PATH="$PATH:$tool_path" ;;
+  esac
+done
+unset tool_path
 export TERMINAL=xdg-terminal-exec
 export OMARCHY_PI_MINIMAL_SESSION=1

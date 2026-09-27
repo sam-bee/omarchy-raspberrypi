@@ -30,6 +30,7 @@ o.bind("ALT + XF86AudioRaiseVolume", "Volume up precise", "omarchy-audio-output-
 o.bind("ALT + XF86AudioLowerVolume", "Volume down precise", "omarchy-audio-output-volume -1", { locked = true, repeating = true })
 o.bind("SUPER + CTRL + A", "Audio", "omarchy-shell shell toggle omarchy.audio")
 o.bind("SUPER + CTRL + B", "Bluetooth", "omarchy-shell shell toggle omarchy.bluetooth")
+o.bind("SUPER + SHIFT + CTRL + A", "Agent", "omarchy-agent --pick")
 
 -- Everyday actions use the existing Omarchy overlays. Keep the launcher on
 -- installed applications while the broader system/setup menus are deferred.
