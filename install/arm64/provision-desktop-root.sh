@@ -438,6 +438,9 @@ EOF
     chown -R "$uid:$gid" -- "$release_dir"
   fi
   install_symlink "releases/$SOURCE_REVISION" "$home_in_target/.local/share/omarchy-pi/current" "$uid" "$gid"
+  install_symlink "/etc/systemd/user/omarchy-pi-hypr-rdp.service" \
+    "$home_in_target/.config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service" \
+    "$uid" "$gid"
   local wants
   wants=$(target_path "/etc/systemd/system/multi-user.target.wants/omarchy-pi-uwsm-session@${selected_user}.service")
   reject_symlink_components "$wants" 0

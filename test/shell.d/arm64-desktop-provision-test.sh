@@ -33,6 +33,10 @@ user_dry_run_output=$(bash "$ROOT/install/arm64/provision-desktop-root.sh" \
   --rootfs "$target" --source-checkout "$test_checkout" --user desktop --home /home/desktop --dry-run)
 grep -Fq 'create target account desktop' <<<"$user_dry_run_output" || fail "user dry-run plans target account creation"
 grep -Fq 'copy Omarchy release' <<<"$user_dry_run_output" || fail "user dry-run plans a versioned release"
+grep -Fq 'graphical-session.target.wants/omarchy-pi-hypr-rdp.service' <<<"$user_dry_run_output" ||
+  fail "user dry-run plans target-local RDP unit enablement"
+grep -Fq '/etc/systemd/user/omarchy-pi-hypr-rdp.service' <<<"$user_dry_run_output" ||
+  fail "user dry-run keeps RDP unit system-owned"
 [[ ! -e $target/home ]] || fail "user dry-run does not create a home"
 pass "user provisioning dry-run keeps account creation target-local"
 
