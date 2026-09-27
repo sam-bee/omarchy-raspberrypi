@@ -363,23 +363,23 @@ def _disable_networkd_link(path: Path, *, owner_uid: int) -> bool:
 def _assert_no_networkd_enablement(target: Path) -> None:
     """Fail closed if any remaining wants/requires link would start networkd."""
 
-    systemd = target / "etc/systemd/system"
-    if not systemd.is_dir():
-        return
-    for root, _directories, files in os.walk(systemd, followlinks=False):
-        parent = Path(root)
-        if not (parent.name.endswith(".wants") or parent.name.endswith(".requires")):
+    for systemd in (target / "etc/systemd/system", target / "usr/lib/systemd/system"):
+        if not systemd.is_dir():
             continue
-        for name in files:
-            path = parent / name
-            if not path.is_symlink():
+        for root, _directories, files in os.walk(systemd, followlinks=False):
+            parent = Path(root)
+            if not (parent.name.endswith(".wants") or parent.name.endswith(".requires")):
                 continue
-            try:
-                destination = os.readlink(path)
-            except OSError as exc:
-                raise ServiceStageError(f"cannot inspect remaining enablement: {path}") from exc
-            if Path(destination).name.startswith("systemd-networkd"):
-                raise ServiceStageError(f"networkd enablement remains after staging: {path}")
+            for name in files:
+                path = parent / name
+                if not path.is_symlink():
+                    continue
+                try:
+                    destination = os.readlink(path)
+                except OSError as exc:
+                    raise ServiceStageError(f"cannot inspect remaining enablement: {path}") from exc
+                if Path(destination).name.startswith("systemd-networkd"):
+                    raise ServiceStageError(f"networkd enablement remains after staging: {path}")
 
 
 def _enablement_links(target: Path, *, owner_uid: int, owner_gid: int) -> list[tuple[str, str]]:

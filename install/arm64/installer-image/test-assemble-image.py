@@ -164,6 +164,19 @@ class AssembleImageTests(unittest.TestCase):
             with self.assertRaises(assemble_image.ImageAssemblyError):
                 assemble_image.validate_output_path(Path("/dev/omarchy-image-that-must-not-exist"))
 
+    def test_mkfs_fat_executable_requires_native_elf_and_version(self) -> None:
+        executable = Path(sys.executable).resolve()
+        self.assertEqual(
+            assemble_image.validate_mkfs_fat_executable(executable),
+            os.fspath(executable),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            script = Path(temporary) / "mkfs.fat"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            script.chmod(0o755)
+            with self.assertRaisesRegex(assemble_image.ImageAssemblyError, "64-bit ELF"):
+                assemble_image.validate_mkfs_fat_executable(script)
+
     def test_output_inside_staging_is_rejected_before_creation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

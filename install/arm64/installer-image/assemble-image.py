@@ -18,9 +18,11 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import platform
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import tempfile
 import time
@@ -37,6 +39,14 @@ DEFAULT_ROOT_EXTRA_MIB = 256
 MIN_ROOT_SIZE_MIB = 1024
 LOOP_DEVICE_PATTERN = re.compile(r"^/dev/loop[0-9]+$")
 UUID_PATTERN = re.compile(r"^[0-9A-Fa-f-]+$")
+ELF_MACHINE = {
+    "aarch64": 183,
+    "arm64": 183,
+    "x86_64": 62,
+    "amd64": 62,
+    "armv7l": 40,
+    "arm": 40,
+}
 
 
 class ImageAssemblyError(RuntimeError):
@@ -85,6 +95,53 @@ def _is_nonempty_regular(path: Path) -> bool:
     except FileNotFoundError:
         return False
     return stat.S_ISREG(info.st_mode) and info.st_size > 0
+
+
+def validate_mkfs_fat_executable(executable: Path | str = "mkfs.fat") -> str:
+    """Resolve and validate the native dosfstools executable used for FAT."""
+
+    requested = os.fspath(executable)
+    resolved = shutil.which(requested) if "/" not in requested else requested
+    if not resolved:
+        raise ImageAssemblyError(f"mkfs.fat executable was not found: {requested}")
+    path = Path(resolved)
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ImageAssemblyError(f"cannot inspect mkfs.fat executable: {path}") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or not os.access(path, os.X_OK):
+        raise ImageAssemblyError(f"mkfs.fat executable must be a regular executable file: {path}")
+    try:
+        with path.open("rb") as stream:
+            header = stream.read(20)
+    except OSError as exc:
+        raise ImageAssemblyError(f"cannot read mkfs.fat executable: {path}") from exc
+    if len(header) < 20 or header[:4] != b"\x7fELF" or header[4] != 2:
+        raise ImageAssemblyError(f"mkfs.fat executable must be a 64-bit ELF binary: {path}")
+    if header[5] == 1:
+        machine = struct.unpack_from("<H", header, 18)[0]
+    elif header[5] == 2:
+        machine = struct.unpack_from(">H", header, 18)[0]
+    else:
+        raise ImageAssemblyError(f"mkfs.fat executable has an invalid ELF byte order: {path}")
+    expected_machine = ELF_MACHINE.get(platform.machine().lower())
+    if expected_machine is None or machine != expected_machine:
+        raise ImageAssemblyError(
+            f"mkfs.fat executable is not native to this build host: {path}"
+        )
+    try:
+        result = subprocess.run(
+            [os.fspath(path), "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ImageAssemblyError(f"mkfs.fat --version failed to run: {path}") from exc
+    if result.returncode != 0:
+        raise ImageAssemblyError(f"mkfs.fat --version failed: {path}")
+    return os.fspath(path)
 
 
 def _validate_tree_entries(staging: Path) -> None:
@@ -549,12 +606,21 @@ def _cleanup_command(command: Sequence[str]) -> bool:
         return False
 
 
-def assemble_image(staging: Path, output: Path, *, boot_size_mib: int = DEFAULT_BOOT_SIZE_MIB, root_size_mib: int | None = None, root_extra_mib: int = DEFAULT_ROOT_EXTRA_MIB) -> dict[str, object]:
+def assemble_image(
+    staging: Path,
+    output: Path,
+    *,
+    boot_size_mib: int = DEFAULT_BOOT_SIZE_MIB,
+    root_size_mib: int | None = None,
+    root_extra_mib: int = DEFAULT_ROOT_EXTRA_MIB,
+    mkfs_fat: Path | str = "mkfs.fat",
+) -> dict[str, object]:
     """Build one regular image file and return its layout and UUID metadata."""
 
     stage = validate_staging_directory(staging)
     validate_output_path(output)
     validate_output_outside_staging(output, stage)
+    mkfs_fat_command = validate_mkfs_fat_executable(mkfs_fat)
     if root_extra_mib < 0:
         raise ImageAssemblyError("root extra space must not be negative")
     selected_root_size = root_size_mib or recommended_root_size_mib(stage, root_extra_mib)
@@ -586,7 +652,7 @@ def assemble_image(staging: Path, output: Path, *, boot_size_mib: int = DEFAULT_
         _wait_for_partition_device(root_device)
         root_uuid_requested = str(uuid.uuid4())
         boot_serial = uuid.uuid4().hex[:8].upper()
-        _run(["mkfs.fat", "-F", "32", "-n", "PI-BOOT", "-i", boot_serial, boot_device])
+        _run([mkfs_fat_command, "-F", "32", "-n", "PI-BOOT", "-i", boot_serial, boot_device])
         _run(["mkfs.ext4", "-F", "-U", root_uuid_requested, "-L", "OMARCHY-ROOT", root_device])
         boot_uuid = _read_uuid(boot_device)
         root_uuid = _read_uuid(root_device)
@@ -638,6 +704,7 @@ def assemble_image(staging: Path, output: Path, *, boot_size_mib: int = DEFAULT_
     os.chmod(output, 0o644)
     return {
         "output": str(output),
+        "mkfs_fat": mkfs_fat_command,
         "boot_uuid": boot_uuid,
         "root_uuid": root_uuid,
         "layout": layout,
@@ -651,6 +718,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--boot-size-mib", type=_positive_int, default=DEFAULT_BOOT_SIZE_MIB)
     parser.add_argument("--root-size-mib", type=_positive_int, default=None)
     parser.add_argument("--root-extra-mib", type=_positive_int, default=DEFAULT_ROOT_EXTRA_MIB)
+    parser.add_argument(
+        "--mkfs-fat",
+        default="mkfs.fat",
+        help="native dosfstools executable; defaults to mkfs.fat on the build host",
+    )
     return parser
 
 
@@ -664,6 +736,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             boot_size_mib=args.boot_size_mib,
             root_size_mib=args.root_size_mib,
             root_extra_mib=args.root_extra_mib,
+            mkfs_fat=args.mkfs_fat,
         )
     except (ImageAssemblyError, OSError, subprocess.CalledProcessError) as exc:
         print(f"assemble-image: error: {exc}", file=os.sys.stderr)

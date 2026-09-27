@@ -138,6 +138,19 @@ class StageInstallerServicesTests(unittest.TestCase):
             with self.assertRaisesRegex(stage.ServiceStageError, "aarch64"):
                 stage.stage_services(target, binary, digest, require_root=False)
 
+    def test_vendor_networkd_enablement_fails_closed_without_deletion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = self.make_target(root)
+            vendor_wants = target / "usr/lib/systemd/system/multi-user.target.wants"
+            vendor_wants.mkdir(parents=True)
+            vendor_link = vendor_wants / "systemd-networkd.service"
+            vendor_link.symlink_to("/usr/lib/systemd/system/systemd-networkd.service")
+            binary, digest = self.make_binary(root)
+            with self.assertRaisesRegex(stage.ServiceStageError, "networkd enablement remains"):
+                stage.stage_services(target, binary, digest, require_root=False)
+            self.assertTrue(vendor_link.is_symlink())
+
 
 if __name__ == "__main__":
     unittest.main()
