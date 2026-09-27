@@ -31,7 +31,6 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 from typing import Any, Sequence
 
@@ -229,7 +228,7 @@ def _run(command: Sequence[str], *, check: bool = True) -> subprocess.CompletedP
         raise DesktopPayloadError(f"could not run {command[0]}: {exc.strerror}") from exc
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or b"").decode(errors="replace").strip()
-        raise DesktopPayloadError(f"pacman failed ({exc.returncode}): {detail or 'no diagnostic'}") from exc
+        raise DesktopPayloadError(f"{command[0]} failed ({exc.returncode}): {detail or 'no diagnostic'}") from exc
 
 
 def _plan_document() -> dict[str, Any]:
@@ -345,7 +344,35 @@ def _source_revision(source_checkout: Path | None, source_revision: str | None) 
     return revision, "git-checkout"
 
 
-def _validate_generic_root(target: Path) -> None:
+def _has_stock_alarm_account(target: Path) -> bool:
+    """Recognize only the untouched login shipped in the signed ALARM tarball."""
+
+    passwd = (target / "etc/passwd").read_text(encoding="utf-8")
+    accounts = [line.split(":") for line in passwd.splitlines()]
+    for account in accounts:
+        if len(account) != 7 or not account[2].isdigit():
+            raise DesktopPayloadError("target has an invalid passwd entry")
+        if 1000 <= int(account[2]) < 65534 and account[0] != "alarm":
+            raise DesktopPayloadError("target has a pre-existing non-system account")
+    entries = [account for account in accounts if account[0] == "alarm"]
+    if not entries:
+        return False
+    if len(entries) != 1 or len(entries[0]) != 7 or entries[0][2:4] != ["1000", "1000"]:
+        raise DesktopPayloadError("target has a nonstandard alarm account")
+    if entries[0][5:] != ["/home/alarm", "/bin/bash"]:
+        raise DesktopPayloadError("target has a nonstandard alarm home or shell")
+    alarm_home = target / "home/alarm"
+    if alarm_home.is_symlink() or not alarm_home.is_dir():
+        raise DesktopPayloadError("target has an invalid stock alarm home")
+    files = {item.name for item in alarm_home.iterdir()}
+    if files != {".bash_profile", ".bash_logout", ".bashrc"}:
+        raise DesktopPayloadError("target alarm home contains nonstandard files")
+    if any(not item.is_file() or item.is_symlink() for item in alarm_home.iterdir()):
+        raise DesktopPayloadError("target alarm home contains non-regular files")
+    return True
+
+
+def _validate_generic_root(target: Path, *, allow_stock_alarm: bool = False) -> None:
     """Reject identity and private data before making a generic payload."""
 
     machine_id = target / "etc/machine-id"
@@ -368,6 +395,9 @@ def _validate_generic_root(target: Path) -> None:
         entries = list(home.iterdir())
         if home.name == "root" and len(entries) == 1 and entries[0].name == ".ssh":
             if entries[0].is_dir() and not entries[0].is_symlink() and not any(entries[0].iterdir()):
+                continue
+        if home.name == "home" and allow_stock_alarm and len(entries) == 1:
+            if entries[0].name == "alarm" and _has_stock_alarm_account(target):
                 continue
         if entries:
             raise DesktopPayloadError(f"target root has user files in {home}; use a fresh generic root")
@@ -518,7 +548,7 @@ def build_payload(
     custom_packages: Sequence[Path] = (),
     custom_package_manifest: Path | None = None,
     provisioner: Path | None = None,
-    repo_server: str = "https://mirror.archlinuxarm.org/$arch/$repo",
+    repo_server: str = "https://ca.us.mirror.archlinuxarm.org/$arch/$repo",
     pacman: str = "pacman",
     apply: bool = True,
     require_native_aarch64: bool = True,
@@ -535,7 +565,8 @@ def build_payload(
         raise DesktopPayloadError("--apply requires --source-checkout so the clean source can be bundled")
     if apply and provisioner is None:
         raise DesktopPayloadError("--apply requires --provisioner for generic desktop setup")
-    _validate_generic_root(target)
+    stock_alarm = _has_stock_alarm_account(target)
+    _validate_generic_root(target, allow_stock_alarm=stock_alarm)
     plan_document = _plan_document()
     roots, profile_roots = _select_roots(plan_document, profiles)
     custom = [_regular_file(path, name="custom package archive") for path in custom_packages]
@@ -576,6 +607,12 @@ def build_payload(
     if not gpgdir.is_dir() or gpgdir.is_symlink():
         raise DesktopPayloadError("target root is missing its pacman GPG directory; run signed base staging first")
     if apply:
+        if stock_alarm:
+            # The official tarball includes the default alarm login. Remove
+            # it from this disposable target before bundling a generic image.
+            _run(["userdel", "--root", os.fspath(target), "--remove", "alarm"])
+            _run(["groupdel", "--root", os.fspath(target), "alarm"])
+            _validate_generic_root(target)
         cache.mkdir(parents=True, exist_ok=True)
         hookdir.mkdir(parents=True, exist_ok=True)
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -620,7 +657,7 @@ def build_payload(
                 os.fspath(source_checkout),
             ]
             if not os.access(provisioner_path, os.X_OK):
-                provision_command.insert(0, sys.executable)
+                provision_command.insert(0, "bash")
             _run(provision_command)
             query_command = _pacman_base(pacman, target, dbpath, cache, log, config, gpgdir, hookdir)
             query_command.extend(["--query", "--info"])
@@ -632,6 +669,7 @@ def build_payload(
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "source": {"revision": revision, "revision_source": revision_source},
             "target": {"architecture": "aarch64", "profile": "rpi5", "rootfs": target.name},
+            "stock_alarm_account": "removed" if apply and stock_alarm else ("present; apply removes it" if stock_alarm else "absent"),
             "profiles": {"selected": list(profiles) or ["full-desktop"], "roots": profile_roots},
             "transaction": {
                 "requested_roots": roots,
@@ -698,7 +736,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--custom-package", action="append", default=[], type=Path, help="prebuilt .pkg.tar.* archive (repeatable)")
     parser.add_argument("--custom-package-manifest", type=Path, help="manifest recording custom archive hashes and package names")
     parser.add_argument("--provisioner", type=Path, help="generic root provisioner run after package installation")
-    parser.add_argument("--repo-server", default="https://mirror.archlinuxarm.org/$arch/$repo")
+    parser.add_argument("--repo-server", default="https://ca.us.mirror.archlinuxarm.org/$arch/$repo")
     parser.add_argument("--pacman", default="pacman", help=argparse.SUPPRESS)
     parser.add_argument("--preview", action="store_true", help="resolve in a scratch database without changing the target or writing a payload")
     return parser
