@@ -1,10 +1,10 @@
 # ARM64 / Raspberry Pi 5 compatibility layer
 
-This is the ARM64/Raspberry Pi 5 compatibility guide for the current `quattro-rpi5` branch. The active tested release is `e4a64c70`; it includes the supported upstream desktop services and controls plus Pi theme-switching compatibility. The reduced session remains a porting mechanism toward the normal upstream Omarchy experience, not a separate desktop product. The planner and first-session smoke sections below remain historical deployment context.
+This is the ARM64/Raspberry Pi 5 compatibility guide for the current `quattro-rpi5` branch. The active tested release is `8f7cb5ef`; it includes the supported upstream desktop services and controls plus Pi theme-switching compatibility. The reduced session remains a porting mechanism toward the normal upstream Omarchy experience, not a separate desktop product. The planner and first-session smoke sections below remain historical deployment context.
 
 ## Provenance
 
-The authoritative branch is `quattro-rpi5` in `sam-bee/omarchy-raspberrypi`. Its official Quattro baseline is `947e2fc002d6831c7888b29b5761d59d29e69727` from `omacom/omarchy`, recorded on 22 September 2026. The implementation adds to that history; it does not merge or continue the third-party ARM branch. The current Pi release was staged from the tested `e4a64c70b5c60a34b591f28eca0c8d822fd4f1aa` source state; no reboot has yet validated its persistence.
+The authoritative branch is `quattro-rpi5` in `sam-bee/omarchy-raspberrypi`. Its official Quattro baseline is `947e2fc002d6831c7888b29b5761d59d29e69727` from `omacom/omarchy`, recorded on 22 September 2026. The implementation adds to that history; it does not merge or continue the third-party ARM branch. The current Pi release was staged from the tested `8f7cb5efc70b53e488cf5549de960221631cdaa9` source state; no reboot has yet validated its persistence.
 
 The reference examined in earlier project research is `alexisraitano-myffu/omarchy-arm` at `579f15c699dab01e2b3b12e2c4d2503873359be9`, compared with its upstream base `2c247e390e357ae0fee3f8565b0c816adb705e6a`. Its useful ideas are explicit package classification and separation of ARM hardware from x86 setup. Our planner and guards are independently implemented. We do not source, copy or execute its installer. In particular, its retained upstream networking setup was unsuitable for this Pi's previous networkd connection.
 
@@ -38,7 +38,7 @@ Selected system setup, update, migration, repository, reset, hibernation and boo
 
 These guards are defense against normal accidental entry, not a sandbox or a complete audit of all Omarchy commands. Direct execution of installation leaves or migration files, raw pacman operations, individual maintenance helpers and independently supplied upstream scripts can bypass them. Do not deploy the tree or treat ARM updates as supported on the strength of these checks. Future updates must also retain this downstream branch rather than replacing it with official package-owned files.
 
-The new upstream lock PAM file is an explicit operator-approved change; staging does not apply it automatically. Do not add it to an unattended stage or replay it without recording fresh approval and a rollback baseline.
+The new upstream lock PAM file is an explicit operator-approved change; staging does not apply it automatically. Retain the recorded authorization and rollback baseline; existing authorization for this exact change does not need to be requested again. Staging must preserve existing authentication policies.
 
 ## Current upstream desktop status
 
@@ -46,15 +46,15 @@ The tested release enables the supported upstream window-management bindings, lo
 
 Theme switching follows the normal picker and hooks. Tokyo Night → Vantablack → Tokyo Night restored the exact selected cityscape and theme colors, and Foot's palette changed with the active theme. Missing browser-policy integration skips elevation when the packaged helper or managed browser policy roots are absent; GTK selects an installed icon theme rather than a missing Yaru variant.
 
-NetworkManager ownership of Wi-Fi was validated through the controlled migration gate, with rollback evidence retained privately. This does not claim that the shell's network panel or every network UI path is complete; those remain separate acceptance work.
+NetworkManager ownership of Wi-Fi was validated through the controlled migration gate, with rollback evidence retained privately. The shell's network panel appeared and completed a read-only scan while keeping the current connection and route intact. Workspace and focus restoration passed. Visual inspection of the captured panel is pending explicit permission to transfer the image; connecting to new networks and radio toggling were not exercised.
 
-The pinned `ttfx` ARM recipe is at [`install/arm64/packages/ttfx/PKGBUILD`](../install/arm64/packages/ttfx/PKGBUILD). Its native build checks passed, while final package installation and live idle/screensaver runtime acceptance remain pending. The package policy keeps this separate from the desktop source stage.
+The pinned `ttfx` ARM recipe is at [`install/arm64/packages/ttfx/PKGBUILD`](../install/arm64/packages/ttfx/PKGBUILD). Native makepkg/fakeroot packaging, installation and file-integrity checks passed. The actual renderer appeared after a shortened idle timeout, followed by a secure automatic lock and successful existing-password unlock. Normal 150-second screensaver and 300-second lock timeouts were restored with idle enabled. Fresh sessions use the shipped logo when custom branding is absent. The package policy keeps installation separate from the desktop source stage. Final shell health passed, with the original background and disconnected speaker preserved.
 
 ## Remaining gates
 
 Before installer distribution or declaring a persistent Pi desktop, complete the following bounded checks:
 
-- install and accept the `ttfx` idle/screensaver path, then capture final health; idle acceptance and the network panel remain open;
+- finish the network-panel visual check if screenshot transfer is approved;
 - perform a controlled reboot and persistence check, including rechecking the kernel/module mismatch and the unrelated `proc-sys-fs-binfmt_misc.mount` failure;
 - replay the deployment from a clean installation and compare the protected boot, encryption, SSH and network state;
 - verify physical keyboard/pointer input and physical display color.
@@ -73,4 +73,4 @@ bash test/shell.d/arm64-guards-test.sh
 
 These planner and guard tests use local fixtures and command stubs. A [read-only package audit](arm64-package-audit.md) checked the Pi's cached repositories and identified a Nautilus dependency that would trigger its mkinitcpio hook. The first-session transaction separately refreshed metadata and reviewed its bounded closure; any further package or configuration change still needs target-local resolution, hook review, backups and rollback. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
 
-The smoke validated its isolated Lua configuration, hardware renderer, Foot client, and continued SSH/Wi-Fi. The active release has since passed the supported desktop-control and theme checks; idle/screensaver, network-panel, physical input/display, controlled reboot and clean replay remain separate gates above. Headless output creation was tested manually; automatic creation and RDP remain unimplemented. The local planner milestone itself performed no Pi transaction, configuration write, service change or reboot; see the [subsequent smoke result](deployment/first-session/smoke-result.md) for the later Pi changes.
+The smoke validated its isolated Lua configuration, hardware renderer, Foot client, and continued SSH/Wi-Fi. The active release has since passed the supported desktop-control and theme checks; idle/screensaver and network-panel functional checks have also passed. Physical input/display, controlled reboot and clean replay remain separate gates above. These checks used the virtual `hypr-rdp` output; physical display and RDP client acceptance are not established by them. The local planner milestone itself performed no Pi transaction, configuration write, service change or reboot; see the [subsequent smoke result](deployment/first-session/smoke-result.md) for the later Pi changes.

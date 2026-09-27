@@ -38,5 +38,5 @@ it did not install fakeroot or any build dependency system-wide. Genuine
 `PKGEXT` setting. `pacman -Qip` confirmed `ttfx 0.3.2-1`, `aarch64`, runtime
 dependencies `gcc-libs` and `glibc`, no install script, and only the binary,
 documentation, license, and shell-completion files. The archive's entries and
-mtree are root-owned; it is unsigned and still requires the separate reviewed
-`pacman -U` step.
+mtree are root-owned; it is unsigned. The separate reviewed `pacman -U` transaction added only
+`ttfx`; package integrity and the live idle/screensaver/secure-lock cycle passed.
