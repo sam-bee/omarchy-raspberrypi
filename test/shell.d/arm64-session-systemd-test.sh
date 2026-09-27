@@ -172,7 +172,7 @@ pass "RDP verifier rejects mismatched identity, unsafe display/profile paths, an
 pass "RDP verifier rejects plaintext and symlinked passwords plus a changed package binary"
 
 systemd_dir="$ROOT/install/arm64/session/systemd"
-if rg -n '/home/sierra|/run/user/1000|UID *= *1000|hypr-rdp-v0\.1\.6-build' "$systemd_dir"; then
+if rg -n '/home/[[:alnum:]_-]+|/run/user/[0-9]+|\bUID *= *[0-9]+|hypr-rdp-v[0-9.]+-build' "$systemd_dir"; then
   fail "installed systemd session sources contain machine-specific runtime paths"
 fi
 if ! rg -q '^User=%i$' "$systemd_dir/omarchy-pi-uwsm-session@.service"; then
@@ -181,4 +181,4 @@ fi
 if ! rg -q -- '--uid %U --home \$\{HOME\} --runtime %t' "$systemd_dir/omarchy-pi-hypr-rdp.service"; then
   fail "RDP unit does not pass user-manager identity specifiers to the verifier"
 fi
-pass "systemd templates contain no Sierra, UID 1000, or dated build path"
+pass "systemd templates contain no fixed account, UID, or build path"

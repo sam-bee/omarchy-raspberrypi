@@ -27,13 +27,13 @@ BLOCKERS = [
     "Verify Hyprland Lua configuration support, Quickshell dependencies and Omarchy session packaging together.",
     "Resolve deferred desktop helpers and portal picker before claiming a complete upstream desktop.",
     "Review package dependencies, conflicts and transaction hooks for effects on the protected substrate.",
-    "Design backed-up, allow-listed user/session asset deployment and rollback for the existing sierra account.",
+    "Design backed-up, allow-listed user/session asset deployment and rollback for the target account.",
     "Live desktop, unattended boot/unlock and headless/RDP integration remain untested.",
     "Normal Omarchy install/update/reset workflows remain unsupported on ARM; guards are not a sandbox.",
 ]
 GEN2_WARNING = (
-    "Gen2 is an explicit opt-in. On our tested Raspberry Pi 5 system, Gen2 has been associated with read corruption, "
-    "NVMe I/O stalls, and boot/desktop failures. This system-specific evidence does not establish a universal Pi 5 "
+    "Gen2 is an explicit opt-in. A Raspberry Pi 5 deployment has exhibited read corruption, "
+    "NVMe I/O stalls, and boot/desktop failures with Gen2. This observation does not establish a universal Pi 5 "
     "hardware defect, and Gen2 stability is not guaranteed. Keep a recovery route and rollback config available; "
     "return to Gen1 if problems recur."
 )
