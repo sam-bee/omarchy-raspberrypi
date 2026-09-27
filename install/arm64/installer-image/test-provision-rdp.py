@@ -197,7 +197,8 @@ class ProvisionRdpTests(unittest.TestCase):
         self.assertIn("Requires=omarchy-pi-provision-access.service", unit)
         self.assertIn("After=local-fs.target omarchy-pi-provision-access.service", unit)
         self.assertIn("Before=omarchy-installer-launch.service graphical.target", unit)
-        self.assertIn("ConditionPathExists=!/var/lib/omarchy-pi/rdp-provisioned", unit)
+        self.assertIn("RemainAfterExit=yes", unit)
+        self.assertNotIn("ConditionPathExists=!/var/lib/omarchy-pi/rdp-provisioned", unit)
         self.assertIn("/boot/installer-settings.toml", unit)
         self.assertNotIn("RequiredBy=sshd.service", unit)
 

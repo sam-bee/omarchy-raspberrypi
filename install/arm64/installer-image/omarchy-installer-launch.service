@@ -1,0 +1,21 @@
+[Unit]
+Description=Omarchy installer headless Hyprland session launcher
+RequiresMountsFor=/boot
+Requires=omarchy-pi-provision-rdp.service
+AssertPathExists=/usr/lib/omarchy-pi/installer-image.marker
+ConditionPathExists=/boot/installer-settings.toml
+After=local-fs.target omarchy-pi-provision-rdp.service
+# This is a graphical-session dependency only.  SSH and network provisioning
+# do not require the desktop or the RDP server.
+Before=graphical.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/omarchy-pi/launch-installer-session.py --settings /boot/installer-settings.toml
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target

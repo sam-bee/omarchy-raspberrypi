@@ -3,7 +3,9 @@ Description=Omarchy Pi first-boot direct-LAN RDP provisioning
 RequiresMountsFor=/boot
 Requires=omarchy-pi-provision-access.service
 AssertPathExists=/usr/lib/omarchy-pi/installer-image.marker
-ConditionPathExists=!/var/lib/omarchy-pi/rdp-provisioned
+# The provisioner validates its completion marker and exact profile on every
+# boot.  Keeping this unit active lets the session launcher require it after
+# the first boot as well as during first-boot creation.
 After=local-fs.target omarchy-pi-provision-access.service
 # Do not launch the graphical session until the profile has been created or
 # this independent, non-required service has failed.  SSH remains governed by
@@ -13,6 +15,7 @@ Before=omarchy-installer-launch.service graphical.target
 [Service]
 Type=oneshot
 User=root
+RemainAfterExit=yes
 ExecStart=/usr/bin/python3 /usr/local/libexec/omarchy-pi/provision-rdp.py --settings /boot/installer-settings.toml
 StandardOutput=journal
 StandardError=journal

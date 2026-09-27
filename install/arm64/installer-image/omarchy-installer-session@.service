@@ -1,0 +1,30 @@
+[Unit]
+Description=Omarchy installer headless Hyprland session for %i
+Wants=systemd-logind.service
+After=systemd-logind.service systemd-user-sessions.service
+Conflicts=getty@tty8.service omarchy-pi-uwsm-session@%i.service
+
+[Service]
+Type=exec
+User=%i
+PAMName=login
+SetLoginEnvironment=yes
+WorkingDirectory=~
+TTYPath=/dev/tty8
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+# TTYVHangup gives UWSM the same clean stop path as the proven Pi session.
+TTYVHangup=yes
+KillMode=control-group
+TimeoutStopSec=45s
+Restart=no
+# The session helper validates the account, runtime directory and environment
+# before entering UWSM.  It launches only the installer Hyprland config.
+# The leading + permits the privileged VT switch while the service remains
+# owned by the selected installer account.
+ExecStartPre=+/usr/bin/chvt 8
+ExecStart=/usr/local/libexec/omarchy-pi/start-installer-session.sh %i
+# Do not enable this template directly.  The root launch helper starts the
+# instance selected by the validated FAT settings.
