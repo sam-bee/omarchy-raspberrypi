@@ -1,7 +1,7 @@
 [Unit]
 Description=Omarchy installer headless Hyprland session for %i
 Wants=systemd-logind.service
-After=systemd-logind.service systemd-user-sessions.service
+After=systemd-logind.service systemd-user-sessions.service getty@tty8.service
 Conflicts=getty@tty8.service omarchy-pi-uwsm-session@%i.service
 
 [Service]
