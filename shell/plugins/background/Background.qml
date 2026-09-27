@@ -13,6 +13,7 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   readonly property string stateHome: home + "/.local/state"
   readonly property string currentBackgroundLink: stateHome + "/omarchy/current/background"
+  readonly property bool piMinimalSession: Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"
 
   property string currentBackground: ""
   property string displayedBackground: ""
@@ -107,10 +108,12 @@ Item {
   }
 
   function openSelector() {
+    if (piMinimalSession) return
     if (!bgSwitchProc.running) bgSwitchProc.running = true
   }
 
   function openThemeSwitcher() {
+    if (piMinimalSession) return
     if (!themeSwitchProc.running) themeSwitchProc.running = true
   }
 
@@ -315,6 +318,7 @@ Item {
 
       MouseArea {
         anchors.fill: parent
+        enabled: !root.piMinimalSession
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onDoubleClicked: function(mouse) {
           if (mouse.button === Qt.RightButton) root.openThemeSwitcher()

@@ -33,16 +33,28 @@ ShellRoot {
   readonly property bool piMinimalSession: Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"
 
   // A FileView may load shell.json after the first plugin scan. Keep the Pi's
-  // initial bar minimal even before the user file is available.
+  // initial bar bounded even before the user file is available. Audio is the
+  // one interactive panel deliberately included in the desktop profile; the
+  // OSD is a keep-loaded panel and therefore needs no bar entry here.
   readonly property var piMinimalShellConfig: ({
     version: 1,
+    disabledPlugins: [
+      "omarchy.battery",
+      "omarchy.idle",
+      "omarchy.lock",
+      "omarchy.media",
+      "omarchy.nightlight",
+      "omarchy.notifications",
+      "omarchy.polkit"
+    ],
     bar: {
       position: "top",
+      transparent: false,
       centerAnchor: "omarchy.clock",
       layout: {
         left: [{ id: "omarchy.workspaces" }],
         center: [{ id: "omarchy.clock", format: "HH:mm" }],
-        right: []
+        right: [{ id: "omarchy.audio" }]
       }
     },
     plugins: []
@@ -966,10 +978,10 @@ ShellRoot {
   }
 
   function _syncServices() {
-    // The minimal Pi session has not validated any first-party service yet.
-    // Gate creation here as well as in shell.json: plugin discovery can finish
-    // before asynchronous user configuration loads.
-    if (piMinimalSession) return
+    // Minimal Pi mode has a deliberately tiny service allowlist. The static
+    // background renderer reads the already-selected image link and has no
+    // compositor or device side effects; all other first-party services stay
+    // gated even if discovery wins the race with shell.json loading.
     if (!pluginRegistry || !pluginRegistry.installedPlugins) return
     var plugins = pluginRegistry.installedPlugins
     for (var id in plugins) {
@@ -977,6 +989,7 @@ ShellRoot {
       if (!m) continue
       if (!Array.isArray(m.kinds) || m.kinds.indexOf("service") === -1) continue
       if (!m.entryPoints || !m.entryPoints.service) continue
+      if (!shell.piMinimalServiceAllowed(id, m)) continue
       if (!pluginRegistry.isEnabled(id)) continue
       var authenticationService = shell.isAuthenticationService(m, id)
       if (_services[id]) {
@@ -1016,7 +1029,7 @@ ShellRoot {
         && stillThere.kinds.indexOf("service") !== -1
         && stillThere.entryPoints && stillThere.entryPoints.service
       var stillEnabled = stillThere && pluginRegistry.isEnabled(existingId)
-      if (stillService && stillEnabled) continue
+      if (stillService && stillEnabled && shell.piMinimalServiceAllowed(existingId, stillThere)) continue
       var inst = _services[existingId]
       if (inst && typeof inst.destroy === "function") inst.destroy()
       var next = ({})
@@ -1035,9 +1048,16 @@ ShellRoot {
         && authenticationManifest.entryPoints
         && authenticationManifest.entryPoints.service
       if (stillAuthenticationService && pluginRegistry.isEnabled(authenticationId)
+          && shell.piMinimalServiceAllowed(authenticationId, authenticationManifest)
           && shell.isAuthenticationService(authenticationManifest, authenticationId)) continue
       AuthServiceStore.destroy(authenticationId)
     }
+  }
+
+  function piMinimalServiceAllowed(pluginId, manifest) {
+    if (!piMinimalSession) return true
+    return String(pluginId || "") === "omarchy.background"
+      && !!manifest && manifest.__isFirstParty === true
   }
 
   function serviceKeepLoaded(pluginId) {

@@ -51,6 +51,30 @@ xdg-terminal-exec --print-id
 
 The stager archives the committed tree under `~/.local/share/omarchy-pi/releases/` and publishes six user-owned configuration files only after checking for existing destinations. These include the Hyprland bindings, Chromium's Wayland flag, and the GTK portal preference. It refuses a dirty checkout, an existing unmanaged file on first install, and an attempted repeat of the current revision. For a newer committed revision, stop the selected graphical session, run the same command from its clean checkout, verify the new pointer and configurations, then start the session again. It updates only files that still match the former release and preserves edits or missing files. To return to the immediately previous revision, stop the session, run `bash install/arm64/rollback-user-session.sh` from the checkout, verify the pointer and configuration, then start the session. The stager records and recovers interrupted switches; if it reports a conflict, inspect its transaction record before retrying. Browser settings introduced after the original four-file profile remain intact when rolling back to an older release.
 
+### First desktop theme and Foot setup
+
+After a release has been staged, prepare the rendered theme as the desktop user. The helper calls Omarchy's existing `omarchy-theme-set` and template renderer in headless mode, so it creates the state consumed by Hyprland and Quickshell without starting shell services or changing packages, system units, the active release pointer, or the running user session:
+
+```bash
+OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current" \
+  bash "$HOME/.local/share/omarchy-pi/current/install/arm64/setup-desktop-theme.sh"
+```
+
+The default is Tokyo Night; pass a theme name only when there is no existing theme state. The helper refuses an unmarked non-empty `~/.local/state/omarchy/current`, preserves an existing `theme.name`, and preserves an existing `~/.config/foot/foot.ini`. On a new setup it renders `colors.toml`, `shell.toml`, `foot.ini` and the selected background under `~/.local/state/omarchy/current/theme/`, then creates the `background` link. It creates `~/.config/foot/foot.ini` from the committed `config/foot/foot.ini` template only when that file is absent. If `JetBrainsMono Nerd Font` is unavailable, the copied config uses Foot's generic `monospace` family.
+
+Check the rendered state before refreshing the live surfaces:
+
+```bash
+theme_state="$HOME/.local/state/omarchy/current"
+for file in colors.toml shell.toml foot.ini; do test -f "$theme_state/theme/$file"; done
+test -L "$theme_state/background" && test -f "$theme_state/background"
+test -f "$HOME/.config/foot/foot.ini"
+```
+
+Use `hyprctl reload` and `omarchy-restart-shell` only after those checks pass. Keep the existing second SSH connection available while refreshing the session. Capture a Wayland frame with `grim` after the bar and background are visible, then use `SUPER+Return` to open Foot, `SUPER+B` for normal Chromium and `SUPER+Shift+B` for a private Chromium window. The current Pi profile also exposes the Omarchy audio panel at `SUPER+Ctrl+A`, XF86 volume raise/lower/mute, and Alt+XF86 fine volume steps. Verify the panel reports the selected PipeWire/Pulse sink and that its volume and mute controls change the reported state; audible speaker acceptance and browser routing remain separate checks.
+
+The bounded Pi baseline currently has `wpctl`, `pactl`, `grim` and `gtk-launch` available for these controls. `jq`, ImageMagick and `wtype` are not baseline dependencies, so a control must not rely on them unless its package transaction is separately reviewed. The profile allowlists only the static background renderer; lock, notifications, polkit, battery, idle, nightlight and media services remain deferred. If theme rendering or live refresh fails, leave the release pointer and previous user configuration in place and inspect the helper's rendered-state checks. A release rollback changes the staged source and managed session files but deliberately does not roll back `~/.local/state/omarchy/current`; the newly rendered theme may therefore continue to color a rolled-back source. Restore a prior theme only by selecting it through a compatible renderer or by restoring an exact pre-change backup; do not delete theme state recursively.
+
 ## Persistent session unit
 
 Install the system unit and its launcher from the same recorded revision. Check that the destination paths are absent before the first install; review existing files before any later replacement. The instance name selects the login account, while the launcher obtains that account's home and UID from the account database. Run these commands on the Pi from the repository root:

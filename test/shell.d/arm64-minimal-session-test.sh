@@ -27,17 +27,30 @@ for manifest_path in (root / "shell/plugins").rglob("manifest.json"):
     manifest = json.loads(manifest_path.read_text())
     if "service" in manifest["kinds"]:
         service_ids.add(manifest["id"])
-assert service_ids <= set(config["disabledPlugins"]), service_ids - set(config["disabledPlugins"])
+disabled = set(config["disabledPlugins"])
+assert "omarchy.background" in service_ids
+assert "omarchy.background" not in disabled
+assert service_ids - {"omarchy.background"} <= disabled, service_ids - {"omarchy.background"} - disabled
 widgets = [entry["id"] for section in config["bar"]["layout"].values() for entry in section]
-assert widgets == ["omarchy.workspaces", "omarchy.clock"]
+assert widgets == ["omarchy.workspaces", "omarchy.clock", "omarchy.audio"]
+assert config["bar"]["transparent"] is False
+assert "omarchy.osd" not in disabled
 
 env = (root / "install/arm64/session/90-omarchy-pi").read_text()
 assert "export OMARCHY_PI_MINIMAL_SESSION=1" in env
 shell = (root / "shell/shell.qml").read_text()
 assert 'Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"' in shell
 assert "builtinShellConfig: piMinimalSession ? piMinimalShellConfig" in shell
-assert shell.index("if (piMinimalSession) return", shell.index("function _syncServices()")) < shell.index("ensureService(id)", shell.index("function _syncServices()"))
+assert 'String(pluginId || "") === "omarchy.background"' in shell
+assert shell.index("if (!shell.piMinimalServiceAllowed(id, m)) continue", shell.index("function _syncServices()")) < shell.index("ensureService(id)", shell.index("function _syncServices()"))
+assert shell.index("if (stillService && stillEnabled && shell.piMinimalServiceAllowed(existingId, stillThere)) continue") < shell.index("function piMinimalServiceAllowed")
+assert "shell.piMinimalServiceAllowed(authenticationId, authenticationManifest)" in shell
 assert shell.index("if (piMinimalSession) {", shell.index("function loadDefaults(raw)")) < shell.index("defaultsConfig = builtinShellConfig", shell.index("function loadDefaults(raw)"))
+background = (root / "shell/plugins/background/Background.qml").read_text()
+assert 'Quickshell.env("OMARCHY_PI_MINIMAL_SESSION") === "1"' in background
+assert "enabled: !root.piMinimalSession" in background
+assert background.index("if (piMinimalSession) return", background.index("function openSelector")) < background.index("bgSwitchProc.running", background.index("function openSelector"))
+assert background.index("if (piMinimalSession) return", background.index("function openThemeSwitcher")) < background.index("themeSwitchProc.running", background.index("function openThemeSwitcher"))
 
 hypr = (root / "install/arm64/session/hyprland.lua").read_text()
 assert hypr.index("omarchy_autostart_minimal = true") < hypr.index('require("default.hypr.omarchy")')
@@ -68,9 +81,12 @@ cp "$ROOT/install/arm64/stage-user-session.sh" "$test_checkout/install/arm64/sta
 for source_name in hyprland.lua chromium-flags.conf portals.conf; do
   cp "$ROOT/install/arm64/session/$source_name" "$test_checkout/install/arm64/session/$source_name"
 done
+cp "$ROOT/install/arm64/session/shell.json" "$test_checkout/install/arm64/session/shell.json"
+cp "$ROOT/shell/shell.qml" "$test_checkout/shell/shell.qml"
+cp "$ROOT/shell/plugins/background/Background.qml" "$test_checkout/shell/plugins/background/Background.qml"
 git -C "$test_checkout" config user.name "Pi Minimal Session Test"
 git -C "$test_checkout" config user.email "pi-minimal-session-test@example.invalid"
-git -C "$test_checkout" add install/arm64/stage-user-session.sh install/arm64/session/hyprland.lua install/arm64/session/chromium-flags.conf install/arm64/session/portals.conf
+git -C "$test_checkout" add install/arm64/stage-user-session.sh install/arm64/session/hyprland.lua install/arm64/session/chromium-flags.conf install/arm64/session/portals.conf install/arm64/session/shell.json shell/shell.qml shell/plugins/background/Background.qml
 git -C "$test_checkout" commit -q -m "browser-enabled minimal session test fixture"
 revision=$(git -C "$test_checkout" rev-parse HEAD)
 [[ -z $(git -C "$test_checkout" status --porcelain) ]] || fail "test checkout is clean"
