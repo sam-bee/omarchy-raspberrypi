@@ -69,6 +69,11 @@ load_metadata() {
   local metadata=$1
   regular_file "$metadata" "metadata"
 
+  PACKAGE_NAMES=()
+  PACKAGE_VERSIONS=()
+  SOURCE_REVISIONS=()
+  SOURCE_SHA256S=()
+
   local package package_version source_revision source_sha256 extra
   local line_number=0
   while IFS=$'\t' read -r package package_version source_revision source_sha256 extra ||
