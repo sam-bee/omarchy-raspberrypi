@@ -80,7 +80,7 @@ lua51	defer	-	Optional scripting/runtime dependency; not required by the initial
 luarocks	defer	-	Optional Lua development tool.
 man-db	defer	-	Optional local manual-page indexer.
 mariadb-libs	defer	-	Optional database client library.
-mise-bin	defer	-	Developer/runtime toolchain; defer until ARM binary/source handling is explicit.
+mise-bin	defer	-	No ALARM package; install/arm64/setup-mise.sh bootstraps the checksum-pinned official ARM64 release per user, then setup-user-agents.sh reuses upstream provisioning.
 moonlight-qt	defer	-	Optional streaming client.
 mpv	candidate	-	Baseline media playback used by desktop media actions.
 mpv-mpris	candidate	-	Media-session integration for the baseline player.
