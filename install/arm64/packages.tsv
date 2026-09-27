@@ -110,7 +110,7 @@ postgresql-libs	defer	-	Optional database client library.
 power-profiles-daemon	defer	-	Optional power policy service; defer platform-specific policy changes.
 python-gobject	candidate	-	GTK/Python integration used by desktop utilities.
 python-poetry-core	defer	-	Developer packaging dependency; not needed for the first session.
-ttfx	exclude	-	First-party screensaver package source for ARM is unresolved; the screensaver cannot be claimed until ttfx or an explicit fallback is implemented and tested.
+ttfx	candidate	-	Pinned aarch64 PKGBUILD under install/arm64/packages/ttfx; native Pi build and frozen Cargo verification passed. Install and live idle/screensaver acceptance remain deployment gates.
 qemu-user-static-binfmt	exclude	-	Binfmt registration is outside the desktop layer and has the wrong emulation direction for this host.
 qrencode	defer	-	Optional QR generation utility.
 qt6-imageformats	candidate	-	Qt image format support for graphical applications and shell components.
