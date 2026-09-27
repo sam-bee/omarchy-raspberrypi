@@ -28,13 +28,37 @@ if [[ -n $progress ]]; then
   progress_text="${progress}%"
 fi
 
-payload=$(jq -cn \
-  --arg icon "$icon" \
-  --arg message "$message" \
-  --arg value "$progress" \
-  --arg progressText "$progress_text" \
-  --arg max "$max" \
-  --arg duration "$duration" \
-  '{icon:$icon,message:$message,value:$value,progressText:$progressText,max:$max,duration:$duration}')
+if omarchy-cmd-present jq; then
+  payload=$(jq -cn \
+    --arg icon "$icon" \
+    --arg message "$message" \
+    --arg value "$progress" \
+    --arg progressText "$progress_text" \
+    --arg max "$max" \
+    --arg duration "$duration" \
+    '{icon:$icon,message:$message,value:$value,progressText:$progressText,max:$max,duration:$duration}')
+else
+  # jq is part of the full Omarchy package set, but is intentionally absent
+  # from the bounded Pi baseline. Python is already a Pi session dependency;
+  # use its standard JSON encoder so every control character is escaped.
+  omarchy-cmd-present python3 || {
+    echo "omarchy-osd requires jq or python3" >&2
+    exit 1
+  }
+  payload=$(python3 - "$icon" "$message" "$progress" "$progress_text" "$max" "$duration" <<'PY'
+import json
+import sys
+
+print(json.dumps({
+    "icon": sys.argv[1],
+    "message": sys.argv[2],
+    "value": sys.argv[3],
+    "progressText": sys.argv[4],
+    "max": sys.argv[5],
+    "duration": sys.argv[6],
+}, separators=(",", ":")))
+PY
+  )
+fi
 
 omarchy-shell -q osd show "$payload"
