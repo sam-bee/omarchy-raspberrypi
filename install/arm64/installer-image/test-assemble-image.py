@@ -164,6 +164,14 @@ class AssembleImageTests(unittest.TestCase):
             with self.assertRaises(assemble_image.ImageAssemblyError):
                 assemble_image.validate_output_path(Path("/dev/omarchy-image-that-must-not-exist"))
 
+            redirected = directory / "redirected"
+            redirected.mkdir()
+            (directory / "output-link").symlink_to(redirected, target_is_directory=True)
+            with self.assertRaisesRegex(assemble_image.ImageAssemblyError, "symlink path component"):
+                assemble_image.validate_output_path(directory / "output-link" / "image.img")
+            with self.assertRaisesRegex(assemble_image.ImageAssemblyError, "symlink path component"):
+                assemble_image.validate_output_path(directory / "output-link" / ".." / "image.img")
+
     def test_mkfs_fat_executable_requires_native_elf_and_version(self) -> None:
         executable = Path(sys.executable).resolve()
         self.assertEqual(

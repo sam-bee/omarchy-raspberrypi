@@ -97,6 +97,24 @@ def _is_nonempty_regular(path: Path) -> bool:
     return stat.S_ISREG(info.st_mode) and info.st_size > 0
 
 
+def _reject_symlink_components(path: Path, *, include_leaf: bool = True) -> None:
+    # Keep ``..`` while walking: normalizing first could hide a symlink in
+    # ``link/../image`` even though the kernel traverses ``link``.
+    candidate = path if path.is_absolute() else Path.cwd() / path
+    components = candidate.parts[1:]
+    if not include_leaf:
+        components = components[:-1]
+    current = Path(candidate.anchor)
+    for component in components:
+        current /= component
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(info.st_mode):
+            raise ImageAssemblyError(f"refusing symlink path component: {current}")
+
+
 def validate_mkfs_fat_executable(executable: Path | str = "mkfs.fat") -> str:
     """Resolve and validate the native dosfstools executable used for FAT."""
 
@@ -224,6 +242,7 @@ def validate_boot_tree_for_fat(boot: Path) -> None:
 def validate_output_path(output: Path) -> Path:
     """Validate an output path before any file is created."""
 
+    _reject_symlink_components(output, include_leaf=False)
     if os.path.lexists(output):
         raise ImageAssemblyError(f"refusing to overwrite existing output: {output}")
     try:

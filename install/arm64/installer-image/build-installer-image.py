@@ -57,11 +57,30 @@ def _components() -> dict[str, Any]:
 
 
 def _absolute(path: Path) -> Path:
-    return path if path.is_absolute() else Path.cwd() / path
+    if path.is_absolute():
+        return Path(os.path.normpath(os.fspath(path)))
+    return Path(os.path.normpath(os.path.join(os.getcwd(), os.fspath(path))))
+
+
+def _reject_symlink_components(path: Path, *, include_leaf: bool = True) -> None:
+    candidate = _absolute(path)
+    components = candidate.parts[1:]
+    if not include_leaf:
+        components = components[:-1]
+    current = Path(candidate.anchor)
+    for component in components:
+        current /= component
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(info.st_mode):
+            raise InstallerBuildError(f"refusing symlink path component: {current}")
 
 
 def _regular_file(path: Path, *, name: str) -> Path:
     candidate = _absolute(path)
+    _reject_symlink_components(candidate)
     try:
         info = candidate.lstat()
     except OSError as exc:
@@ -94,6 +113,7 @@ def _sha256(path: Path) -> str:
 
 def _new_workdir(path: Path) -> Path:
     candidate = _absolute(path)
+    _reject_symlink_components(candidate, include_leaf=False)
     if os.path.lexists(candidate):
         raise InstallerBuildError(
             f"work directory already exists; choose a new path for a safe restart: {candidate}"
@@ -106,6 +126,7 @@ def _new_workdir(path: Path) -> Path:
 
 def _safe_output(path: Path) -> Path:
     candidate = _absolute(path)
+    _reject_symlink_components(candidate, include_leaf=False)
     if os.path.lexists(candidate):
         raise InstallerBuildError(f"output image already exists; choose a new path: {candidate}")
     if not candidate.parent.is_dir() or candidate.parent.is_symlink():

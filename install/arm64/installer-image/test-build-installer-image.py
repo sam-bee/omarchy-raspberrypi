@@ -92,6 +92,12 @@ class BuildInstallerImageTests(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.InstallerBuildError, "outside the build work directory"):
                 self.call_plan(inputs, directory, workdir=directory / "fresh-work", output=directory / "fresh-work" / "image.img")
 
+            redirected = directory / "redirected"
+            redirected.mkdir()
+            (directory / "work-link").symlink_to(redirected, target_is_directory=True)
+            with self.assertRaisesRegex(MODULE.InstallerBuildError, "symlink path component"):
+                self.call_plan(inputs, directory, workdir=directory / "work-link" / "new-work")
+
     def test_apply_calls_components_in_order_and_records_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
