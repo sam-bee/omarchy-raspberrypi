@@ -556,9 +556,19 @@ echo "$*" >>"${GSETTINGS_LOG:-/dev/null}"
 EOF
 chmod +x "$FAKE_BIN/gsettings"
 
+mkdir -p "$PI_TMPDIR/.local/share/icons/Adwaita"
 GSETTINGS_LOG="$PI_TMPDIR/gsettings.log" DBUS_SESSION_BUS_ADDRESS="unix:path=$PI_TMPDIR/bus" PATH="$FAKE_BIN:$ROOT/bin:$PATH" HOME="$PI_TMPDIR" "$ROOT/bin/omarchy-theme-set-gnome"
 grep -q 'org.gnome.desktop.interface color-scheme prefer-light' "$PI_TMPDIR/gsettings.log" || fail "gnome sync reads mode from colors.toml"
+grep -q 'org.gnome.desktop.interface icon-theme Adwaita' "$PI_TMPDIR/gsettings.log" || fail "gnome sync falls back from an unavailable Yaru icon theme"
 pass "gnome sync reads mode from colors.toml"
+pass "gnome sync selects an installed icon theme"
+
+mkdir -p "$PI_TMPDIR/.local/share/icons/CustomIcons"
+printf 'CustomIcons\n' >"$CURRENT_THEME/icons.theme"
+: >"$PI_TMPDIR/gsettings-custom.log"
+GSETTINGS_LOG="$PI_TMPDIR/gsettings-custom.log" DBUS_SESSION_BUS_ADDRESS="unix:path=$PI_TMPDIR/bus" PATH="$FAKE_BIN:$ROOT/bin:$PATH" HOME="$PI_TMPDIR" "$ROOT/bin/omarchy-theme-set-gnome"
+grep -q 'org.gnome.desktop.interface icon-theme CustomIcons' "$PI_TMPDIR/gsettings-custom.log" || fail "gnome sync keeps an installed custom icon theme"
+pass "gnome sync keeps an installed custom icon theme"
 
 cat >"$FAKE_BIN/omarchy-cmd-present" <<'EOF'
 #!/bin/bash

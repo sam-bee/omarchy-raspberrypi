@@ -32,6 +32,16 @@ POLICY_DIRS=(
 # matches even where $OMARCHY_PATH points at a checkout.
 PACKAGED_PATH=/usr/bin/omarchy-theme-set-browser-policy
 
+browser_policy_root_present() {
+  local policy_dir
+
+  for policy_dir in "${POLICY_DIRS[@]}"; do
+    [[ -d $policy_dir && ! -L $policy_dir ]] && return 0
+  done
+
+  return 1
+}
+
 usage() {
   echo "Usage: omarchy-theme-set-browser-policy <rrggbb>" >&2
 }
@@ -51,6 +61,12 @@ if [[ ! $color =~ ^[0-9a-f]{6}$ ]]; then
   echo "omarchy-theme-set-browser-policy: expected six lowercase hex digits, got '$color'" >&2
   exit 1
 fi
+
+# Pi sessions may carry no Chromium-family browser or no packaged privileged
+# helper. In either case there is no policy to update; skip before sudo/pkexec
+# so a theme switch remains usable without manufacturing a system policy root.
+[[ -x $PACKAGED_PATH ]] || exit 0
+browser_policy_root_present || exit 0
 
 # True when sudo would run this exact command without stopping for a password.
 # `sudo -l` on its own reports whether a command is permitted, which the blanket

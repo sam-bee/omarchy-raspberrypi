@@ -31,6 +31,10 @@ grep -Eq '^\s*export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin' "$helper" ||
 gated=$(grep -A1 -E '^if \(\( EUID == 0 \)\); then$' "$helper" || true)
 [[ $gated == *"export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin"* ]] ||
   fail "omarchy-theme-set-browser-policy gates the trusted-PATH pin on holding root"
+grep -F '[[ -x $PACKAGED_PATH ]] || exit 0' "$helper" >/dev/null ||
+  fail "omarchy-theme-set-browser-policy skips when the packaged privileged helper is absent"
+grep -F 'browser_policy_root_present || exit 0' "$helper" >/dev/null ||
+  fail "omarchy-theme-set-browser-policy skips when no managed browser policy root exists"
 
 pass "browser policy sudoers rule is scoped to a single color argument"
 
@@ -81,7 +85,9 @@ printf 'sudo %s\n' "$*" >"$ELEVATION_LOG"
 SH
 chmod +x "$stub_bin/sudo"
 
-if ((EUID == 0)); then
+if [[ ! -x /usr/bin/omarchy-theme-set-browser-policy ]]; then
+  skip "packaged browser policy helper is absent; skipping live elevation checks"
+elif ((EUID == 0)); then
   skip "running as root; skipping the elevation checks, which would rewrite this machine's browser policy"
 else
   elevation_for() {
@@ -128,6 +134,38 @@ else
   fi
 
   pass "browser policy helper accepts nothing but six lowercase hex digits"
+fi
+
+policy_root_present=0
+for policy_dir in /etc/chromium/policies/managed /etc/opt/chrome/policies/managed \
+  /etc/opt/edge/policies/managed /etc/brave/policies/managed; do
+  if [[ -d $policy_dir && ! -L $policy_dir ]]; then
+    policy_root_present=1
+    break
+  fi
+done
+if [[ ! -x /usr/bin/omarchy-theme-set-browser-policy || $policy_root_present == 0 ]]; then
+  no_prompt_bin="$test_tmp/no-prompt-bin"
+  mkdir -p "$no_prompt_bin"
+  cat >"$no_prompt_bin/sudo" <<'SH'
+#!/bin/bash
+printf 'sudo was unexpectedly called\n' >"$PROMPT_LOG"
+exit 99
+SH
+  cat >"$no_prompt_bin/pkexec" <<'SH'
+#!/bin/bash
+printf 'pkexec was unexpectedly called\n' >"$PROMPT_LOG"
+exit 99
+SH
+  chmod +x "$no_prompt_bin/sudo" "$no_prompt_bin/pkexec"
+  if PROMPT_LOG="$test_tmp/prompt.log" PATH="$no_prompt_bin:$PATH" \
+    bash "$helper" 1c2027 >/dev/null 2>&1; then
+    :
+  else
+    fail "missing browser policy support does not turn a theme hook into a failure"
+  fi
+  [[ ! -e $test_tmp/prompt.log ]] || fail "missing browser policy support does not prompt for elevation"
+  pass "missing browser policy support skips without prompting"
 fi
 
 setter_bin="$test_tmp/setter-bin"

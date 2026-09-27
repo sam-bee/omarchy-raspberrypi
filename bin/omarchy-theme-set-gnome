@@ -25,10 +25,35 @@ else
   gsettings set org.gnome.desktop.interface gtk-theme "Adwaita-dark"
 fi
 
-# Change gnome icon theme color
+# Change the GNOME icon theme only when the requested assets are installed.
+# The Pi profile does not install yaru-icon-theme, while many shipped Omarchy
+# themes still carry a Yaru-* preference. Use the requested theme when its
+# assets are installed, or use the stock Adwaita/hicolor assets rather than
+# pointing GTK at a missing icon directory.
 GNOME_ICONS_THEME=$HOME/.local/state/omarchy/current/theme/icons.theme
+icon_theme=""
 if [[ -f $GNOME_ICONS_THEME ]]; then
-  gsettings set org.gnome.desktop.interface icon-theme "$(<$GNOME_ICONS_THEME)"
-else
-  gsettings set org.gnome.desktop.interface icon-theme "Yaru-blue"
+  icon_theme=$(<"$GNOME_ICONS_THEME")
 fi
+
+icon_theme_available() {
+  local candidate="$1"
+
+  [[ $candidate =~ ^[[:alnum:]_.-]+$ ]] || return 1
+  [[ -d $HOME/.local/share/icons/$candidate ]] && return 0
+  [[ -d $HOME/.icons/$candidate ]] && return 0
+  [[ -d /usr/share/icons/$candidate ]] && return 0
+  return 1
+}
+
+if ! icon_theme_available "$icon_theme"; then
+  icon_theme=""
+  for fallback in Adwaita hicolor; do
+    if icon_theme_available "$fallback"; then
+      icon_theme=$fallback
+      break
+    fi
+  done
+fi
+
+[[ -n $icon_theme ]] && gsettings set org.gnome.desktop.interface icon-theme "$icon_theme"
