@@ -1,12 +1,12 @@
 # ARM64 / Raspberry Pi 5 compatibility layer
 
-This is the ARM64/Raspberry Pi 5 compatibility guide for the current `quattro-rpi5` branch. The active tested release is `8f7cb5ef`; it includes the supported upstream desktop services and controls plus Pi theme-switching compatibility. The reduced session remains a porting mechanism toward the normal upstream Omarchy experience, not a separate desktop product. The planner and first-session smoke sections below remain historical deployment context.
+This is the ARM64/Raspberry Pi 5 compatibility guide for the `quattro-rpi5` branch. It covers the supported upstream desktop services and controls plus Pi theme-switching compatibility. The reduced session remains a porting mechanism toward the normal upstream Omarchy experience, not a separate desktop product. Deployment evidence belongs in private records; this guide retains the reusable policy and validation boundaries.
 
 ## Provenance
 
-The authoritative branch is `quattro-rpi5` in `sam-bee/omarchy-raspberrypi`. Its official Quattro baseline is `947e2fc002d6831c7888b29b5761d59d29e69727` from `omacom/omarchy`, recorded on 22 September 2026. The implementation adds to that history; it does not merge or continue the third-party ARM branch. The current Pi release was staged from the tested `8f7cb5efc70b53e488cf5549de960221631cdaa9` source state; its controlled reboot and persistence check passed on 27 September 2026.
+The branch should be based on the canonical Omarchy Quattro history and keep its downstream compatibility changes reviewable. Record the exact upstream baseline and tested source revision in private build evidence; do not publish one-machine release identifiers in this guide.
 
-The reference examined in earlier project research is `alexisraitano-myffu/omarchy-arm` at `579f15c699dab01e2b3b12e2c4d2503873359be9`, compared with its upstream base `2c247e390e357ae0fee3f8565b0c816adb705e6a`. Its useful ideas are explicit package classification and separation of ARM hardware from x86 setup. Our planner and guards are independently implemented. We do not source, copy or execute its installer. In particular, its retained upstream networking setup was unsuitable for this Pi's previous networkd connection.
+A third-party ARM branch was consulted only as historical research for package classification and separation of ARM hardware from x86 setup. The planner and guards are independently implemented; do not source, copy or execute an external installer. Review network ownership separately instead of assuming that another branch's setup matches the target.
 
 ## Local preview
 
@@ -26,7 +26,7 @@ JSON schema version 2 records the target and whether it is explicit or detected,
 
 ## Protected substrate
 
-Our target is an already working Arch Linux ARM Raspberry Pi 5 with encrypted NVMe root. We preserve its Pi-native firmware/kernel boot chain, `linux-rpi`, boot configuration, existing initramfs hooks (`sd-encrypt` present, `kms` deliberately absent), LUKS keyslots, USB key-based unlock, rescue USB and EEPROM boot order. The first desktop layer must not replace any of them.
+The target is an already working Arch Linux ARM Raspberry Pi 5. Where the target uses encrypted storage, preserve its Pi-native firmware/kernel boot chain, `linux-rpi`, boot configuration, initramfs hooks, LUKS keyslots, recovery media and EEPROM boot order. The first desktop layer must not replace protected boot or recovery state.
 
 The proposed PCIe Gen1 default applies only while preparing a new Pi 5 base. Existing desktop deployments and updates must preserve the operator's selected `pciex1_gen` value, including when reviewing package-provided `.pacnew` files; they must not silently reset it to Gen2 or Gen1. See the [base preparation policy](deployment/pi5-arch-base.md#raspberry-pi-5-pcie-speed-policy) and [maintenance gate](deployment/maintenance/README.md#boot-configuration-preservation).
 
@@ -42,29 +42,23 @@ The new upstream lock PAM file is an explicit operator-approved change; staging 
 
 ## Current upstream desktop status
 
-The tested release enables the supported upstream window-management bindings, lock, idle, media, nightlight and polkit services. Battery controls remain disabled because the Pi has no battery, and suspend is unsupported by the current hardware interface. Live temporary-window, secure lock/unlock, polkit authorization, nightlight, synthetic MPRIS and theme-picker checks passed; physical keyboard/pointer presses and physical display color are still unverified.
+The Pi profile should enable the supported upstream window-management bindings, lock, idle, media, nightlight and polkit services wherever the hardware and package set support them. Battery controls may remain disabled on hardware without a battery, and suspend requires a separately validated hardware interface. Validate temporary windows, secure lock/unlock, polkit authorization, nightlight, media controls and theme selection. Treat physical keyboard/pointer input and physical display color as separate acceptance gates.
 
-Theme switching follows the normal picker and hooks. Tokyo Night → Vantablack → Tokyo Night restored the exact selected cityscape and theme colors, and Foot's palette changed with the active theme. Missing browser-policy integration skips elevation when the packaged helper or managed browser policy roots are absent; GTK selects an installed icon theme rather than a missing Yaru variant.
+Theme switching should follow the normal picker and hooks. Verify that the selected theme, background and terminal palette survive a reload and a controlled restart. If browser-policy integration or an icon theme is unavailable, use the documented fallback and record the package and helper state in private evidence.
 
-NetworkManager ownership of Wi-Fi was validated through the controlled migration gate, with rollback evidence retained privately. The shell's network panel appeared and completed a read-only scan while keeping the current connection and route intact. Workspace and focus restoration passed. Visual inspection of the captured panel is pending explicit permission to transfer the image; connecting to new networks and radio toggling were not exercised.
+Network ownership is a controlled migration. Require a fresh recovery baseline, a private root-owned generated profile, an independent SSH check, a bounded rollback timer and confirmation before removing the previous owner. Keep generated credentials, host addresses and scan results in private evidence. A read-only network-panel scan does not establish that connecting to new networks or toggling the radio is safe.
 
-The pinned `ttfx` ARM recipe is at [`install/arm64/packages/ttfx/PKGBUILD`](../install/arm64/packages/ttfx/PKGBUILD). Native makepkg/fakeroot packaging, installation and file-integrity checks passed. The actual renderer appeared after a shortened idle timeout, followed by a secure automatic lock and successful existing-password unlock. Normal 150-second screensaver and 300-second lock timeouts were restored with idle enabled. Fresh sessions use the shipped logo when custom branding is absent. The package policy keeps installation separate from the desktop source stage. Final shell health passed, with the original background and disconnected speaker preserved.
+The pinned `ttfx` ARM recipe is at [`install/arm64/packages/ttfx/PKGBUILD`](../install/arm64/packages/ttfx/PKGBUILD). Build and install it only through a reviewed target-local transaction, then validate the renderer, idle/screensaver path and existing-password unlock. Keep the package policy separate from the desktop source stage. Record package versions, renderer output and protected-state checks in private evidence.
 
-The operator-authorized reboot passed on 27 September 2026. The Pi returned unattended on encrypted NVMe with kernel `6.18.53-1-rpi`, matching installed modules, unchanged USB-first EEPROM order and the accepted Gen1 link. NetworkManager restored Wi-Fi; SSH, the desktop, audio services, clipboard watchers and fresh-login agent paths persisted. The active release, theme, background, idle timers, 599-package set, boot files, LUKS metadata and protected configuration matched the pre-reboot baseline. There were no failed system/user units or current-boot cores; the earlier binfmt mount failure did not recur. A bounded 30-second terminal workload passed, followed by clean service, crash and checked storage-error results. The additional `omarchy-pi` virtual output is the intentional disconnected-desktop fallback alongside `hypr-rdp`. This establishes the tested reboot, not sustained stress or physical-display acceptance.
+A controlled reboot and persistence check is a required acceptance gate. Verify the selected kernel and modules, boot order, PCIe policy, storage/encryption state where configured, network, SSH, desktop, audio, clipboard and agent paths, protected files and service health. A passing reboot establishes only the tested target and workload; it does not establish sustained stress, universal hardware behavior or physical-display acceptance.
 
 ## Remaining gates
 
-Before installer distribution, complete the following bounded checks:
-
-- finish the network-panel visual check if screenshot transfer is approved;
-- replay the deployment from a clean installation and compare the protected boot, encryption, SSH and network state (deferred at the operator’s request until a later conversation);
-- verify physical keyboard/pointer input and physical display color.
-
-The speaker must remain disconnected during these checks. Preserve boot order, Gen1 policy, encrypted NVMe root, credentials and recovery media.
+Before installer distribution, replay the deployment from a clean installation and compare protected boot, encryption, SSH and network state. Verify physical keyboard/pointer input and physical display color separately. Preserve boot order, PCIe policy, credentials and recovery media throughout the checks.
 
 ## Local validation and next milestone
 
-The [reviewed first-session deployment plan](deployment/first-session/README.md) specified a four-root compositor/terminal smoke, exact session files, backups, transaction gates, and rollback. After [package resolution](deployment/first-session/resolution.md) and a verified encrypted off-Pi recovery backup, the [smoke run](deployment/first-session/smoke-result.md) installed 106 new packages, upgraded only Expat, and started Hyprland with a V3D renderer and a mapped Foot client. It required explicit headless-output creation and a second Foot launch; the automatic output and initial Foot start did not occur. The transient session was stopped and protected boot/network state was verified afterward. Full Quattro startup and reboot remain untested in this historical smoke record.
+The [first-session deployment plan](deployment/first-session/README.md) defines a four-root compositor/terminal smoke, exact session files, backups, transaction gates and rollback. Resolve the complete package transaction against target-local metadata, verify the required signatures and hooks, and retain machine-specific package, boot and session results in private evidence. The smoke does not establish full Quattro startup, reboot persistence, physical display or universal hardware support.
 
 ```bash
 bash test/shell.d/arm64-plan-test.sh
@@ -72,6 +66,6 @@ bash test/shell.d/arm64-guards-test.sh
 ./test/cli
 ```
 
-These planner and guard tests use local fixtures and command stubs. A [read-only package audit](arm64-package-audit.md) checked the Pi's cached repositories and identified a Nautilus dependency that would trigger its mkinitcpio hook. The first-session transaction separately refreshed metadata and reviewed its bounded closure; any further package or configuration change still needs target-local resolution, hook review, backups and rollback. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
+These planner and guard tests use local fixtures and command stubs. Resolve every package candidate and dependency against fresh target-local metadata, review initramfs and other hooks, and require backups and rollback before any configuration change. Required desktop helpers that are deferred must be resolved or have explicit tested fallbacks. Do not mark migrations completed simply to suppress failures.
 
-The smoke validated its isolated Lua configuration, hardware renderer, Foot client, and continued SSH/Wi-Fi. The active release has since passed the supported desktop-control and theme checks; idle/screensaver and network-panel functional checks have also passed. Controlled reboot/persistence also passed. Physical input/display and clean replay remain separate gates above. These checks used the virtual `hypr-rdp` output; physical display and RDP client acceptance are not established by them. The local planner milestone itself performed no Pi transaction, configuration write, service change or reboot; see the [subsequent smoke result](deployment/first-session/smoke-result.md) for the later Pi changes.
+The planner milestone performs no target transaction, configuration write, service change or reboot. Local smoke tests validate command and fixture behavior; target acceptance must separately verify the renderer, session, desktop controls, theme, idle/screensaver, network panel, reboot persistence, physical input and physical display. A virtual `hypr-rdp` output does not establish physical display or real-client acceptance.

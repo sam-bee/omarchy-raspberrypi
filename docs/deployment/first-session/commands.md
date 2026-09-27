@@ -1,387 +1,168 @@
-# Proposed commands — do not execute before the plan's gates pass
+# First-session smoke commands
 
-These are ordered operator steps, not one unattended script. Commands run in an **interactive SSH terminal as Sierra** unless labeled workstation. Preserve the second SSH connection throughout. Review the result of each stage before continuing. All `$PI_DEPLOY_*` variables are local shell variables, not system settings.
-
-## Backup and prestate (before installation)
+These blocks are an operator runbook, not an unattended installer. Set the variables from the private run record before use. The target account must already exist. Do not place a password, Wi-Fi secret, SSH key, recovery archive, host identifier or package evidence in this repository.
 
 ```bash
 set -euo pipefail
 umask 077
-export PI_DEPLOY_RUN="$(date -u +%Y%m%dT%H%M%SZ)"
-export PI_DEPLOY_BACKUP="/var/lib/omarchy-pi-deploy/$PI_DEPLOY_RUN"
-sudo install -d -m 0700 "$PI_DEPLOY_BACKUP"
-sudo bash -s -- "$PI_DEPLOY_BACKUP" <<'ROOT'
+: "${PI_HOST:?set the target SSH host in the private run record}"
+: "${PI_USER:?set the target account in the private run record}"
+: "${PI_HOME:?set the target home directory in the private run record}"
+: "${PI_UID:?set the target numeric UID in the private run record}"
+: "${PI_GID:?set the target numeric GID in the private run record}"
+: "${PI_VT:?set an unused local VT for the bounded test}"
+PI_RUNTIME_DIR="/run/user/$PI_UID"
+PI_RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
+```
+
+## Preflight and private backup
+
+Keep two independent SSH connections open. From the target, collect the package inventory, account and group files, enabled-unit state, mounts, boot and encryption metadata, network state and protected-file hashes into a mode-0700 private evidence directory. Include an encrypted, independently testable recovery copy before installing anything. Do not print or upload the contents of credential files, key material, Wi-Fi configuration or recovery archives.
+
+```bash
+PI_EVIDENCE="$PI_HOME/.local/state/omarchy-pi-first-session/$PI_RUN_ID"
+install -d -m 0700 "$PI_EVIDENCE"
+pacman -Q > "$PI_EVIDENCE/packages.before"
+pacman -Qqe > "$PI_EVIDENCE/packages.explicit.before"
+id "$PI_USER" > "$PI_EVIDENCE/account.before"
+systemctl list-unit-files --state=enabled --no-pager > "$PI_EVIDENCE/system-units.enabled.before"
+systemctl is-active sshd systemd-networkd || true
+findmnt --real > "$PI_EVIDENCE/mounts.before"
+lsblk --fs > "$PI_EVIDENCE/block-devices.before"
+ip -br address > "$PI_EVIDENCE/addresses.before"
+ip route show > "$PI_EVIDENCE/routes.before"
+sudo awk '{print $1}' /proc/sys/kernel/random/boot_id > "$PI_EVIDENCE/boot-id.before"
+sudo cryptsetup status --all > "$PI_EVIDENCE/encryption.before" || true
+sudo sha256sum /etc/passwd /etc/shadow /etc/group /etc/gshadow > "$PI_EVIDENCE/accounts.sha256.before"
+```
+
+Confirm from the workstation that a fresh, independent SSH connection succeeds with the target's verified host key. Keep the endpoint and host-key details in the private record; use the variables above in any command example:
+
+```bash
+ssh -F /dev/null -o StrictHostKeyChecking=yes "$PI_USER@$PI_HOST" 'id && findmnt --real && systemctl is-active sshd systemd-networkd'
+```
+
+## Package gate
+
+Resolve the complete package closure in a separate copy of the package database and trusted keyring. Record the exact manifest and archive/signature hashes privately. Download and verify every archive before the transaction. Review archive paths, install scripts, hooks, sysusers/tmpfiles declarations and service presets. The final interactive transaction must contain only the approved additions and explicitly reviewed existing-package changes.
+
+Do not refresh the live package database as part of an unrelated probe. Do not use `--nodeps`, `--overwrite`, signature bypasses, hook suppression or recursive orphan removal. Reject any unreviewed change to the kernel, firmware, initramfs, bootloader, storage, encryption, network, SSH or firewall configuration.
+
+After the transaction, compare actual package names, versions and install reasons with the private manifest. Recheck protected-file hashes, boot and encryption metadata, enabled units, mounts, routes, firewall state and a new independent SSH login. Package-owned units may be installed while remaining disabled and inactive; verify that state explicitly.
+
+## Temporary session configuration
+
+Use a namespaced directory under the target home. Refuse existing destinations, including dangling symlinks, and install only the configuration required for this smoke test. The source files should come from the reviewed private run record or from the corresponding generic runtime template, never from a machine-specific working copy.
+
+```bash
+PI_SMOKE_DIR="$PI_HOME/.config/omarchy-pi-smoke"
+[[ ! -e $PI_SMOKE_DIR && ! -L $PI_SMOKE_DIR ]]
+install -d -m 0700 "$PI_SMOKE_DIR"
+# Copy the reviewed temporary Hyprland and Foot files here, then verify their hashes.
+chown "$PI_UID:$PI_GID" "$PI_SMOKE_DIR"
+chmod 0700 "$PI_SMOKE_DIR"
+sudo -u "$PI_USER" Hyprland --verify-config --config "$PI_SMOKE_DIR/hyprland.lua"
+```
+
+Do not create a display-manager configuration, shell-profile change, persistent unit, automatic-login rule or general `~/.config/hypr` replacement for this test.
+
+## Local VT session
+
+From the target, confirm that the chosen VT and logind seat are unused and that no compositor, Wayland socket or test unit is active. Record the current foreground VT before switching. A second SSH connection must remain available for recovery.
+
+```bash
+export XDG_RUNTIME_DIR="$PI_RUNTIME_DIR"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$PI_RUNTIME_DIR/bus"
+[[ -S $XDG_RUNTIME_DIR/bus ]]
+loginctl list-sessions
+loginctl seat-status seat0
+systemctl show -p LoadState -p ActiveState "getty@tty$PI_VT.service" omarchy-pi-smoke.service
+systemctl --user list-units --all 'wayland-wm@*.service' 'graphical-session*.target' --no-pager
+find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -print
+PI_SAVED_VT=$(sudo fgconsole)
+[[ $PI_SAVED_VT =~ ^[0-9]+$ ]]
+```
+
+Stop if a different local session, compositor, Wayland socket or unit is present. Do not reset the account's whole user manager or terminate another user's session to make the gate pass.
+
+Set a cleanup trap before changing the VT. Record the new session ID, compositor PID and instance signature only after inspecting `loginctl` and `hyprctl` output. The cleanup must restore the saved VT first, stop only the named service and matching compositor unit, terminate only the matching test PAM session, and confirm that the client and socket are gone.
+
+```bash
 set -euo pipefail
-B=$1
-umask 077
-test ! -e /var/lib/pacman/db.lck
-pacman -Q > "$B/before.packages"
-pacman -Qqe > "$B/before.explicit"
-pacman -Qqd > "$B/before.dependencies"
-test "$(pacman -Q expat)" = 'expat 2.8.4-1'
-install -d -m 0700 "$B/rollback"
-cp -a /var/cache/pacman/pkg/expat-2.8.4-1-aarch64.pkg.tar.xz \
-  /var/cache/pacman/pkg/expat-2.8.4-1-aarch64.pkg.tar.xz.sig "$B/rollback/"
-old_expat="$B/rollback/expat-2.8.4-1-aarch64.pkg.tar.xz"
-printf '95b99acc39cb71d84fe2a7de224b0efb2fd1f383f9f6386508c280601e8714ec  %s\n' "$old_expat" | sha256sum -c -
-test "$(pacman -Qp "$old_expat")" = 'expat 2.8.4-1'
-pacman-key --verify "$old_expat.sig" "$old_expat"
-systemctl get-default > "$B/default-target"
-systemctl list-unit-files --state=enabled --no-legend --no-pager > "$B/enabled-units"
-systemctl is-active sshd systemd-networkd wpa_supplicant@wld0 > "$B/services-active"
-systemctl is-enabled sshd systemd-networkd wpa_supplicant@wld0 > "$B/services-enabled"
-ip -br address > "$B/addresses"
-ip route > "$B/routes"
-cat /proc/sys/kernel/random/boot_id > "$B/boot-id"
-fgconsole > "$B/foreground-vt"
-rpi-eeprom-config > "$B/eeprom"
-cryptsetup luksDump --dump-json-metadata /dev/nvme0n1p2 > "$B/luks.json"
-cryptsetup luksHeaderBackup /dev/nvme0n1p2 --header-backup-file "$B/luks-header.bin"
-sfdisk --dump /dev/nvme0n1 > "$B/nvme-partitions"
-sfdisk --dump /dev/sda > "$B/usb-partitions"
-nft list ruleset > "$B/nft.rules"
-iptables-save > "$B/iptables.rules"
-ip6tables-save > "$B/ip6tables.rules"
-protected=()
-for p in /boot /etc/fstab /etc/crypttab /etc/crypttab.initramfs \
-  /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d /etc/mkinitcpio.d \
-  /etc/pacman.conf /etc/pacman.d /etc/systemd /etc/ssh /etc/wpa_supplicant \
-  /etc/resolv.conf /etc/hosts /etc/hostname /etc/nftables.conf /etc/iptables \
-  /etc/sudoers /etc/sudoers.d /etc/pam.d /etc/security /etc/modprobe.d \
-  /etc/modules-load.d /etc/udev /etc/passwd /etc/shadow; do
-  if [[ -e $p || -L $p ]]; then
-    protected+=("$p")
-  else
-    printf '%s\n' "$p" >> "$B/protected-absent.paths"
+PI_UNIT=omarchy-pi-smoke.service
+PI_SESSION_ID=
+PI_SESSION_LEADER=
+PI_WM_PID=
+PI_SIGNATURE=
+PI_LAUNCH_AT=$(date -u --iso-8601=seconds)
+PI_SMOKE_EVIDENCE="$PI_EVIDENCE/session"
+install -d -m 0700 "$PI_SMOKE_EVIDENCE"
+
+cleanup() {
+  local failed=0 current_pid
+  trap - INT TERM HUP
+  sudo -n chvt "$PI_SAVED_VT" || failed=1
+  sudo -n journalctl -u "$PI_UNIT" --since "$PI_LAUNCH_AT" --no-pager > "$PI_SMOKE_EVIDENCE/unit.log" || failed=1
+  if [[ -n $PI_SIGNATURE && -f "$PI_RUNTIME_DIR/hypr/$PI_SIGNATURE/hyprland.log" ]]; then
+    cp "$PI_RUNTIME_DIR/hypr/$PI_SIGNATURE/hyprland.log" "$PI_SMOKE_EVIDENCE/hyprland.log" || failed=1
   fi
-done
-printf '%s\n' "${protected[@]}" > "$B/protected-roots.paths"
-find "${protected[@]}" -xdev -type f -exec sha256sum {} + > "$B/protected.sha256"
-find "${protected[@]}" -xdev -type l -printf '%p\t%l\n' > "$B/protected-symlinks.tsv"
-find /boot /etc -xdev -printf '%y\t%p\n' > "$B/before-config.paths"
-id sierra > "$B/sierra-groups"
-sha256sum /run/systemd/cryptsetup/keydev-cryptroot/.cryptroot.key > "$B/usb-key.sha256"
-tar --acls --xattrs --numeric-owner -C / -cpf "$B/system.tar" \
-  etc boot var/lib/pacman/local var/lib/pacman/sync var/log/pacman.log \
-  run/systemd/cryptsetup/keydev-cryptroot/.cryptroot.key
-sha256sum "$B/system.tar" "$B/luks-header.bin" > "$B/backup.sha256"
-sha256sum --check "$B/backup.sha256"
-tar -tf "$B/system.tar" > "$B/backup-members"
-ROOT
-```
-
-Confirm `/dev/sda2` still has the recorded USB UUID before the partition-table read above. Backups are sensitive: the archive includes Wi-Fi configuration, SSH keys, the unlock key and a LUKS header. Do not print/upload their contents. No LUKS or USB content is changed by these backup commands. Record the run ID in the operator's private notes.
-
-Create an encrypted transport bundle on the Pi; choose and retain a separate recovery passphrase using GPG's interactive prompt:
-
-```bash
-sudo tar -C "$PI_DEPLOY_BACKUP" -cf - . | \
-  gpg --symmetric --cipher-algo AES256 \
-    --output "$HOME/omarchy-pi-recovery-$PI_DEPLOY_RUN.tar.gpg"
-```
-
-On the workstation, set `PI_DEPLOY_RUN` to the recorded value, copy the encrypted bundle outside this synced project, and verify it can be decrypted/listed. Do not continue if this fails:
-
-```bash
-umask 077
-mkdir -p "$HOME/.local/state/omarchy-pi-recovery"
-chmod 0700 "$HOME/.local/state/omarchy-pi-recovery"
-scp -F /dev/null -o StrictHostKeyChecking=yes \
-  "sierra@192.168.178.21:omarchy-pi-recovery-$PI_DEPLOY_RUN.tar.gpg" \
-  "$HOME/.local/state/omarchy-pi-recovery/"
-set -o pipefail
-gpg --decrypt "$HOME/.local/state/omarchy-pi-recovery/omarchy-pi-recovery-$PI_DEPLOY_RUN.tar.gpg" | tar -tf - >/dev/null
-```
-
-## Isolated package resolution and review
-
-Back on the Pi; use a separate scratch directory because pacman's unprivileged downloader cannot traverse the mode-0700 backup directory. Only scratch metadata/cache ancestors are searchable; the recovery backup and copied keyring remain private. These commands update only the scratch resolution database. The existing verified investigation directory is recorded in `resolution.md`; the recipe below shows how to reproduce it without disabling the downloader sandbox.
-
-```bash
-export PI_DEPLOY_RESOLVE="$(sudo mktemp -d /var/tmp/omarchy-pi-resolution.XXXXXX)"
-sudo chmod 0711 "$PI_DEPLOY_RESOLVE"
-sudo install -d -m 0755 "$PI_DEPLOY_RESOLVE/db" "$PI_DEPLOY_RESOLVE/packages"
-sudo cp -a /var/lib/pacman/local "$PI_DEPLOY_RESOLVE/db/local"
-sudo cp -a /var/lib/pacman/sync "$PI_DEPLOY_RESOLVE/db/sync"
-sudo chmod 0755 "$PI_DEPLOY_RESOLVE/db/sync"
-sudo cp -a /etc/pacman.d/gnupg "$PI_DEPLOY_RESOLVE/gnupg"
-sudo chmod 0700 "$PI_DEPLOY_RESOLVE/gnupg"
-sudo find "$PI_DEPLOY_RESOLVE/gnupg" -type s -delete
-PI_DEPLOY_PACMAN=(--dbpath "$PI_DEPLOY_RESOLVE/db" --gpgdir "$PI_DEPLOY_RESOLVE/gnupg" --logfile "$PI_DEPLOY_RESOLVE/pacman.log")
-sudo pacman "${PI_DEPLOY_PACMAN[@]}" -Sy
-sudo pacman "${PI_DEPLOY_PACMAN[@]}" -Sup --print-format '%n %v %r'
-sudo pacman "${PI_DEPLOY_PACMAN[@]}" -Sup --needed \
-  --print-format '%n %v %r %a %s %l' \
-  extra/hyprland extra/mesa extra/foot extra/ttf-jetbrains-mono-nerd
-```
-
-**Check the package gate.** The full-upgrade preview must contain only `expat 2.8.5-1 core`; the combined preview must match `packages-2026-09-23-resolved.tsv`: 106 additions and exactly the Expat `2.8.4-1 → 2.8.5-1` update, with no removals/replacements. Recheck the real installed database has not changed since copying it. If fresh metadata differs, review that difference before proceeding; do not silently omit a pending update. The scratch database is disposable and is never copied over the live database. Its copied keyring must not leave the Pi or be published.
-
-After a fresh manifest is approved, download against that exact resolution:
-
-```bash
-sudo pacman "${PI_DEPLOY_PACMAN[@]}" \
-  --cachedir "$PI_DEPLOY_RESOLVE/packages" -Suw --needed \
-  extra/hyprland extra/mesa extra/foot extra/ttf-jetbrains-mono-nerd
-```
-
-Before continuing, require matching detached `.sig` files for each approved archive (fetch the archive URL plus `.sig` if needed), successful verification with the copied trusted keyring, expected SHA-256, exact metadata/file/hook review, and no extra archives. `pacman -Suw` is download-only and must finish its required/trusted integrity checks. Copy the verified archives into the private deployment record:
-
-```bash
-sudo install -d -m 0700 "$PI_DEPLOY_BACKUP/packages"
-sudo cp -a "$PI_DEPLOY_RESOLVE/packages/." "$PI_DEPLOY_BACKUP/packages/"
-sudo chmod 0700 "$PI_DEPLOY_BACKUP/packages"
-sudo cp -a "$PI_DEPLOY_RESOLVE/db/sync" "$PI_DEPLOY_BACKUP/reviewed-sync"
-```
-
-Retain the reviewed manifest, signatures and archive analysis with the private record. Save the **106 new names only**, sorted under `LC_ALL=C`, as root-owned `$PI_DEPLOY_BACKUP/approved-new.names`; these are the manifest rows with `operation=install`, excluding Expat. They must all be absent from the prestate. Expat is an upgrade and has its own saved rollback archive; never add it to the removal list. Keep the encrypted off-Pi recovery bundle containing that old archive, even if the new download cache is retained only on the Pi.
-
-## Install with the temporary udev guard
-
-First collect exactly the reviewed archives (no signatures/partial downloads), check `pacman -Up`, and compare its names/versions with the approved manifest. The package directory is root-owned; it must contain only the approved archive files and their signatures:
-
-```bash
-mapfile -t PI_DEPLOY_ARCHIVES < <(sudo find "$PI_DEPLOY_BACKUP/packages" \
-  -maxdepth 1 -type f -name '*.pkg.tar.*' ! -name '*.sig' ! -name '*.part' | LC_ALL=C sort)
-test "${#PI_DEPLOY_ARCHIVES[@]}" -eq 107
-sudo pacman -Up --print-format '%n %v' -- "${PI_DEPLOY_ARCHIVES[@]}"
-```
-
-Only after that preview is accepted, run the transaction. Keep other package maintenance stopped throughout install/removal; the lock check is a preflight, not a reservation against another administrator starting pacman. Answer its final prompt only for the 106 approved additions and the exact Expat update, with no removals or other changes. The trap restores sentinel absence on normal completion/failure; if the shell is killed, inspect and restore it manually before finishing. A pre-existing sentinel must stay untouched.
-
-```bash
-sudo bash -s -- "$PI_DEPLOY_BACKUP" "${PI_DEPLOY_ARCHIVES[@]}" <<'ROOT'
-set -euo pipefail
-B=$1
-shift
-test ! -e "$B/udev-guard-created"
-test ! -e /var/lib/pacman/db.lck
-guard=/etc/systemd/do-not-udevadm-trigger-on-update
-created=0
-cleanup() { if (( created )); then rm -- "$guard"; rm -- "$B/udev-guard-created"; fi; }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM HUP
-if [[ ! -e $guard && ! -L $guard ]]; then
-  touch "$B/udev-guard-created"
-  install -m 0644 /dev/null "$guard"
-  created=1
-fi
-pacman -U --asdeps -- "$@" </dev/tty
-pacman -D --asexplicit hyprland mesa foot ttf-jetbrains-mono-nerd
-if grep -Fxq expat "$B/before.explicit"; then
-  pacman -D --asexplicit expat
-else
-  grep -Fxq expat "$B/before.dependencies"
-  pacman -D --asdeps expat
-fi
-ROOT
-```
-
-Capture `pacman -Q` after the attempt even if it failed; apply the preservation checks below before staging configuration. Never retry a failed package transaction blindly. After an interrupted connection/process, check the private `udev-guard-created` marker. Once no transaction is running, remove the sentinel only if this marker proves this run created it and it is still the expected root-owned empty regular file; then remove the marker. If it was pre-existing or changed unexpectedly, stop for inspection. Never remove pacman's lock while a transaction is still running. Apply this recovery rule to removal too.
-
-## Stage and parse the two session files
-
-Copy only `session/hyprland.lua` and `session/foot.ini` from the reviewed repository commit to a temporary Sierra-owned staging directory. Verify their SHA-256 against the workstation copy. With that directory named `$PI_DEPLOY_STAGE`:
-
-```bash
-test "$HOME" = /home/sierra
-test ! -L /home
-test ! -L /home/sierra
-test "$(stat -c %u /home/sierra)" = 1000
-test ! -L "$HOME/.config"
-if [[ -e $HOME/.config ]]; then
-  test -d "$HOME/.config"
-  test "$(stat -c %u "$HOME/.config")" = 1000
-fi
-test ! -e "$HOME/.config/omarchy-pi-smoke"
-test ! -L "$HOME/.config/omarchy-pi-smoke"
-install -d -m 0700 "$HOME/.config/omarchy-pi-smoke"
-install -m 0644 "$PI_DEPLOY_STAGE/hyprland.lua" "$HOME/.config/omarchy-pi-smoke/hyprland.lua"
-install -m 0644 "$PI_DEPLOY_STAGE/foot.ini" "$HOME/.config/omarchy-pi-smoke/foot.ini"
-Hyprland --verify-config --config "$HOME/.config/omarchy-pi-smoke/hyprland.lua"
-fc-match 'JetBrainsMono Nerd Font'
-```
-
-Require `fc-match` to report the intended JetBrains Mono Nerd Font family and file, not a fallback font. Clean up only this run's staging files after their hashes match.
-
-## Transient session: a separate five-minute experiment
-
-Check `loginctl list-sessions`, `loginctl seat-status seat0`, `systemctl show -p LoadState -p ActiveState -p SubState getty@tty8.service omarchy-pi-smoke.service`, and `sudo fgconsole` first. Inspect the properties instead of treating an expected inactive/not-found `systemctl status` exit as a fatal error. Save the foreground VT immediately before switching it. Require no active seat0 user, an unused tty8, no existing smoke unit/process and a working second SSH session. Never replace or stop someone else's session.
-
-Install cleanup before switching the VT. Run this experiment in its own interactive Bash shell so these traps do not replace unrelated operator traps. VT restoration is attempted first even if the unit/session has already vanished. A surviving PAM session is terminated only after checking its identity; failed cleanup requires investigation from the second SSH session.
-
-```bash
-sudo fgconsole | sudo tee "$PI_DEPLOY_BACKUP/experiment-vt" >/dev/null
-PI_DEPLOY_VT=$(sudo cat "$PI_DEPLOY_BACKUP/experiment-vt")
-PI_DEPLOY_SESSION_ID=
-pi_smoke_cleanup() {
-  local failed=0 load_state
-  sudo chvt "$PI_DEPLOY_VT" || failed=1
-  if load_state=$(systemctl show -p LoadState --value omarchy-pi-smoke.service); then
-    if [[ $load_state != not-found ]]; then
-      sudo systemctl stop omarchy-pi-smoke.service || failed=1
+  if [[ -n $PI_WM_PID ]]; then
+    current_pid=$(systemctl --user show -p MainPID --value wayland-wm@Hyprland.service) || failed=1
+    if [[ $current_pid == "$PI_WM_PID" ]]; then
+      systemctl --user stop wayland-wm@Hyprland.service || failed=1
+    elif [[ $current_pid != 0 ]]; then
+      failed=1
     fi
-  else
-    failed=1
   fi
-  if [[ -n $PI_DEPLOY_SESSION_ID ]] && loginctl show-session "$PI_DEPLOY_SESSION_ID" >/dev/null 2>&1; then
-    if [[ $(loginctl show-session "$PI_DEPLOY_SESSION_ID" -p Name --value) == sierra &&
-          $(loginctl show-session "$PI_DEPLOY_SESSION_ID" -p Seat --value) == seat0 &&
-          $(loginctl show-session "$PI_DEPLOY_SESSION_ID" -p VTNr --value) == 8 ]]; then
-      sudo loginctl terminate-session "$PI_DEPLOY_SESSION_ID" || failed=1
+  if [[ $(systemctl show -p LoadState --value "$PI_UNIT") != not-found ]]; then
+    sudo -n systemctl stop "$PI_UNIT" || failed=1
+  fi
+  if [[ -n $PI_SESSION_ID ]] && loginctl show-session "$PI_SESSION_ID" >/dev/null 2>&1; then
+    if [[ $(loginctl show-session "$PI_SESSION_ID" -p Name --value) == "$PI_USER" && $(loginctl show-session "$PI_SESSION_ID" -p Remote --value) == no && $(loginctl show-session "$PI_SESSION_ID" -p Seat --value) == seat0 && $(loginctl show-session "$PI_SESSION_ID" -p VTNr --value) == "$PI_VT" && $(loginctl show-session "$PI_SESSION_ID" -p Leader --value) == "$PI_SESSION_LEADER" ]]; then
+      sudo -n loginctl terminate-session "$PI_SESSION_ID" || failed=1
     else
       failed=1
     fi
   fi
-  return "$failed"
+  (( failed == 0 )) || echo 'Inspect cleanup from the recovery connection' >&2
+  (( failed == 0 ))
 }
-trap pi_smoke_cleanup EXIT
+trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
-sudo chvt 8
-sudo systemd-run --unit=omarchy-pi-smoke --collect --service-type=exec \
-  --property=User=sierra --property=PAMName=login \
-  --property=WorkingDirectory=/home/sierra \
-  --property=TTYPath=/dev/tty8 --property=StandardInput=tty \
+
+sudo -v
+sudo chvt "$PI_VT"
+env -u OMARCHY_PATH sudo systemd-run --unit="$PI_UNIT" --collect --service-type=exec \
+  --property="User=$PI_USER" --property=PAMName=login \
+  --property="WorkingDirectory=$PI_HOME" \
+  --property="TTYPath=/dev/tty$PI_VT" --property=StandardInput=tty \
   --property=StandardOutput=journal --property=StandardError=journal \
   --property=TTYReset=yes --property=TTYVHangup=yes \
   --property=Restart=no --property=RuntimeMaxSec=5min \
   --property=TimeoutStopSec=15s --property=KillMode=control-group \
-  --setenv=HOME=/home/sierra --setenv=XDG_RUNTIME_DIR=/run/user/1000 \
+  --setenv="HOME=$PI_HOME" --setenv="XDG_RUNTIME_DIR=$PI_RUNTIME_DIR" \
+  --setenv="DBUS_SESSION_BUS_ADDRESS=unix:path=$PI_RUNTIME_DIR/bus" \
   --setenv=XDG_SESSION_TYPE=wayland --setenv=XDG_SESSION_DESKTOP=Hyprland \
   --setenv=XDG_CURRENT_DESKTOP=Hyprland --setenv=AQ_NO_KMS_REQUIREMENT=1 \
-  /usr/bin/Hyprland --config /home/sierra/.config/omarchy-pi-smoke/hyprland.lua
+  /usr/bin/uwsm start -g -1 -U run -e -D Hyprland -- \
+  /usr/bin/Hyprland --config "$PI_SMOKE_DIR/hyprland.lua"
 ```
 
-If `systemd-run` fails, immediately restore the saved VT with the stop commands below. Do not leave tty8 as the foreground VT. In all cases verify the PAM session: record its ID from `loginctl list-sessions`, then `loginctl show-session ID -p Name -p Remote -p Seat -p VTNr -p Active -p Leader`. Stop if it is not Sierra's active local tty8 session. PAM can move the process into a session scope, so the transient service's cgroup limit alone is not a proven cleanup mechanism; monitor the five-minute limit and use explicit session cleanup too.
-
-Run `hyprctl instances -j`, identify this experiment's instance by its PID/config/session, and set `HYPRLAND_INSTANCE_SIGNATURE` to that instance only. Then run:
+Immediately identify the one new local session and compositor instance. Verify that the account, seat, VT, PID and configuration path match this run before issuing any `hyprctl` command. If no monitor is connected, create one headless output through the identified instance. Launch Foot through that instance and record the output/client JSON privately.
 
 ```bash
-hyprctl version
+loginctl list-sessions
+# Set PI_SESSION_ID, PI_SESSION_LEADER and PI_SIGNATURE only after inspection.
+loginctl show-session "$PI_SESSION_ID" -p Name -p Remote -p Seat -p VTNr -p Active -p Leader
+systemctl --user show wayland-wm@Hyprland.service -p ActiveState -p MainPID
+hyprctl instances -j
+export HYPRLAND_INSTANCE_SIGNATURE="$PI_SIGNATURE"
 hyprctl configerrors
 hyprctl -j monitors
 hyprctl -j clients
-sudo journalctl -u omarchy-pi-smoke.service --no-pager
 ```
 
-**Observed Pi fallback:** In the 23 September run, the selected instance initially returned `[]` for monitors despite the documented automatic headless output. Only if this identified instance is running and has no monitor, create one through that instance, then recheck:
+## Postcheck and rollback
 
-```bash
-hyprctl output create headless omarchy-smoke
-hyprctl -j monitors
-```
-
-That produced a 1280×720 at 60 Hz output under the wildcard monitor rule. Foot had not appeared after output creation. Only if this same instance still has no Foot client, launch the reviewed terminal command from its Lua environment and recheck:
-
-```bash
-hyprctl eval 'hl.exec_cmd("foot --config=/home/sierra/.config/omarchy-pi-smoke/foot.ini")'
-hyprctl -j clients
-hyprctl configerrors
-```
-
-These commands depend on `HYPRLAND_INSTANCE_SIGNATURE` being set to the verified experiment instance as instructed above. The plain `hyprctl dispatch exec` form produced a Lua parser error on Hyprland 0.56.2; the `eval` form succeeded. See the [observed result](smoke-result.md). Capture the compositor log under `/run/user/1000/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log` before stopping the session because it may disappear with the runtime directory.
-
-Set `PI_DEPLOY_SESSION_ID` to the **recorded new tty8 session** during the session check, never an SSH/manager session. Stop whether successful or not:
-
-```bash
-pi_smoke_cleanup
-```
-
-With `--collect` the unit may already be gone; that must not prevent session cleanup or VT restoration. Confirm the recorded compositor/Foot processes exited, the experiment's PAM session ended, and `sudo fgconsole` matches the saved VT; never use `pkill -u sierra`, `loginctl terminate-user`, or a user-manager restart. If startup failed before the PAM session ID was recorded, inspect new local tty8 sessions before declaring cleanup complete. After a lost shell, restore the saved VT from the second SSH session first, then identify and stop only this experiment's unit/session.
-
-Only after those checks pass, clear the experiment shell's traps with `trap - EXIT INT TERM HUP`.
-
-## Preservation checks, after every stage and after rollback
-
-Run `sudo sha256sum --check "$PI_DEPLOY_BACKUP/protected.sha256"` and the USB-key hash check privately; all pre-existing **protected** files must match. Compare every recorded symlink target and the absence of `protected-absent.paths`, LUKS JSON (`cryptsetup luksDump --dump-json-metadata`), `rpi-eeprom-config`, enabled-unit state, default target, firewall rule content, and the versions of **every** pre-existing package with the backup. During deployment, permit only the reviewed Expat `2.8.4-1 → 2.8.5-1` difference; after rollback, require every original version and install reason to match. Compare firewall rules ignoring the generated `iptables-save` timestamp comments; do not mistake elapsed counters or DHCP lifetimes for configuration changes. Inventory additions against `before-config.paths`: none in `/boot`, only reviewed package paths in `/etc`; a hash check of old files does not detect additions. The full `/etc` backup allows review of ordinary generated state outside the protected list: linker caches and font configuration may change, and `group`/`gshadow` plus their backup files may gain only the reviewed `seat` group. No existing account or membership may change. Inspect these differences privately rather than publishing credential files.
-
-```bash
-pacman -Dk
-findmnt -no SOURCE,FSTYPE,OPTIONS /
-findmnt -no SOURCE,FSTYPE,OPTIONS /boot
-sudo cryptsetup status cryptroot
-systemctl is-active sshd systemd-networkd wpa_supplicant@wld0
-systemctl is-enabled sshd systemd-networkd wpa_supplicant@wld0
-ip -br address show dev wld0
-ip route
-```
-
-Also open a fresh, independent `ssh -F /dev/null -o StrictHostKeyChecking=yes sierra@192.168.178.21` from the workstation and run `id` plus the mount/service checks. Passing on an already established SSH connection is insufficient. Preserve journals and `/var/log/pacman.log` if any check fails. Only expected new package files/caches and this run's recorded artifacts are allowed.
-
-Specifically inspect `systemctl show -p UnitFileState -p ActiveState seatd.service fancontrol.service healthd.service lm_sensors.service sensord.service` and `systemctl --user show -p UnitFileState -p ActiveState foot-server.service foot-server.socket`. None may acquire an enabled or active state through this transaction. Use property inspection rather than unguarded `is-enabled`/`status` calls for these deliberately inactive units. Verify Sierra's supplementary groups remain unchanged.
-
-## Routine rollback
-
-Stop the experiment/restore the VT as above. Because the destination was required to be absent before staging, remove only these files and the empty directory (if the user has since edited them, save that work first):
-
-```bash
-rm -- "$HOME/.config/omarchy-pi-smoke/hyprland.lua" "$HOME/.config/omarchy-pi-smoke/foot.ini"
-rmdir -- "$HOME/.config/omarchy-pi-smoke"
-```
-
-For package rollback, calculate the actual additions, including after an interrupted/failed transaction. Refuse unexpected additions, missing pre-existing packages or version changes other than the exact reviewed Expat transition. Remove the new packages, then restore old Expat if it was upgraded. Normal dependency checks must still pass; no recursive dependency/orphan purge or dependency bypass:
-
-```bash
-sudo bash -s -- "$PI_DEPLOY_BACKUP" <<'ROOT'
-set -euo pipefail
-B=$1
-export LC_ALL=C
-test ! -e "$B/udev-guard-created"
-pacman -Q | sort > "$B/rollback.packages"
-join <(sort "$B/before.packages") "$B/rollback.packages" | \
-  awk '$2 != $3 && !($1 == "expat" && $2 == "2.8.4-1" && $3 == "2.8.5-1") {bad=1} END {exit bad}'
-comm -23 <(awk '{print $1}' "$B/before.packages" | sort) \
-  <(awk '{print $1}' "$B/rollback.packages" | sort) > "$B/missing-old.names"
-test ! -s "$B/missing-old.names"
-comm -13 <(awk '{print $1}' "$B/before.packages" | sort) \
-  <(awk '{print $1}' "$B/rollback.packages" | sort) > "$B/actual-new.names"
-comm -23 "$B/actual-new.names" "$B/approved-new.names" > "$B/unexpected-new.names"
-test ! -s "$B/unexpected-new.names"
-mapfile -t added < "$B/actual-new.names"
-old_expat="$B/rollback/expat-2.8.4-1-aarch64.pkg.tar.xz"
-printf '95b99acc39cb71d84fe2a7de224b0efb2fd1f383f9f6386508c280601e8714ec  %s\n' "$old_expat" | sha256sum -c -
-test "$(pacman -Qp "$old_expat")" = 'expat 2.8.4-1'
-pacman-key --verify "$old_expat.sig" "$old_expat"
-test ! -e /var/lib/pacman/db.lck
-guard=/etc/systemd/do-not-udevadm-trigger-on-update
-created=0
-cleanup() { if (( created )); then rm -- "$guard"; rm -- "$B/udev-guard-created"; fi; }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM HUP
-if [[ ! -e $guard && ! -L $guard ]]; then
-  touch "$B/udev-guard-created"
-  install -m 0644 /dev/null "$guard"
-  created=1
-fi
-if (( ${#added[@]} )); then
-  pacman -R -- "${added[@]}" </dev/tty
-fi
-if [[ $(pacman -Q expat) == 'expat 2.8.5-1' ]]; then
-  pacman -U -- "$old_expat" </dev/tty
-fi
-if grep -Fxq expat "$B/before.explicit"; then
-  pacman -D --asexplicit expat
-else
-  grep -Fxq expat "$B/before.dependencies"
-  pacman -D --asdeps expat
-fi
-pacman -Dk
-diff -u <(sort "$B/before.packages") <(pacman -Q | sort)
-diff -u <(sort "$B/before.explicit") <(pacman -Qqe | sort)
-diff -u <(sort "$B/before.dependencies") <(pacman -Qqd | sort)
-ROOT
-```
-
-Review the removal prompt and permit only the recorded additions; the following downgrade prompt must name only Expat `2.8.5-1 → 2.8.4-1`. Let dependency checks stop either operation if anything now needs the new versions. Compare package versions and explicit/dependency reasons with prestate afterward. Retain backups/logs; do not delete pre-existing users/groups or caches indiscriminately. Inspect any newly generated config, cache, sysusers group or `.pacsave` against the archive review before cleaning it up. This restores the package set, not a byte-for-byte filesystem image. Before rollback, preservation comparisons allow the reviewed Expat version change only; after rollback, every original version/reason must match exactly.
-
-If a protected file changed unexpectedly, recover only the identified file after reviewing the difference. For example, **only if that exact file needs restoration**, while `/boot` is still the verified NVMe boot partition:
-
-```bash
-sudo tar --numeric-owner --same-owner -xpf "$PI_DEPLOY_BACKUP/system.tar" -C / -- boot/config.txt
-sudo sha256sum --check "$PI_DEPLOY_BACKUP/protected.sha256"
-```
-
-For ext4 configuration files include `--acls --xattrs` when extracting their exact archive member. Restore symlinks/permissions as recorded. Do not unpack all of `system.tar`, restore `/var/lib/pacman`, run `mkinitcpio`, restore a LUKS header, or alter EEPROM as routine rollback. Recovery from lost SSH or boot requires the separate physical/rescue path described in the plan; no remote timer can repair an inaccessible encrypted root.
+After cleanup, require the saved VT, no test service, no test PAM session, no compositor/client process, no test Wayland socket and no unexpected graphical user environment. Repeat the package, account, mount, boot, encryption, network, service and protected-file checks from the private record. Remove only the temporary namespaced configuration and the reviewed package additions if the run is being rolled back. Never restore a saved package database over live files or use a recursive package removal to recover from an incomplete test.

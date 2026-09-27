@@ -18,12 +18,8 @@ systemctl --user show -p FragmentPath bt-agent.service
 
 The Pi session stager does not install packages or manage this service. Source release rollback therefore does not remove the separately installed pairing agent.
 
-## Deployment result — 27 September 2026
+## Acceptance checks
 
-Source release `b9382381e552e952aea06b6983880a3bbc919709` is active, with `82de4d6e04ec8f2127e8ab29f997d080bcde3ae6` retained as the previous session release. The signature-verified `bluez-tools 0.2.0-6` ARM package was the only addition (585 to 586 packages), with no upgrades or removals. The unchanged upstream user unit is enabled and active. Its SHA-256 is `0406b577a1225dc2a9f86638d3c346eb3635168576f04050be50ebcc0be6be12`.
+For a target installation, record the selected source revision and the complete signed package transaction in private deployment evidence. Confirm that the pairing agent is enabled and active, that existing bonds are preserved, and that the panel starts discovery when opened and stops it when closed. Use a test Bluetooth sink selected by the operator; do not publish its model, address or pairing details.
 
-The panel displays the connected Anker SoundCore. Live IPC checks verified discovery starts when the panel opens and stops when it closes. The speaker remained paired, bonded, trusted and connected at 48% volume. The panel's visual contents were inspected. Workspace and focus were restored after testing. Focused Bluetooth, Pi audio-controls and minimal-session tests passed. The final live check found healthy Bluetooth, audio, SSH, networking and desktop services, no failed units, no compositor errors and the same boot/kernel; no reboot occurred.
-
-Agent startup was followed by `Pairable` changing from false to true. `Discoverable` remained false, and existing bonds were preserved. Do not infer from the upstream unit comment that this version limits pairability to the panel's open lifetime: that behavior was not observed.
-
-New-device pairing, forgetting/re-pairing, radio power cycling and reboot persistence remain untested. The standard shortcut is registered, but synthetic key injection did not open the panel, so physical keyboard acceptance is also outstanding. These limits do not affect the verified panel IPC and discovery lifecycle.
+Check the panel visually, restore workspace and focus, and verify the normal Bluetooth and audio controls. Test new-device pairing, forgetting and re-pairing, radio power cycling, reboot persistence and physical keyboard delivery separately. Synthetic input may verify registration and IPC behavior, but it does not establish physical keyboard acceptance.

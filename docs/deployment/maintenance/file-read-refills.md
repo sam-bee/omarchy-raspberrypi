@@ -33,8 +33,8 @@ Example outer supervision (the five-second kill grace is owned by `timeout`):
 timeout --signal=TERM --kill-after=5s 180s \
   python3 compare-file-refills.py \
     --root /run/omarchy-read-comparison/nvme-root \
-    --manifest /var/tmp/omarchy-diagnosis-20260925/verified-files.json \
-    --output /var/tmp/read-refills-20260925
+    --manifest /var/tmp/omarchy-reference/verified-files.json \
+    --output /var/tmp/read-refills-run
 ```
 
 Keep the output on the test OS. Do not launch target executables, mount the
