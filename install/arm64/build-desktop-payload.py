@@ -306,6 +306,7 @@ def _parse_info(stdout: bytes) -> list[dict[str, str]]:
         if " : " not in line:
             continue
         key, value = line.split(" : ", 1)
+        key = key.strip()
         if key == "Name":
             current["name"] = value.strip()
         elif key == "Version":
