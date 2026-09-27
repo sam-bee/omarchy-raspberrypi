@@ -1,0 +1,19 @@
+[Unit]
+Description=Omarchy Pi first-boot access provisioning
+RequiresMountsFor=/boot
+AssertPathExists=/usr/lib/omarchy-pi/installer-image.marker
+ConditionPathExists=!/var/lib/omarchy-pi/access-provisioned
+After=local-fs.target
+Before=network-pre.target systemd-networkd.service NetworkManager.service wpa_supplicant.service sshd.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/omarchy-pi/provision-access.py
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=no
+
+[Install]
+RequiredBy=network-pre.target sshd.service
+WantedBy=multi-user.target
