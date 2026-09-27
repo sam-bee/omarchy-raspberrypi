@@ -29,8 +29,15 @@ hl.env("OMARCHY_PATH", paths.omarchy_path)
 
 local bin_dir = paths.omarchy_path .. "/bin"
 local kept = {}
+local present = {}
 for entry in (os.getenv("PATH") or "/usr/local/bin:/usr/bin"):gmatch("[^:]+") do
   if entry ~= bin_dir then table.insert(kept, entry) end
+  present[entry] = true
+end
+-- A running compositor may predate user tool provisioning. Refresh the same
+-- paths as env-bootstrap so agent bindings work after a config reload too.
+for _, tool_path in ipairs({ paths.home .. "/.local/share/mise/shims", paths.home .. "/.local/bin" }) do
+  if not present[tool_path] then table.insert(kept, tool_path) end
 end
 table.insert(kept, 1, bin_dir)
 hl.env("PATH", table.concat(kept, ":"))

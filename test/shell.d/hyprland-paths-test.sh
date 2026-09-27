@@ -26,3 +26,26 @@ HOME="/home/test-user" OMARCHY_PATH="$ROOT" \
   EXPECTED_CONFIG="/custom/config" EXPECTED_STATE="/custom/state" \
   run_paths
 pass "set XDG path variables are honored"
+
+lua_binary=$(command -v lua)
+run_tool_paths() {
+  "$lua_binary" - <<'LUA'
+package.path = os.getenv("OMARCHY_PATH") .. "/?.lua;" .. package.path
+local captured = {}
+hl = { env = function(key, value) captured[key] = value end, config = function() end }
+package.preload["default.hypr.nvidia"] = function() return {} end
+require("default.hypr.envs")
+assert(captured.PATH == os.getenv("EXPECTED_PATH"), captured.PATH)
+LUA
+}
+
+HOME=/home/test-user OMARCHY_PATH="$ROOT" PATH=/usr/bin:/bin \
+  EXPECTED_PATH="$ROOT/bin:/usr/bin:/bin:/home/test-user/.local/share/mise/shims:/home/test-user/.local/bin" \
+  run_tool_paths
+pass "compositor reload adds missing agent tool paths"
+
+HOME=/home/test-user OMARCHY_PATH="$ROOT" \
+  PATH="$ROOT/bin:/usr/bin:/home/test-user/.local/share/mise/shims:/home/test-user/.local/bin" \
+  EXPECTED_PATH="$ROOT/bin:/usr/bin:/home/test-user/.local/share/mise/shims:/home/test-user/.local/bin" \
+  run_tool_paths
+pass "compositor reload preserves existing tool paths without duplicates"
