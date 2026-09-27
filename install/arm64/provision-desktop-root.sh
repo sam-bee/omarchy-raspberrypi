@@ -310,44 +310,12 @@ stage_system_assets() {
     "$(target_path /etc/pam.d/omarchy-lock-password)" 0644
 }
 
-append_headless_hook() {
-  local file=$1 marker="-- Omarchy Pi headless output hook (managed)"
-  if [[ ! -e $file && ! -L $file && $dry_run -eq 1 ]]; then
-    announce "append Pi headless-output compatibility hook to $file"
-    return 0
-  fi
-  require_regular_file "$file" "Hyprland autostart config"
-  grep -Fqx -- "$marker" "$file" && return 0
-  announce "append Pi headless-output compatibility hook to $file"
-  (( dry_run )) && return 0
-  printf '\n%s\n%s\n%s\n%s\n%s\n' \
-    "$marker" \
-    'hl.on("hyprland.start", function()' \
-    '  local helper = (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy-pi") .. "/install/arm64/session/ensure-headless-output.sh"' \
-    '  hl.exec_cmd("bash " .. o.shell_quote(helper))' \
-    'end)' >>"$file"
-}
-
-install_hypr_autostart() {
-  local source=$1 destination=$2 owner_uid=${3:-0} owner_gid=${4:-0}
-  if [[ -f $destination && ! -L $destination ]] &&
-    grep -Fqx -- '-- Omarchy Pi headless output hook (managed)' "$destination"; then
-    return 0
-  fi
-  install_file "$source" "$destination" 0644 "$owner_uid" "$owner_gid"
-  append_headless_hook "$destination"
-}
-
 stage_user_defaults() {
   local destination="$rootfs/etc/skel/.config/hypr" source content
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
     [[ $(basename -- "$source") == hyprland.lua ]] && continue
-    if [[ $(basename -- "$source") == autostart.lua ]]; then
-      install_hypr_autostart "$source" "$destination/autostart.lua"
-    else
-      install_file "$source" "$destination/$(basename -- "$source")" 0644
-    fi
+    install_file "$source" "$destination/$(basename -- "$source")" 0644
   done
   content=$(<"$source_checkout/install/arm64/session/fresh-hyprland-prefix.lua")
   content+=$'\n'
@@ -433,11 +401,7 @@ seed_selected_user() {
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
     [[ $(basename -- "$source") == hyprland.lua ]] && continue
-    if [[ $(basename -- "$source") == autostart.lua ]]; then
-      install_hypr_autostart "$source" "$home_in_target/.config/hypr/autostart.lua" "$uid" "$gid"
-    else
-      install_file "$source" "$home_in_target/.config/hypr/$(basename -- "$source")" 0644 "$uid" "$gid"
-    fi
+    install_file "$source" "$home_in_target/.config/hypr/$(basename -- "$source")" 0644 "$uid" "$gid"
   done
   content=$(<"$source_checkout/install/arm64/session/fresh-hyprland-prefix.lua")
   content+=$'\n'

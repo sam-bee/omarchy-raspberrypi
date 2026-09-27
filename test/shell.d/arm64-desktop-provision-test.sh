@@ -40,6 +40,10 @@ source_text=$(<"$ROOT/config/hypr/hyprland.lua")
 grep -Fq 'require("hypr.monitors")' <<<"$source_text" || fail "fresh config uses upstream Hyprland modules"
 prefix_text=$(<"$ROOT/install/arm64/session/fresh-hyprland-prefix.lua")
 grep -Fq '_G.omarchy_autostart_minimal = true' <<<"$prefix_text" || fail "fresh config defers unsupported system autostart"
+if grep -Fq 'append_headless_hook' "$ROOT/install/arm64/provision-desktop-root.sh" ||
+  grep -Fq 'headless-output compatibility hook' "$ROOT/install/arm64/provision-desktop-root.sh"; then
+  fail "fresh setup must leave headless output creation to guarded start-shell"
+fi
 if grep -Fq 'OMARCHY_PI_MINIMAL_SESSION' "$ROOT/install/arm64/provision-desktop-root.sh" ||
   grep -Fq '_G.omarchy_default_bindings = false' <<<"$prefix_text"; then
   fail "fresh provisioner must not force the reduced session profile"
