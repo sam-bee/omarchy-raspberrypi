@@ -85,6 +85,23 @@ else:
 check(isinstance(data.get("preserve"), list) and data["preserve"], "preserve policy is empty")
 check(isinstance(data.get("blockers"), list) and data["blockers"], "blockers are empty")
 
+profiles = data.get("package_profiles")
+check(isinstance(profiles, dict) and "still-image-desktop" in profiles, "still-image-desktop profile is missing")
+image_profile = profiles["still-image-desktop"]
+check(image_profile["roots"] == ["imv", "libvips", "qt6-imageformats", "nautilus", "python-gobject", "xdg-desktop-portal-gtk", "jq", "imagemagick", "pipewire-jack"], "still-image-desktop roots drifted")
+check(image_profile["file_chooser_roots"] == ["python-gobject", "xdg-desktop-portal-gtk"], "file chooser roots drifted")
+check(image_profile["not_required"] == ["ffmpegthumbnailer"], "still-image profile scope drifted")
+check(image_profile["integration"]["viewer_desktop_entry"] == "applications/imv.desktop", "image viewer desktop entry path drifted")
+check(image_profile["integration"]["mime_defaults"] == "default/applications/mimeapps.list", "image MIME defaults path drifted")
+check(image_profile["integration"]["thumbnail_command"] == "vipsthumbnail", "still thumbnail command drifted")
+for source_path in (image_profile["integration"]["viewer_desktop_entry"], image_profile["integration"]["mime_defaults"], image_profile["integration"]["session_bindings"], image_profile["integration"]["background_plugin"]):
+    check((root / source_path).is_file(), f"image integration source is missing: {source_path}")
+desktop_entry = (root / image_profile["integration"]["viewer_desktop_entry"]).read_text()
+mime_defaults = (root / image_profile["integration"]["mime_defaults"]).read_text()
+check("Exec=imv %F" in desktop_entry, "imv desktop entry does not accept files")
+for mime in ("image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/tiff"):
+    check(f"{mime}=imv.desktop" in mime_defaults, f"image MIME default is missing: {mime}")
+
 packages = data.get("packages")
 check(isinstance(packages, list) and packages, "package policy is empty")
 actions = {"candidate", "replace", "defer", "exclude"}
@@ -107,6 +124,9 @@ for line in (root / "install/omarchy-base.packages").read_text().splitlines():
     if name:
         base.append(name)
 check(set(base) <= set(names), "a base package is missing from the plan")
+for root in image_profile["roots"] + image_profile["file_chooser_roots"]:
+    row = next(row for row in packages if row["package"] == root)
+    check(row["action"] in {"candidate", "replace"}, f"still-image profile root is not installable: {root}")
 PY
   then
     fail "$profile JSON plan contract" "$(python3 -m json.tool "$json_path" 2>&1 || cat "$json_path")"

@@ -38,6 +38,35 @@ GEN2_WARNING = (
     "return to Gen1 if problems recur."
 )
 
+PACKAGE_PROFILES = {
+    "still-image-desktop": {
+        "scope": "Image viewing, still-image desktop background selection, native file chooser support, and upstream Files integration; video backgrounds remain a separate profile.",
+        "roots": [
+            "imv",
+            "libvips",
+            "qt6-imageformats",
+            "nautilus",
+            "python-gobject",
+            "xdg-desktop-portal-gtk",
+            "jq",
+            "imagemagick",
+            "pipewire-jack",
+        ],
+        "file_chooser_roots": ["python-gobject", "xdg-desktop-portal-gtk"],
+        "not_required": ["ffmpegthumbnailer"],
+        "integration": {
+            "viewer_desktop_entry": "applications/imv.desktop",
+            "mime_defaults": "default/applications/mimeapps.list",
+            "background_switcher": "bin/omarchy-theme-bg-switcher",
+            "image_menu": "bin/omarchy-menu-images",
+            "thumbnail_command": "vipsthumbnail",
+            "file_chooser": "bin/omarchy-file-select",
+            "session_bindings": "install/arm64/session/hyprland.lua",
+            "background_plugin": "shell/plugins/background/Background.qml",
+        },
+    },
+}
+
 
 def detect_target(target, machine=None, model=None):
     if target != "auto":
@@ -106,6 +135,27 @@ def build_boot_policy(target, pcie_gen=None):
     }
 
 
+def build_package_profiles(rows):
+    """Validate and expose bounded package-root profiles from the policy."""
+    by_name = {row["package"]: row for row in rows}
+    profiles = {}
+    for name, definition in PACKAGE_PROFILES.items():
+        profile = dict(definition)
+        roots = list(profile["roots"])
+        chooser_roots = list(profile["file_chooser_roots"])
+        for root in roots + chooser_roots:
+            row = by_name.get(root)
+            if row is None:
+                raise ValueError(f"package profile {name!r} names an unknown package {root!r}")
+            if row["action"] not in {"candidate", "replace"}:
+                raise ValueError(f"package profile {name!r} names non-installable package {root!r}")
+        for package in profile["not_required"]:
+            if package not in by_name:
+                raise ValueError(f"package profile {name!r} names an unknown excluded package {package!r}")
+        profiles[name] = profile
+    return profiles
+
+
 def build_plan(target, pcie_gen=None):
     base = [line.split("#", 1)[0].strip() for line in (ROOT / "install/omarchy-base.packages").read_text().splitlines()]
     base = [name for name in base if name]
@@ -133,6 +183,7 @@ def build_plan(target, pcie_gen=None):
         "ready_to_apply": False,
         "allowed_system_changes": [],
         "preserve": PRESERVE,
+        "package_profiles": build_package_profiles(packages),
         "packages": packages,
         "blockers": BLOCKERS,
     }
@@ -168,6 +219,11 @@ def render_text(plan):
     for row in plan["packages"]:
         replacement = f" -> {row['replacement']}" if row["action"] == "replace" else ""
         print(f"  {row['action'].upper():9} {row['package']}{replacement}: {row['reason']}")
+    print("\nReproducible package profiles:")
+    for name, profile in plan["package_profiles"].items():
+        roots = ", ".join(profile["roots"])
+        chooser = ", ".join(profile["file_chooser_roots"])
+        print(f"  {name}: roots={roots}; file-chooser-roots={chooser}")
     counts = Counter(row["action"] for row in plan["packages"])
     print("\nCounts: " + ", ".join(f"{key}={value}" for key, value in sorted(counts.items())))
     print("\nBefore a separate deployment milestone:")

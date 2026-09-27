@@ -9,7 +9,7 @@ mesa	candidate	-	Pi graphics userspace baseline for the V3D/DRM stack; preserve 
 polkit	candidate	-	Policy daemon required by the Quickshell authentication agent; verify agent/session integration at deployment.
 pipewire	candidate	-	Audio graph runtime paired with wireplumber.
 pipewire-alsa	candidate	-	ALSA compatibility for the audio baseline.
-pipewire-jack	defer	-	Optional JACK compatibility; defer until audio applications require it.
+pipewire-jack	candidate	-	Explicit PipeWire JACK provider selected by the reviewed image-desktop transaction; avoid an ambiguous jack2 provider choice.
 pipewire-pulse	candidate	-	PulseAudio-compatible server expected by desktop applications and audio controls.
 qt6-wayland	candidate	-	Qt Wayland platform integration for graphical applications.
 python	candidate	-	Python interpreter used by helper/runtime components; verify the dependency closure at deployment.

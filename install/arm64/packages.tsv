@@ -39,7 +39,7 @@ fcitx5	defer	-	Optional input-method framework; defer locale/input setup.
 fcitx5-gtk	defer	-	Optional GTK input-method integration.
 fcitx5-qt	defer	-	Optional Qt input-method integration.
 fd	candidate	-	Baseline file-search tool used by shell workflows.
-ffmpegthumbnailer	defer	-	Optional file-manager thumbnailer.
+ffmpegthumbnailer	defer	-	Video thumbnail generator used by optional video backgrounds and file previews; outside the still-image desktop profile.
 fontconfig	candidate	-	Required font discovery foundation for the graphical session.
 foot	candidate	-	Baseline terminal emulator for the session.
 fzf	candidate	-	Baseline interactive shell selector used by Omarchy workflows.
@@ -58,8 +58,8 @@ hyprland-guiutils	candidate	-	Core Hyprland GUI utilities used by the session.
 hyprland-preview-share-picker	defer	-	Optional screen-share picker; defer and explicitly validate the portal's own fallback before claiming screen sharing.
 hyprpicker	defer	-	Optional color picker; not required to start the session.
 hyprsunset	candidate	-	Desktop night-light command expected by Omarchy controls.
-imagemagick	defer	-	Optional image-processing tool; not required for the first session.
-imv	defer	-	Optional image viewer; defer application choices.
+imagemagick	candidate	-	Image processing used by background-aware bar sampling and image helpers in the desktop profile.
+imv	candidate	-	Selected ARM64 image viewer; applications/imv.desktop and default/applications/mimeapps.list map common image MIME types to it.
 inetutils	defer	-	Optional network diagnostics; avoid changing the working network substrate.
 inotify-tools	candidate	-	File-watch utility used by desktop/config workflows.
 inxi	defer	-	Optional hardware-reporting tool.
@@ -71,7 +71,7 @@ lazydocker	defer	-	Optional Docker UI; defer with Docker.
 lazygit	defer	-	Optional Git UI.
 less	candidate	-	Baseline pager for SSH and desktop administration.
 libsecret	candidate	-	Credential-store library for desktop applications.
-libvips	defer	-	Optional image-processing library.
+libvips	candidate	-	Still-image thumbnail generator used by omarchy-menu-images through vipsthumbnail.
 libyaml	defer	-	Optional development/runtime library; not needed for the first session.
 libreoffice-fresh	defer	-	Optional office suite.
 llvm	defer	-	Developer/build dependency; defer until source builds are in scope.
@@ -84,7 +84,7 @@ mise-bin	defer	-	Developer/runtime toolchain; defer until ARM binary/source hand
 moonlight-qt	defer	-	Optional streaming client.
 mpv	candidate	-	Baseline media playback used by desktop media actions.
 mpv-mpris	candidate	-	Media-session integration for the baseline player.
-nautilus	defer	-	Current Pi repository pulls mdadm through gvfs and udisks2, triggering the installed mkinitcpio hook; defer file management until boot-safe deployment is reviewed.
+nautilus	candidate	-	Upstream Files integration and directory MIME default; resolve and review its gvfs/udisks2/mdadm dependency and mkinitcpio hook before deployment.
 nautilus-python	defer	-	Optional file-manager extension.
 gnome-disk-utility	defer	-	Optional disk UI; defer storage operations on the encrypted Pi root.
 noto-fonts	candidate	-	Baseline text font coverage.
