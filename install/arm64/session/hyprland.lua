@@ -15,14 +15,13 @@ hl.bind("SUPER + SHIFT + B", hl.dsp.exec_cmd("omarchy-launch-browser --private")
 -- Keep the discoverable Omarchy shortcuts for the two image workflows that
 -- are available in the bounded profile: choose a still background, or browse
 -- files and open images through the installed MIME handler. The background
--- route deliberately enters the existing selector instead of the full theme
--- switcher; the latter has post-hooks outside this Pi profile.
+-- route enters the existing selector; the full theme menu has its own binding.
 o.bind("SUPER + CTRL + SPACE", "Background switcher", "omarchy-menu toggle background")
 o.bind("SUPER + SHIFT + F", "File manager", { omarchy = "nautilus" })
 
 -- Keep the Pi profile bounded while retaining Omarchy's discoverable media
--- controls. These are the same XF86 bindings used by the full profile, with
--- the unrelated laptop brightness, touchpad, and playback bindings omitted.
+-- controls. These are the same XF86 bindings used by the full profile; laptop
+-- brightness and touchpad bindings are omitted on this hardware.
 o.bind("XF86AudioRaiseVolume", "Volume up", "omarchy-audio-output-volume raise", { locked = true, repeating = true })
 o.bind("XF86AudioLowerVolume", "Volume down", "omarchy-audio-output-volume lower", { locked = true, repeating = true })
 o.bind("XF86AudioMute", "Mute", "omarchy-audio-output-volume mute-toggle", { locked = true })
