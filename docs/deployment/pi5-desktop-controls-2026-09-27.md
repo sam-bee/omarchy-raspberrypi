@@ -1,5 +1,7 @@
 # Pi 5 desktop appearance and audio controls — 27 September 2026
 
+Follow-up: the [image desktop deployment](pi5-images-2026-09-27.md) installs the missing Qt decoder and image tools, superseding the JPEG-only workaround described below.
+
 The encrypted NVMe Pi now runs the bounded desktop profile from `f06349b0`: Tokyo Night colors, its static cityscape JPEG wallpaper, themed Foot, and the existing Omarchy audio panel and volume OSD. The existing Chromium window and compositor remained running while Quickshell was restarted. No package transaction or reboot was needed.
 
 The audio panel identifies the connected Anker SoundCore. Injected keyboard events in the real panel changed volume from 48% to 53% and back, then muted and unmuted the default output. The normal volume helper independently passed the same changes and displayed the OSD. The media-key bindings and `Super+Ctrl+A` panel shortcut are registered in the running compositor; physical keyboard/RDP-client key delivery was not tested. The speaker was left at 48%, unmuted. Previously accepted audible browser playback was not repeated.
