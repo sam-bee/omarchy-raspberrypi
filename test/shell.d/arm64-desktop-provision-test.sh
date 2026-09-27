@@ -24,6 +24,7 @@ printf 'root:x:0:\n' >"$target/etc/group"
 dry_run_output=$(bash "$ROOT/install/arm64/provision-desktop-root.sh" \
   --rootfs "$target" --source-checkout "$test_checkout" --dry-run)
 grep -Fq 'dry-run complete (target unchanged)' <<<"$dry_run_output" || fail "generic dry-run completes"
+grep -Fq '/etc/pam.d/omarchy-lock-password' <<<"$dry_run_output" || fail "generic dry-run stages lock password PAM policy"
 [[ ! -e $target/usr/share/omarchy-pi ]] || fail "generic dry-run does not populate the target"
 [[ ! -e $target/etc/skel ]] || fail "generic dry-run does not create skeleton files"
 pass "generic root provisioning dry-run is non-mutating"
@@ -37,7 +38,22 @@ pass "user provisioning dry-run keeps account creation target-local"
 
 source_text=$(<"$ROOT/config/hypr/hyprland.lua")
 grep -Fq 'require("hypr.monitors")' <<<"$source_text" || fail "fresh config uses upstream Hyprland modules"
-if grep -Fq 'OMARCHY_PI_MINIMAL_SESSION' "$ROOT/install/arm64/provision-desktop-root.sh"; then
+prefix_text=$(<"$ROOT/install/arm64/session/fresh-hyprland-prefix.lua")
+grep -Fq '_G.omarchy_autostart_minimal = true' <<<"$prefix_text" || fail "fresh config defers unsupported system autostart"
+if grep -Fq 'OMARCHY_PI_MINIMAL_SESSION' "$ROOT/install/arm64/provision-desktop-root.sh" ||
+  grep -Fq '_G.omarchy_default_bindings = false' <<<"$prefix_text"; then
   fail "fresh provisioner must not force the reduced session profile"
 fi
-pass "fresh provisioning keeps upstream menu and binding defaults"
+grep -Fq 'pam_faillock.so preauth' "$ROOT/install/arm64/session/omarchy-lock-password" ||
+  fail "fresh target includes lock password PAM preauth"
+grep -Fq 'account    include                     system-local-login' \
+  "$ROOT/install/arm64/session/omarchy-lock-password" ||
+  fail "fresh target includes lock password account policy"
+expected_pam=$(awk '
+  /as_root tee \/etc\/pam\.d\/omarchy-lock-password/ { capture=1; next }
+  capture && /^EOF$/ { exit }
+  capture { print }
+' "$ROOT/bin/omarchy-apply-lock")
+actual_pam=$(<"$ROOT/install/arm64/session/omarchy-lock-password")
+[[ $actual_pam == "$expected_pam" ]] || fail "fresh PAM asset matches upstream lock policy"
+pass "fresh provisioning keeps upstream bindings and lock authentication"

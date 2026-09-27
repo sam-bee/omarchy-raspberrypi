@@ -291,7 +291,9 @@ stage_system_assets() {
   for source in \
     "$source_root/session/systemd/start-uwsm-session.sh" \
     "$source_root/session/systemd/verify-hypr-rdp-runtime.py" \
-    "$source_root/session/ensure-headless-output.sh"; do
+    "$source_root/session/ensure-headless-output.sh" \
+    "$source_root/session/omarchy-lock-password" \
+    "$source_root/session/fresh-hyprland-prefix.lua"; do
     require_regular_file "$source" "Pi session helper"
   done
   install_file "$source_root/session/systemd/start-uwsm-session.sh" \
@@ -304,6 +306,8 @@ stage_system_assets() {
     "$(target_path /etc/systemd/system/omarchy-pi-uwsm-session@.service)" 0644
   install_file "$source_root/session/systemd/omarchy-pi-hypr-rdp.service" \
     "$(target_path /etc/systemd/user/omarchy-pi-hypr-rdp.service)" 0644
+  install_file "$source_root/session/omarchy-lock-password" \
+    "$(target_path /etc/pam.d/omarchy-lock-password)" 0644
 }
 
 append_headless_hook() {
@@ -335,15 +339,20 @@ install_hypr_autostart() {
 }
 
 stage_user_defaults() {
-  local destination="$rootfs/etc/skel/.config/hypr" source
+  local destination="$rootfs/etc/skel/.config/hypr" source content
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
+    [[ $(basename -- "$source") == hyprland.lua ]] && continue
     if [[ $(basename -- "$source") == autostart.lua ]]; then
       install_hypr_autostart "$source" "$destination/autostart.lua"
     else
       install_file "$source" "$destination/$(basename -- "$source")" 0644
     fi
   done
+  content=$(<"$source_checkout/install/arm64/session/fresh-hyprland-prefix.lua")
+  content+=$'\n'
+  content+=$(<"$source_checkout/config/hypr/hyprland.lua")
+  install_text "$rootfs/etc/skel/.config/hypr/hyprland.lua" 0644 0 0 "$content"$'\n'
   install_file "$source_checkout/config/omarchy/shell.json" \
     "$rootfs/etc/skel/.config/omarchy/shell.json" 0644
   install_file "$source_checkout/install/arm64/session/chromium-flags.conf" \
@@ -412,7 +421,7 @@ create_target_user() {
 
 seed_selected_user() {
   [[ -n $selected_user ]] || return 0
-  local account_line uid gid home_in_target source
+  local account_line uid gid home_in_target source content
   account_line=$(target_account_line "$selected_user")
   if (( dry_run )); then
     uid=0
@@ -423,12 +432,17 @@ seed_selected_user() {
   home_in_target=$(realpath -m -s -- "$rootfs$selected_home") || die "could not normalize target home"
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
+    [[ $(basename -- "$source") == hyprland.lua ]] && continue
     if [[ $(basename -- "$source") == autostart.lua ]]; then
       install_hypr_autostart "$source" "$home_in_target/.config/hypr/autostart.lua" "$uid" "$gid"
     else
       install_file "$source" "$home_in_target/.config/hypr/$(basename -- "$source")" 0644 "$uid" "$gid"
     fi
   done
+  content=$(<"$source_checkout/install/arm64/session/fresh-hyprland-prefix.lua")
+  content+=$'\n'
+  content+=$(<"$source_checkout/config/hypr/hyprland.lua")
+  install_text "$home_in_target/.config/hypr/hyprland.lua" 0644 "$uid" "$gid" "$content"$'\n'
   install_file "$source_checkout/config/omarchy/shell.json" "$home_in_target/.config/omarchy/shell.json" 0644 "$uid" "$gid"
   install_file "$source_checkout/install/arm64/session/chromium-flags.conf" "$home_in_target/.config/chromium-flags.conf" 0644 "$uid" "$gid"
   install_file "$source_checkout/install/arm64/session/portals.conf" "$home_in_target/.config/xdg-desktop-portal/portals.conf" 0644 "$uid" "$gid"
