@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Pick a screen region over frozen screen content
+# omarchy:summary=Pick a screen region, freezing the screen when available
 # omarchy:args=[region|windows|smart|fullscreen] [--keep-freeze] [--match-monitor] | --take-fullscreen | --take-window | --select-window <next|prev|left|right|up|down>
 # omarchy:hidden=true
 
@@ -304,9 +304,14 @@ pick() {
 
 FREEZE_PID=""
 freeze_screen() {
-  hyprpicker -r -z >/dev/null 2>&1 &
-  FREEZE_PID=$!
-  sleep .1
+  # hyprpicker provides a stable frame while the picker is open, but it is an
+  # optional package on small ARM profiles. A live slurp selection is still
+  # useful when it is unavailable, so leave the frame unfrozen in that case.
+  if omarchy-cmd-present hyprpicker; then
+    hyprpicker -r -z >/dev/null 2>&1 &
+    FREEZE_PID=$!
+    sleep .1
+  fi
 }
 
 cleanup_freeze() {

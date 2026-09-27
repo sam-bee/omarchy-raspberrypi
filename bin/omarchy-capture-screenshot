@@ -10,14 +10,90 @@ if [[ -n ${OMARCHY_SCREENSHOT_DIR:-} && -z ${OMASNAP_SCREENSHOT_DIR:-} ]]; then
   export OMASNAP_SCREENSHOT_DIR="$OMARCHY_SCREENSHOT_DIR"
 fi
 
-omasnap_args=()
+# Omasnap is the preferred screenshot UI. It is optional in the ARM64
+# profile, though, so retain the small grim/slurp path used by the base
+# desktop when Omasnap is not installed.
+if omarchy-cmd-present omasnap; then
+  omasnap_args=()
+  for arg in "$@"; do
+    case "$arg" in
+      copy) omasnap_args+=(--copy) ;;
+      save) omasnap_args+=(--save) ;;
+      slurp) ;;
+      *) omasnap_args+=("$arg") ;;
+    esac
+  done
+
+  exec omasnap "${omasnap_args[@]}"
+fi
+
+[[ -f ${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs ]] &&
+  source "${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs"
+OUTPUT_DIR="${OMASNAP_SCREENSHOT_DIR:-${OMARCHY_SCREENSHOT_DIR:-${XDG_PICTURES_DIR:-$HOME/Pictures}}}"
+
+MODE="smart"
+PROCESSING="slurp"
 for arg in "$@"; do
   case "$arg" in
-    copy) omasnap_args+=(--copy) ;;
-    save) omasnap_args+=(--save) ;;
-    slurp) ;;
-    *) omasnap_args+=("$arg") ;;
+    smart|region|windows|fullscreen) MODE="$arg" ;;
+    copy|save|slurp) PROCESSING="$arg" ;;
+    scroll)
+      echo "omarchy-capture-screenshot: scroll capture requires omasnap" >&2
+      exit 127
+      ;;
+    --editor=*)
+      echo "omarchy-capture-screenshot: --editor requires omasnap" >&2
+      exit 2
+      ;;
+    *)
+      echo "Usage: omarchy-capture-screenshot [smart|region|windows|fullscreen] [copy|save]" >&2
+      exit 2
+      ;;
   esac
 done
 
-exec omasnap "${omasnap_args[@]}"
+SCREENSHOT_EDITOR="${OMARCHY_SCREENSHOT_EDITOR:-}"
+FREEZE_PID=""
+cleanup() {
+  [[ -n $FREEZE_PID ]] && kill "$FREEZE_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+{ read -r FREEZE_PID; read -r SELECTION; } < <(omarchy-capture-region "$MODE" --keep-freeze)
+
+[[ -n ${SELECTION:-} ]] || exit 0
+
+set -o pipefail
+
+case "$PROCESSING" in
+  slurp)
+    if [[ ! -d $OUTPUT_DIR ]]; then
+      mkdir -p "$OUTPUT_DIR" || exit 1
+      omarchy-notification-send "Created screenshot directory: $OUTPUT_DIR" -t 2000 || true
+    fi
+    FILEPATH=$(mktemp --tmpdir="$OUTPUT_DIR" "screenshot-$(date +'%Y-%m-%d_%H-%M-%S')-XXXXXX.png") || exit 1
+    grim -g "$SELECTION" "$FILEPATH" || { rm -f "$FILEPATH"; exit 1; }
+    echo "$FILEPATH"
+    wl-copy --type image/png <"$FILEPATH" || exit 1
+    if [[ -n $SCREENSHOT_EDITOR ]]; then
+      omarchy-notification-send "Screenshot saved to clipboard and file" "Open the screenshot to annotate" \
+        --image "$FILEPATH" \
+        --exec "$SCREENSHOT_EDITOR" "$FILEPATH" || true
+    else
+      omarchy-notification-send "Screenshot saved to clipboard and file" \
+        --image "$FILEPATH" || true
+    fi
+    ;;
+  copy)
+    grim -g "$SELECTION" - | wl-copy --type image/png || exit 1
+    ;;
+  save)
+    if [[ ! -d $OUTPUT_DIR ]]; then
+      mkdir -p "$OUTPUT_DIR" || exit 1
+      omarchy-notification-send "Created screenshot directory: $OUTPUT_DIR" -t 2000 || true
+    fi
+    FILEPATH=$(mktemp --tmpdir="$OUTPUT_DIR" "screenshot-$(date +'%Y-%m-%d_%H-%M-%S')-XXXXXX.png") || exit 1
+    grim -g "$SELECTION" "$FILEPATH" || { rm -f "$FILEPATH"; exit 1; }
+    echo "$FILEPATH"
+    ;;
+esac
