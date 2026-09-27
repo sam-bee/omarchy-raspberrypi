@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import stat
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -44,6 +45,7 @@ class StageInstallerServicesTests(unittest.TestCase):
             "etc/systemd/system/network-online.target.wants",
             "etc/systemd/system/network.target.wants",
             "usr/lib/systemd/system",
+            "usr/lib/systemd/system-preset",
         ):
             destination = target / relative
             destination.mkdir(parents=True, exist_ok=True)
@@ -53,6 +55,24 @@ class StageInstallerServicesTests(unittest.TestCase):
                 current = current.parent
         for unit in ("NetworkManager.service", "sshd.service"):
             (target / "usr/lib/systemd/system" / unit).write_text("[Unit]\n", encoding="utf-8")
+        (target / "usr/lib/systemd/system/systemd-networkd.service").write_text(
+            "[Unit]\n[Install]\nWantedBy=multi-user.target\n",
+            encoding="utf-8",
+        )
+        (target / "usr/lib/systemd/system/systemd-networkd.socket").write_text(
+            "[Unit]\n[Install]\nWantedBy=sockets.target\n",
+            encoding="utf-8",
+        )
+        (target / "usr/lib/systemd/system/systemd-networkd-wait-online.service").write_text(
+            "[Unit]\n[Install]\nWantedBy=network-online.target\n",
+            encoding="utf-8",
+        )
+        (target / "usr/lib/systemd/system-preset/90-systemd.preset").write_text(
+            "enable systemd-networkd.service\n"
+            "enable systemd-networkd.socket\n"
+            "enable systemd-networkd-wait-online.service\n",
+            encoding="utf-8",
+        )
         (target / "etc/systemd/system/multi-user.target.wants/systemd-networkd.service").symlink_to(
             "/usr/lib/systemd/system/systemd-networkd.service"
         )
@@ -89,15 +109,59 @@ class StageInstallerServicesTests(unittest.TestCase):
             self.assertFalse((target / "boot/installer-settings.toml").exists())
             self.assertEqual((target / "usr/share/omarchy-pi/hypr-rdp.sha256").read_text(), digest + "\n")
             self.assertTrue((target / "usr/bin/hypr-rdp").is_file())
-            self.assertFalse((target / "etc/systemd/system/multi-user.target.wants/systemd-networkd.service").exists())
-            self.assertFalse((target / "etc/systemd/system/sockets.target.wants/systemd-networkd.socket").exists())
-            self.assertFalse((target / "etc/systemd/system/dbus-org.freedesktop.network1.service").exists())
+            preset = target / stage.NETWORKD_PRESET
+            self.assertEqual(preset.read_bytes(), stage.NETWORKD_PRESET_CONTENT)
+            self.assertEqual(stat.S_IMODE(preset.stat().st_mode), 0o644)
+            self.assertFalse((target / "etc/systemd/system/multi-user.target.wants/systemd-networkd.service").is_symlink())
+            self.assertFalse((target / "etc/systemd/system/sockets.target.wants/systemd-networkd.socket").is_symlink())
+            self.assertFalse((target / "etc/systemd/system/dbus-org.freedesktop.network1.service").is_symlink())
             for unit in (
                 "systemd-networkd-resolve-hook.socket",
                 "systemd-networkd-varlink-metrics.socket",
                 "systemd-networkd-varlink.socket",
             ):
-                self.assertFalse((target / "etc/systemd/system/sockets.target.wants" / unit).exists())
+                self.assertFalse((target / "etc/systemd/system/sockets.target.wants" / unit).is_symlink())
+            preset.unlink()
+            preset_result = subprocess.run(
+                [
+                    "systemctl",
+                    f"--root={target}",
+                    "preset",
+                    "systemd-networkd.service",
+                    "systemd-networkd.socket",
+                    "systemd-networkd-wait-online.service",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(preset_result.returncode, 0, preset_result.stderr)
+            vendor_links = (
+                "etc/systemd/system/multi-user.target.wants/systemd-networkd.service",
+                "etc/systemd/system/sockets.target.wants/systemd-networkd.socket",
+                "etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service",
+            )
+            for relative in vendor_links:
+                self.assertTrue((target / relative).is_symlink())
+
+            preset.write_bytes(stage.NETWORKD_PRESET_CONTENT)
+            preset.chmod(0o644)
+            preset_result = subprocess.run(
+                [
+                    "systemctl",
+                    f"--root={target}",
+                    "preset",
+                    "systemd-networkd.service",
+                    "systemd-networkd.socket",
+                    "systemd-networkd-wait-online.service",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(preset_result.returncode, 0, preset_result.stderr)
+            for relative in vendor_links:
+                self.assertFalse((target / relative).is_symlink())
             wants = target / "etc/systemd/system/multi-user.target.wants"
             self.assertEqual(os.readlink(wants / "NetworkManager.service"), "/usr/lib/systemd/system/NetworkManager.service")
             self.assertEqual(os.readlink(wants / "sshd.service"), "/usr/lib/systemd/system/sshd.service")

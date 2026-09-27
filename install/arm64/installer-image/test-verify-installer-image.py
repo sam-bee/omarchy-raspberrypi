@@ -101,6 +101,9 @@ class VerifyInstallerImageTests(unittest.TestCase):
         font = root_source / verify.REQUIRED_FONT
         font.parent.mkdir(parents=True)
         font.write_bytes(b"DejaVu Sans Mono fixture")
+        preset = root_source / verify.NETWORKD_PRESET
+        preset.parent.mkdir(parents=True)
+        preset.write_bytes(verify.NETWORKD_PRESET_CONTENT)
         (root_source / "etc/fstab").write_text(
             f"UUID={ROOT_UUID} / ext4 defaults 0 1\nUUID={BOOT_UUID} /boot vfat defaults 0 2\n",
             encoding="utf-8",
@@ -187,6 +190,21 @@ class VerifyInstallerImageTests(unittest.TestCase):
         font.write_bytes(b"")
         runner = FakeRunner(root_source, boot_source)
         with self.assertRaisesRegex(verify.ImageVerificationError, "DejaVu Sans Mono font is empty"):
+            verify.verify_image(image, runner=runner)
+
+    def test_networkd_preset_must_disable_networkd(self) -> None:
+        temporary, image, root_source, boot_source = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        preset = root_source / verify.NETWORKD_PRESET
+        preset.unlink()
+        runner = FakeRunner(root_source, boot_source)
+
+        with self.assertRaisesRegex(verify.ImageVerificationError, "installer networkd preset is missing"):
+            verify.verify_image(image, runner=runner)
+
+        preset.write_bytes(b"enable systemd-networkd.service\n")
+        runner = FakeRunner(root_source, boot_source)
+        with self.assertRaisesRegex(verify.ImageVerificationError, "installer networkd preset is invalid"):
             verify.verify_image(image, runner=runner)
 
     def test_device_and_symlink_inputs_are_rejected_before_commands(self) -> None:

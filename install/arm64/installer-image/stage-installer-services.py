@@ -26,6 +26,8 @@ from typing import Iterable, Sequence
 BUILDER_MARKER = Path("usr/lib/omarchy-pi/installer-image.marker")
 BUILDER_MARKER_CONTENT = b"omarchy-pi-installer-image-v1\n"
 EXAMPLE_SETTINGS = "installer-settings.example.toml"
+NETWORKD_PRESET = Path("etc/systemd/system-preset/00-omarchy-installer-networkd.preset")
+NETWORKD_PRESET_CONTENT = b"disable systemd-networkd*\n"
 EXPECTED_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 ELF_MACHINE_AARCH64 = 183
 PT_INTERP = 3
@@ -156,8 +158,8 @@ def _file_bytes(path: Path) -> bytes:
         raise ServiceStageError(f"cannot read source file: {path}") from exc
 
 
-def _install_file(
-    source: Path,
+def _install_payload(
+    payload: bytes,
     destination: Path,
     *,
     mode: int,
@@ -165,9 +167,8 @@ def _install_file(
     owner_gid: int,
     overwrite_identical: bool = True,
 ) -> bool:
-    """Install one file, accepting an already identical destination only."""
+    """Install bytes, accepting an already identical destination only."""
 
-    payload = _file_bytes(source)
     if os.path.lexists(destination):
         try:
             info = destination.lstat()
@@ -204,6 +205,27 @@ def _install_file(
         except FileNotFoundError:
             pass
     return True
+
+
+def _install_file(
+    source: Path,
+    destination: Path,
+    *,
+    mode: int,
+    owner_uid: int,
+    owner_gid: int,
+    overwrite_identical: bool = True,
+) -> bool:
+    """Install one file, accepting an already identical destination only."""
+
+    return _install_payload(
+        _file_bytes(source),
+        destination,
+        mode=mode,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+        overwrite_identical=overwrite_identical,
+    )
 
 
 def _validate_binary(path: Path, expected_sha256: str) -> tuple[str, bytes]:
@@ -433,6 +455,7 @@ def stage_services(
         target / "usr/lib/omarchy-pi",
         target / "usr/share/omarchy-pi",
         target / "etc/systemd/system",
+        target / "etc/systemd/system-preset",
         target / "etc/systemd/user",
         target / "boot",
     ):
@@ -479,6 +502,15 @@ def stage_services(
             installed.append("usr/share/omarchy-pi/hypr-rdp.sha256")
     finally:
         digest_source.unlink(missing_ok=True)
+
+    if _install_payload(
+        NETWORKD_PRESET_CONTENT,
+        target / NETWORKD_PRESET,
+        mode=0o644,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+    ):
+        installed.append(os.fspath(NETWORKD_PRESET))
 
     for relative in (
         "etc/systemd/system/multi-user.target.wants/systemd-networkd.service",
