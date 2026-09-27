@@ -62,12 +62,29 @@ def make_archive(path: Path, *, traversal: bool = False, special: bool = False) 
 
 
 class PrepareSignedRootfsTests(unittest.TestCase):
-    def make_tools(self, directory: Path) -> tuple[Path, Path]:
+    def make_tools(self, directory: Path) -> tuple[Path, Path, Path]:
         gpgv = directory / "gpgv"
         write_executable(
             gpgv,
             "#!/bin/sh\n"
             f"printf '%s\\n' '[GNUPG:] VALIDSIG {FINGERPRINT} 20260927 0 0 1 10 00 {FINGERPRINT}'\n",
+        )
+        gpg = directory / "gpg"
+        marker = directory / "gpg-called"
+        write_executable(
+            gpg,
+            "#!/bin/sh\n"
+            "set -eu\n"
+            "output=''\n"
+            "while [ $# -gt 0 ]; do\n"
+            "  case \"$1\" in\n"
+            "    --output) output=$2; shift 2 ;;\n"
+            "    --batch|--no-options|--dearmor) shift ;;\n"
+            "    *) shift ;;\n"
+            "  esac\n"
+            "done\n"
+            f"printf '%s' 'binary keyring' > {marker}\n"
+            "printf '%s' 'binary keyring' > \"$output\"\n",
         )
         bsdtar = directory / "bsdtar"
         write_executable(
@@ -86,7 +103,7 @@ class PrepareSignedRootfsTests(unittest.TestCase):
             "done\n"
             "tar -xpf \"$archive\" -C \"$destination\" --preserve-permissions\n",
         )
-        return gpgv, bsdtar
+        return gpgv, gpg, bsdtar
 
     def make_inputs(self, directory: Path) -> tuple[Path, Path, Path]:
         archive = directory / "ArchLinuxARM-rpi-aarch64.tar.gz"
@@ -140,7 +157,7 @@ class PrepareSignedRootfsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive, signature, keyring = self.make_inputs(root)
-            gpgv, bsdtar = self.make_tools(root)
+            gpgv, gpg, bsdtar = self.make_tools(root)
             output = root / "prepared"
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             manifest = prepare.prepare_rootfs(
@@ -151,6 +168,7 @@ class PrepareSignedRootfsTests(unittest.TestCase):
                 output,
                 expected_archive_sha256=digest,
                 gpgv_command=os.fspath(gpgv),
+                gpg_command=os.fspath(gpg),
                 bsdtar_command=os.fspath(bsdtar),
                 require_native_aarch64=False,
                 require_root=False,
@@ -163,6 +181,8 @@ class PrepareSignedRootfsTests(unittest.TestCase):
             self.assertEqual(on_disk, manifest)
             self.assertEqual(on_disk["source"]["archive_sha256"], digest)
             self.assertEqual(on_disk["source"]["signer_fingerprint"], FINGERPRINT)
+            self.assertEqual(on_disk["source"]["keyring_format"], "binary")
+            self.assertEqual(on_disk["source"]["keyring_sha256"], hashlib.sha256(keyring.read_bytes()).hexdigest())
             self.assertNotIn("detached signature", json.dumps(on_disk))
             self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
 
@@ -170,7 +190,7 @@ class PrepareSignedRootfsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive, signature, keyring = self.make_inputs(root)
-            gpgv, bsdtar = self.make_tools(root)
+            gpgv, gpg, bsdtar = self.make_tools(root)
             output = root / "prepared"
             with self.assertRaisesRegex(prepare.RootfsPreparationError, "SHA-256"):
                 prepare.prepare_rootfs(
@@ -181,11 +201,55 @@ class PrepareSignedRootfsTests(unittest.TestCase):
                     output,
                     expected_archive_sha256="0" * 64,
                     gpgv_command=os.fspath(gpgv),
+                    gpg_command=os.fspath(gpg),
                     bsdtar_command=os.fspath(bsdtar),
                     require_native_aarch64=False,
                     require_root=False,
                 )
             self.assertFalse(output.exists())
+
+    def test_ascii_armored_keyring_is_dearmored_for_gpgv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, signature, keyring = self.make_inputs(root)
+            gpgv, gpg, _ = self.make_tools(root)
+            keyring.write_text(
+                "-----BEGIN PGP PUBLIC KEY BLOCK-----\n"
+                "not a real key in this fake-tool test\n"
+                "-----END PGP PUBLIC KEY BLOCK-----\n",
+                encoding="ascii",
+            )
+            signer = prepare.verify_detached_signature(
+                archive,
+                signature,
+                keyring,
+                FINGERPRINT,
+                gpgv_command=os.fspath(gpgv),
+                gpg_command=os.fspath(gpg),
+            )
+            self.assertEqual(signer, FINGERPRINT)
+            self.assertEqual((root / "gpg-called").read_text(encoding="ascii"), "binary keyring")
+
+    def test_invalid_ascii_armored_keyring_fails_before_gpgv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, signature, keyring = self.make_inputs(root)
+            gpgv, _, _ = self.make_tools(root)
+            keyring.write_text(
+                "-----BEGIN PGP PUBLIC KEY BLOCK-----\ninvalid\n",
+                encoding="ascii",
+            )
+            invalid_gpg = root / "invalid-gpg"
+            write_executable(invalid_gpg, "#!/bin/sh\nexit 2\n")
+            with self.assertRaisesRegex(prepare.RootfsPreparationError, "dearmor trusted keyring"):
+                prepare.verify_detached_signature(
+                    archive,
+                    signature,
+                    keyring,
+                    FINGERPRINT,
+                    gpgv_command=os.fspath(gpgv),
+                    gpg_command=os.fspath(invalid_gpg),
+                )
 
 
 if __name__ == "__main__":

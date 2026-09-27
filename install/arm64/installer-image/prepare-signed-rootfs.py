@@ -183,6 +183,56 @@ def _sha256_file(path: Path) -> tuple[str, int]:
             os.close(descriptor)
 
 
+def _is_ascii_armored_keyring(path: Path) -> bool:
+    """Recognize an ASCII-armored public key block without parsing trust data."""
+
+    try:
+        with path.open("rb") as stream:
+            prefix = stream.read(256)
+    except OSError as exc:
+        raise RootfsPreparationError(f"cannot read trusted keyring: {exc.strerror}") from exc
+    return prefix.lstrip().startswith(b"-----BEGIN PGP PUBLIC KEY BLOCK-----")
+
+
+def _gpgv_keyring(
+    keyring: Path,
+    *,
+    gpg_command: str,
+    temporary_directory: Path,
+) -> Path:
+    """Convert an armored keyring to a private temporary binary keyring."""
+
+    if not _is_ascii_armored_keyring(keyring):
+        return keyring
+    output = temporary_directory / "trusted-keyring.gpg"
+    try:
+        result = subprocess.run(
+            [
+                gpg_command,
+                "--batch",
+                "--no-options",
+                "--dearmor",
+                "--output",
+                os.fspath(output),
+                os.fspath(keyring),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise RootfsPreparationError(f"could not run gpg to dearmor trusted keyring: {exc.strerror}") from exc
+    if result.returncode != 0:
+        raise RootfsPreparationError("could not dearmor trusted keyring")
+    try:
+        info = output.lstat()
+    except OSError:
+        raise RootfsPreparationError("gpg did not create a binary trusted keyring") from None
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_size == 0:
+        raise RootfsPreparationError("gpg did not create a valid binary trusted keyring")
+    return output
+
+
 def verify_detached_signature(
     archive: Path,
     signature: Path,
@@ -190,6 +240,7 @@ def verify_detached_signature(
     expected_fingerprint: str,
     *,
     gpgv_command: str = "gpgv",
+    gpg_command: str = "gpg",
 ) -> str:
     """Verify a detached signature and return its one valid signer."""
 
@@ -197,15 +248,37 @@ def verify_detached_signature(
     signature = _require_regular_file(signature, name="rootfs detached signature")
     keyring = _require_regular_file(keyring, name="trusted keyring")
     expected = _validate_fingerprint(expected_fingerprint)
+    temporary_directory: tempfile.TemporaryDirectory[str] | None = None
     try:
-        result = subprocess.run(
-            [gpgv_command, "--status-fd", "1", "--keyring", os.fspath(keyring), os.fspath(signature), os.fspath(archive)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError as exc:
-        raise RootfsPreparationError(f"could not run gpgv: {exc.strerror}") from exc
+        if _is_ascii_armored_keyring(keyring):
+            temporary_directory = tempfile.TemporaryDirectory(prefix="omarchy-gpgv-keyring-")
+            gpgv_keyring = _gpgv_keyring(
+                keyring,
+                gpg_command=gpg_command,
+                temporary_directory=Path(temporary_directory.name),
+            )
+        else:
+            gpgv_keyring = keyring
+        try:
+            result = subprocess.run(
+                [
+                    gpgv_command,
+                    "--status-fd",
+                    "1",
+                    "--keyring",
+                    os.fspath(gpgv_keyring),
+                    os.fspath(signature),
+                    os.fspath(archive),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            raise RootfsPreparationError(f"could not run gpgv: {exc.strerror}") from exc
+    finally:
+        if temporary_directory is not None:
+            temporary_directory.cleanup()
     if result.returncode != 0:
         raise RootfsPreparationError("gpgv rejected the rootfs signature")
     valid_signers: list[str] = []
@@ -334,6 +407,7 @@ def prepare_rootfs(
     *,
     expected_archive_sha256: str | None = None,
     gpgv_command: str = "gpgv",
+    gpg_command: str = "gpg",
     bsdtar_command: str = "bsdtar",
     require_native_aarch64: bool = True,
     require_root: bool = True,
@@ -355,8 +429,10 @@ def prepare_rootfs(
         keyring_path,
         expected_fingerprint,
         gpgv_command=gpgv_command,
+        gpg_command=gpg_command,
     )
     archive_sha256, archive_bytes = _sha256_file(archive_path)
+    keyring_sha256, keyring_bytes = _sha256_file(keyring_path)
     if expected_archive_sha256 is not None and archive_sha256 != expected_archive_sha256:
         raise RootfsPreparationError("rootfs archive SHA-256 differs from the expected hash")
     inspection = inspect_archive(archive_path)
@@ -376,6 +452,10 @@ def prepare_rootfs(
                 "archive_sha256": archive_sha256,
                 "signature_name": signature_path.name,
                 "signer_fingerprint": signer,
+                "keyring_name": keyring_path.name,
+                "keyring_bytes": keyring_bytes,
+                "keyring_sha256": keyring_sha256,
+                "keyring_format": "ascii-armored" if _is_ascii_armored_keyring(keyring_path) else "binary",
             },
             "archive": {
                 "member_count": inspection.member_count,
@@ -416,6 +496,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional expected archive SHA-256; always recorded in the manifest",
     )
     parser.add_argument("--gpgv", default="gpgv", help=argparse.SUPPRESS)
+    parser.add_argument("--gpg", default="gpg", help=argparse.SUPPRESS)
     parser.add_argument("--bsdtar", default="bsdtar", help=argparse.SUPPRESS)
     return parser
 
@@ -431,6 +512,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.output_directory,
             expected_archive_sha256=args.expected_archive_sha256,
             gpgv_command=args.gpgv,
+            gpg_command=args.gpg,
             bsdtar_command=args.bsdtar,
         )
     except (RootfsPreparationError, OSError, tarfile.TarError) as exc:
