@@ -120,6 +120,20 @@ if ! (cd /tmp && plan --target rpi5 --format json >"$rpi_json"); then
 fi
 json_contract "$rpi_json" rpi5
 
+if ! python3 - "$rpi_json" <<'PY'
+import json
+import sys
+
+rows = {row["package"]: row for row in json.load(open(sys.argv[1]))["packages"]}
+assert rows["chromium"]["action"] == "candidate"
+assert rows["xdg-desktop-portal-gtk"]["action"] == "candidate"
+assert rows["ttf-liberation"]["action"] == "candidate"
+PY
+then
+  fail "browser, GTK portal, and fallback-font packages are selected in the Pi plan"
+fi
+pass "browser, GTK portal, and fallback-font packages are selected in the Pi plan"
+
 gen1_json="$test_tmp/rpi5-gen1.json"
 if ! plan --target rpi5 --pcie-gen 1 --format json >"$gen1_json"; then
   fail "explicit Gen1 plan succeeds"

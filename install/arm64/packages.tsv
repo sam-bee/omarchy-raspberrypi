@@ -15,7 +15,7 @@ bluez-utils	defer	-	Optional Bluetooth utilities; not required by the first sess
 bolt	defer	-	Optional Thunderbolt support, unrelated to the Pi baseline.
 brightnessctl	defer	-	Laptop/backlight helper; no Pi display-backlight requirement is established.
 btop	defer	-	Optional system monitor.
-chromium	defer	-	Optional browser; defer application selection.
+chromium	candidate	-	Selected ARM64 browser for the initial Pi desktop; review its complete package transaction and test browser launch/playback on the target.
 clang	defer	-	Developer toolchain; not needed for the first desktop.
 cliamp	defer	-	Optional application; defer ARM source and build work.
 cups	defer	-	Optional printing stack; defer service and device changes.

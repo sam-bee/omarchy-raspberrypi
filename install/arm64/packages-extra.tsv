@@ -13,5 +13,6 @@ pipewire-jack	defer	-	Optional JACK compatibility; defer until audio application
 pipewire-pulse	candidate	-	PulseAudio-compatible server expected by desktop applications and audio controls.
 qt6-wayland	candidate	-	Qt Wayland platform integration for graphical applications.
 python	candidate	-	Python interpreter used by helper/runtime components; verify the dependency closure at deployment.
+ttf-liberation	candidate	-	Practical fallback font coverage for the selected Chromium browser.
 vulkan-broadcom	candidate	-	Pi-specific Vulkan userspace candidate; verify package/provider without changing firmware.
 zram-generator	defer	-	Optional compressed-swap tuning from the ISO package set; separate from boot/FDE protection.

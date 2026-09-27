@@ -50,7 +50,10 @@ lock_file="$data_dir/.stage.lock"
 transaction_dir="$data_dir/.transaction"
 pending_transaction=""
 pending_release=""
-config_keys=(env hypr shell terminal)
+# Browser settings were added after the first session release. Keep them
+# optional when validating older release archives so they remain rollbackable.
+config_keys=(env hypr shell terminal chromium_flags portals)
+legacy_optional_config_keys=(chromium_flags portals)
 
 die() {
   echo "$*" >&2
@@ -63,6 +66,8 @@ config_target() {
     hypr) printf '%s\n' "$HOME/.config/hypr/hyprland.lua" ;;
     shell) printf '%s\n' "$HOME/.config/omarchy/shell.json" ;;
     terminal) printf '%s\n' "$HOME/.config/xdg-terminals.list" ;;
+    chromium_flags) printf '%s\n' "$HOME/.config/chromium-flags.conf" ;;
+    portals) printf '%s\n' "$HOME/.config/xdg-desktop-portal/portals.conf" ;;
     *) return 2 ;;
   esac
 }
@@ -74,8 +79,26 @@ config_payload() {
     hypr) printf '%s\n' "$release/install/arm64/session/hyprland.lua" ;;
     shell) printf '%s\n' "$release/install/arm64/session/shell.json" ;;
     terminal) printf '%s\n' "$release/install/arm64/session/xdg-terminals.list" ;;
+    chromium_flags) printf '%s\n' "$release/install/arm64/session/chromium-flags.conf" ;;
+    portals) printf '%s\n' "$release/install/arm64/session/portals.conf" ;;
     *) return 2 ;;
   esac
+}
+
+optional_for_legacy_release() {
+  local key=$1 optional
+  for optional in "${legacy_optional_config_keys[@]}"; do
+    [[ $key == "$optional" ]] && return 0
+  done
+  return 1
+}
+
+complete_release_payloads() {
+  local release=$1 key payload
+  for key in "${config_keys[@]}"; do
+    payload=$(config_payload "$release" "$key")
+    [[ -f $payload && ! -L $payload ]] || return 1
+  done
 }
 
 path_exists() {
@@ -100,7 +123,13 @@ valid_release_target() {
   [[ $(cat -- "$marker") == "${target#releases/}" ]] || return 1
   for key in "${config_keys[@]}"; do
     payload=$(config_payload "$release" "$key")
-    [[ -f $payload && ! -L $payload ]] || return 1
+    if [[ -f $payload && ! -L $payload ]]; then
+      continue
+    elif optional_for_legacy_release "$key" && [[ ! -e $payload && ! -L $payload ]]; then
+      continue
+    else
+      return 1
+    fi
   done
 }
 
@@ -139,11 +168,13 @@ prepare_release() {
   if path_exists "$release"; then
     [[ -d $release && ! -L $release ]] || die "Refusing an existing non-directory release path: $release"
     valid_release_target "releases/$target" || die "Refusing an incomplete or mismatched release: $release"
+    complete_release_payloads "$release" || die "The selected source release is missing a managed config payload: $release"
     return 0
   fi
 
   pending_release=$(mktemp -d "$releases_dir/.pending.XXXXXXXX")
   git -C "$source_dir" archive --format=tar "$target" | tar -xf - -C "$pending_release"
+  complete_release_payloads "$pending_release" || die "The selected source revision is missing a managed config payload"
   marker="$pending_release/.omarchy-pi-source-commit"
   printf '%s\n' "$target" > "$marker"
   mv -Tn -- "$pending_release" "$release"
@@ -422,16 +453,20 @@ for key in "${config_keys[@]}"; do
       die "Refusing to replace existing path: $target"
     fi
     if [[ -n $old_payload && -f $old_payload && ! -L $old_payload && -f $target && ! -L $target && $(stat -c '%u' -- "$target") == "$EUID" ]] && cmp -s -- "$target" "$old_payload"; then
-      if cmp -s -- "$target" "$new_payload"; then
+      if [[ -f $new_payload && ! -L $new_payload ]] && cmp -s -- "$target" "$new_payload"; then
         action=keep
-      else
+      elif [[ -f $new_payload && ! -L $new_payload ]]; then
         action=replace
+      else
+        # Rolling back to a release that predates an optional config leaves
+        # that user config in place; the older release never owned its value.
+        action=preserve
       fi
     else
       action=preserve
     fi
   else
-    if [[ $old_current == "-" || ! -e $old_payload ]]; then
+    if [[ -f $new_payload && ! -L $new_payload ]] && [[ $old_current == "-" || ! -e $old_payload ]]; then
       action=create
     else
       action=missing

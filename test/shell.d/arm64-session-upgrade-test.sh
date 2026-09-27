@@ -44,7 +44,9 @@ for mapping in \
   "90-omarchy-pi:.config/uwsm/env.d/90-omarchy-pi" \
   "hyprland.lua:.config/hypr/hyprland.lua" \
   "shell.json:.config/omarchy/shell.json" \
-  "xdg-terminals.list:.config/xdg-terminals.list"; do
+  "xdg-terminals.list:.config/xdg-terminals.list" \
+  "chromium-flags.conf:.config/chromium-flags.conf" \
+  "portals.conf:.config/xdg-desktop-portal/portals.conf"; do
   source_name=${mapping%%:*}
   target_name=${mapping#*:}
   cmp -s "$release_one/install/arm64/session/$source_name" "$home/$target_name" || fail "initial install publishes $source_name"
@@ -75,6 +77,8 @@ release_two="$home/.local/share/omarchy-pi/releases/$revision_two"
 cmp -s "$release_two/install/arm64/session/hyprland.lua" "$home/.config/hypr/hyprland.lua" || fail "unmodified Hyprland config updates"
 cmp -s "$release_two/install/arm64/session/90-omarchy-pi" "$home/.config/uwsm/env.d/90-omarchy-pi" || fail "unmodified UWSM config updates"
 cmp -s "$release_two/install/arm64/session/xdg-terminals.list" "$home/.config/xdg-terminals.list" || fail "unmodified terminal config updates"
+cmp -s "$release_two/install/arm64/session/chromium-flags.conf" "$home/.config/chromium-flags.conf" || fail "Chromium flags config follows the active release"
+cmp -s "$release_two/install/arm64/session/portals.conf" "$home/.config/xdg-desktop-portal/portals.conf" || fail "portal preference follows the active release"
 [[ $(cat "$shell_config") == "$user_shell_config" ]] || fail "user-edited shell config survives upgrade"
 pass "upgrade updates only untouched configs and records the prior release"
 
@@ -84,6 +88,8 @@ HOME="$home" "$fixture/install/arm64/rollback-user-session.sh" >"$test_tmp/rollb
 [[ $(readlink "$previous") == "releases/$revision_two" ]] || fail "rollback makes the former current release available again"
 cmp -s "$release_one/install/arm64/session/hyprland.lua" "$home/.config/hypr/hyprland.lua" || fail "rollback restores untouched Hyprland config"
 cmp -s "$release_one/install/arm64/session/90-omarchy-pi" "$home/.config/uwsm/env.d/90-omarchy-pi" || fail "rollback restores untouched UWSM config"
+cmp -s "$release_one/install/arm64/session/chromium-flags.conf" "$home/.config/chromium-flags.conf" || fail "rollback keeps the versioned Chromium flags config"
+cmp -s "$release_one/install/arm64/session/portals.conf" "$home/.config/xdg-desktop-portal/portals.conf" || fail "rollback keeps the versioned portal preference"
 [[ $(cat "$shell_config") == "$user_shell_config" ]] || fail "user-edited config survives rollback"
 [[ ! -e $home/.config/xdg-terminals.list ]] || fail "user-removed config stays missing during rollback"
 pass "rollback restores untouched configs while preserving edited and missing configs"
@@ -92,6 +98,54 @@ HOME="$home" "$fixture/install/arm64/rollback-user-session.sh" >"$test_tmp/rollb
 [[ $(readlink "$current") == "releases/$revision_two" && $(readlink "$previous") == "releases/$revision_one" ]] || fail "repeated rollback swaps current and previous"
 [[ $(cat "$shell_config") == "$user_shell_config" && ! -e $home/.config/xdg-terminals.list ]] || fail "rollback toggle preserves user config state"
 pass "repeated rollback toggles between the two retained releases"
+
+# Simulate a Pi whose active release predates the browser config files.
+legacy_home="$test_tmp/home with four-config release"
+mkdir -p "$legacy_home"
+chown "$(id -u):$(id -g)" "$legacy_home"
+legacy_revision=0000000000000000000000000000000000000001
+legacy_release="$legacy_home/.local/share/omarchy-pi/releases/$legacy_revision"
+mkdir -p "$legacy_release/install/arm64/session"
+printf '%s\n' "$legacy_revision" > "$legacy_release/.omarchy-pi-source-commit"
+for source_name in 90-omarchy-pi hyprland.lua shell.json xdg-terminals.list; do
+  git -C "$ROOT" show "HEAD:install/arm64/session/$source_name" > "$legacy_release/install/arm64/session/$source_name"
+done
+mkdir -p "$legacy_home/.config/uwsm/env.d" "$legacy_home/.config/hypr" "$legacy_home/.config/omarchy"
+cp "$legacy_release/install/arm64/session/90-omarchy-pi" "$legacy_home/.config/uwsm/env.d/90-omarchy-pi"
+cp "$legacy_release/install/arm64/session/hyprland.lua" "$legacy_home/.config/hypr/hyprland.lua"
+cp "$legacy_release/install/arm64/session/shell.json" "$legacy_home/.config/omarchy/shell.json"
+cp "$legacy_release/install/arm64/session/xdg-terminals.list" "$legacy_home/.config/xdg-terminals.list"
+ln -s "releases/$legacy_revision" "$legacy_home/.local/share/omarchy-pi/current"
+HOME="$legacy_home" "$fixture/install/arm64/stage-user-session.sh" >"$test_tmp/legacy-upgrade.log" || fail "a newer browser profile upgrades a four-config release"
+[[ $(readlink "$legacy_home/.local/share/omarchy-pi/current") == "releases/$revision_two" ]] || fail "legacy upgrade selects the newer versioned release"
+[[ $(readlink "$legacy_home/.local/share/omarchy-pi/previous") == "releases/$legacy_revision" ]] || fail "legacy upgrade retains its prior release for rollback"
+cmp -s "$fixture/install/arm64/session/chromium-flags.conf" "$legacy_home/.config/chromium-flags.conf" || fail "legacy upgrade adds only the reviewed Chromium Wayland flags"
+cmp -s "$fixture/install/arm64/session/portals.conf" "$legacy_home/.config/xdg-desktop-portal/portals.conf" || fail "legacy upgrade adds the GTK portal preference"
+HOME="$legacy_home" "$fixture/install/arm64/rollback-user-session.sh" >"$test_tmp/legacy-rollback.log" || fail "rollback accepts a release that predates browser configs"
+[[ $(readlink "$legacy_home/.local/share/omarchy-pi/current") == "releases/$legacy_revision" ]] || fail "legacy rollback restores the four-config release pointer"
+cmp -s "$fixture/install/arm64/session/chromium-flags.conf" "$legacy_home/.config/chromium-flags.conf" || fail "legacy rollback leaves the later user browser flags intact"
+cmp -s "$fixture/install/arm64/session/portals.conf" "$legacy_home/.config/xdg-desktop-portal/portals.conf" || fail "legacy rollback leaves the later user portal preference intact"
+pass "four-config releases upgrade and roll back with optional browser settings preserved"
+
+two_legacy_home="$test_tmp/home with two legacy releases"
+mkdir -p "$two_legacy_home"
+legacy_one=0000000000000000000000000000000000000002
+legacy_two=0000000000000000000000000000000000000003
+for legacy_id in "$legacy_one" "$legacy_two"; do
+  legacy_release="$two_legacy_home/.local/share/omarchy-pi/releases/$legacy_id"
+  mkdir -p "$legacy_release/install/arm64/session"
+  printf '%s\n' "$legacy_id" > "$legacy_release/.omarchy-pi-source-commit"
+  for source_name in 90-omarchy-pi hyprland.lua shell.json xdg-terminals.list; do
+    git -C "$ROOT" show "HEAD:install/arm64/session/$source_name" > "$legacy_release/install/arm64/session/$source_name"
+  done
+done
+ln -s "releases/$legacy_one" "$two_legacy_home/.local/share/omarchy-pi/current"
+ln -s "releases/$legacy_two" "$two_legacy_home/.local/share/omarchy-pi/previous"
+HOME="$two_legacy_home" "$fixture/install/arm64/rollback-user-session.sh" >"$test_tmp/two-legacy-rollback.log" || fail "rollback handles two releases predating browser configs"
+[[ $(readlink "$two_legacy_home/.local/share/omarchy-pi/current") == "releases/$legacy_two" ]] || fail "two-legacy rollback swaps the release pointer"
+[[ ! -e $two_legacy_home/.config/chromium-flags.conf && ! -L $two_legacy_home/.config/chromium-flags.conf ]] || fail "rollback does not create an absent Chromium flags file"
+[[ ! -e $two_legacy_home/.config/xdg-desktop-portal/portals.conf && ! -L $two_legacy_home/.config/xdg-desktop-portal/portals.conf ]] || fail "rollback does not create an absent portal config"
+pass "rollback between legacy releases leaves absent optional browser configs absent"
 
 fail_home="$test_tmp/home for failure recovery"
 mkdir -p "$fail_home"

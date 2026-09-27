@@ -42,6 +42,13 @@ assert shell.index("if (piMinimalSession) {", shell.index("function loadDefaults
 hypr = (root / "install/arm64/session/hyprland.lua").read_text()
 assert hypr.index("omarchy_autostart_minimal = true") < hypr.index('require("default.hypr.omarchy")')
 assert hypr.index("omarchy_default_bindings = false") < hypr.index('require("default.hypr.omarchy")')
+assert 'hl.bind("SUPER + B", hl.dsp.exec_cmd("omarchy-launch-browser")' in hypr
+assert 'hl.bind("SUPER + SHIFT + B", hl.dsp.exec_cmd("omarchy-launch-browser --private")' in hypr
+
+flags = (root / "install/arm64/session/chromium-flags.conf").read_text().splitlines()
+assert flags == ["--ozone-platform=wayland"]
+portals = (root / "install/arm64/session/portals.conf").read_text().splitlines()
+assert portals == ["[preferred]", "default=gtk"]
 
 autostart = (root / "default/hypr/autostart.lua").read_text()
 guard = autostart.index("if _G.omarchy_autostart_minimal == true then")
@@ -55,9 +62,17 @@ pass "minimal session excludes deferred startup and first-party services"
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 test_checkout="$test_tmp/checkout"
-revision=$(git -C "$ROOT" rev-parse HEAD)
 git clone -q --shared "$ROOT" "$test_checkout" || fail "clean test checkout is available"
-git -C "$test_checkout" checkout -q --detach "$revision" || fail "test checkout selects the draft commit"
+git -C "$test_checkout" checkout -q --detach "$(git -C "$ROOT" rev-parse HEAD)" || fail "test checkout selects the current base commit"
+cp "$ROOT/install/arm64/stage-user-session.sh" "$test_checkout/install/arm64/stage-user-session.sh"
+for source_name in hyprland.lua chromium-flags.conf portals.conf; do
+  cp "$ROOT/install/arm64/session/$source_name" "$test_checkout/install/arm64/session/$source_name"
+done
+git -C "$test_checkout" config user.name "Pi Minimal Session Test"
+git -C "$test_checkout" config user.email "pi-minimal-session-test@example.invalid"
+git -C "$test_checkout" add install/arm64/stage-user-session.sh install/arm64/session/hyprland.lua install/arm64/session/chromium-flags.conf install/arm64/session/portals.conf
+git -C "$test_checkout" commit -q -m "browser-enabled minimal session test fixture"
+revision=$(git -C "$test_checkout" rev-parse HEAD)
 [[ -z $(git -C "$test_checkout" status --porcelain) ]] || fail "test checkout is clean"
 
 test_home="$test_tmp/home"
@@ -74,7 +89,9 @@ for mapping in \
   "90-omarchy-pi:.config/uwsm/env.d/90-omarchy-pi" \
   "hyprland.lua:.config/hypr/hyprland.lua" \
   "shell.json:.config/omarchy/shell.json" \
-  "xdg-terminals.list:.config/xdg-terminals.list"; do
+  "xdg-terminals.list:.config/xdg-terminals.list" \
+  "chromium-flags.conf:.config/chromium-flags.conf" \
+  "portals.conf:.config/xdg-desktop-portal/portals.conf"; do
   source_name=${mapping%%:*}
   target_name=${mapping#*:}
   cmp -s "$release/install/arm64/session/$source_name" "$test_home/$target_name" || fail "staged $source_name matches committed payload"
@@ -82,7 +99,7 @@ done
 if find "$test_home/.config" -name '.omarchy-pi.*' -print -quit | rg -q .; then
   fail "successful staging removes its temporary publication links"
 fi
-pass "staging creates four user config files and the versioned source link"
+pass "staging creates six user config files and the versioned source link"
 
 env_result=$(HOME="$test_home" bash -c 'PATH=/usr/bin:/bin; source "$HOME/.config/uwsm/env.d/90-omarchy-pi"; printf "%s\n%s\n%s\n" "$OMARCHY_PATH" "$PATH" "$TERMINAL"')
 expected_path="$test_home/.local/share/omarchy-pi/current"
