@@ -377,7 +377,7 @@ def _validate_generic_root(target: Path, *, allow_stock_alarm: bool = False) -> 
 
     machine_id = target / "etc/machine-id"
     if machine_id.is_symlink():
-        pass
+        raise DesktopPayloadError("target root has a symlink machine-id; use a fresh generic root")
     elif machine_id.exists() and machine_id.stat().st_size:
         raise DesktopPayloadError("target root has a machine-id; use a fresh generic root")
 
