@@ -9,9 +9,9 @@ asdcontrol	exclude	-	Apple Studio Display helper is outside the Pi target and sh
 avahi	candidate	-	Current Pi repository makes this a hard dependency of pipewire-pulse; review hooks and activation behavior, and do not enable its service.
 bash-completion	candidate	-	Useful baseline shell integration for the administered desktop.
 bat	defer	-	Optional enhanced pager/tool; not required to start the desktop.
-bluez	defer	-	Optional Bluetooth stack; defer hardware service changes.
-bluez-tools	defer	-	Optional Bluetooth tools; not required by the first session.
-bluez-utils	defer	-	Optional Bluetooth utilities; not required by the first session.
+bluez	candidate	-	Bluetooth controls are part of the upstream desktop; enable only the user pairing agent and leave discoverability policy to the user.
+bluez-tools	candidate	-	The upstream Bluetooth pairing agent invokes bt-agent from this package on the Pi desktop.
+bluez-utils	candidate	-	Bluetooth controls need the standard command-line utilities and adapter inspection tools.
 bolt	defer	-	Optional Thunderbolt support, unrelated to the Pi baseline.
 brightnessctl	candidate	-	Upstream lock/idle wake helpers query backlights and LEDs; no device is required on a headless Pi.
 btop	defer	-	Optional system monitor.

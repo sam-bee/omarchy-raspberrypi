@@ -10,6 +10,7 @@ libpulse	candidate	-	PulseAudio client API used by desktop applications and cont
 mesa	candidate	-	Pi graphics userspace baseline for the V3D/DRM stack; preserve the existing firmware and overlay.
 polkit	candidate	-	Policy daemon required by the Quickshell authentication agent; verify agent/session integration at deployment.
 pipewire	candidate	-	Audio graph runtime paired with wireplumber.
+pipewire-audio	candidate	-	Upstream audio controls use the PipeWire audio metapackage on the current desktop.
 pipewire-alsa	candidate	-	ALSA compatibility for the audio baseline.
 pipewire-jack	candidate	-	Explicit PipeWire JACK provider selected by the reviewed image-desktop transaction; avoid an ambiguous jack2 provider choice.
 pipewire-pulse	candidate	-	PulseAudio-compatible server expected by desktop applications and audio controls.
