@@ -520,6 +520,11 @@ def _nspawn_prefix(root: Path, boot: Path, user: str | None = None) -> list[str]
         "--private-users=no",
         "--network-namespace-path=/proc/1/ns/net",
         "--resolv-conf=replace-host",
+        # nspawn defaults to --timezone=auto, which can replace or remove the
+        # mounted target's /etc/localtime using the installer's host timezone.
+        # Regional settings belong to the target and must survive every
+        # isolated setup command.
+        "--timezone=off",
         # Keep stdin a pipe so commands such as chpasswd receive EOF after
         # the supplied secret.  Without this, nspawn allocates a pty and the
         # child can remain blocked waiting for interactive input.
@@ -942,6 +947,7 @@ def _boot_runner(runner: Runner, root: Path, boot: Path) -> Runner:
                 "--private-users=no",
                 "--network-namespace-path=/proc/1/ns/net",
                 "--resolv-conf=replace-host",
+                "--timezone=off",
                 "--pipe",
                 "--bind=" + os.fspath(boot) + ":/boot",
             ]
@@ -1062,6 +1068,10 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
         raise _error("target machine identity is not fresh")
     if _target_path(root, "/etc/hostname").read_text(encoding="utf-8").strip() != settings["hostname"]:
         raise _error("target hostname does not match settings")
+    localtime = _target_path(root, "/etc/localtime")
+    expected_localtime = "/usr/share/zoneinfo/" + settings["timezone"]
+    if not localtime.is_symlink() or os.readlink(localtime) != expected_localtime:
+        raise _error("target timezone link does not match settings")
     fingerprint = _host_key_fingerprint(root)
     for private in root.joinpath("etc/ssh").glob("ssh_host_*_key"):
         if private.is_file() and stat.S_IMODE(private.stat().st_mode) & 0o077:

@@ -105,6 +105,7 @@ class FakeRunner:
     def _assert_nspawn_target(self, command: list[str]) -> None:
         assert "--network-namespace-path=/proc/1/ns/net" in command
         assert "--resolv-conf=replace-host" in command
+        assert "--timezone=off" in command
         assert "--pipe" in command
         assert f"--bind={self.boot}:/boot" in command
         assert command[command.index("--directory") + 1] == str(self.root)
@@ -177,6 +178,7 @@ class InstalledTargetTests(unittest.TestCase):
         self.assertNotIn("--private-network", transformed)
         self.assertIn("--network-namespace-path=/proc/1/ns/net", transformed)
         self.assertIn("--resolv-conf=replace-host", transformed)
+        self.assertIn("--timezone=off", transformed)
         self.assertIn(f"--bind={boot}:/boot", transformed)
 
     def test_storage_accepts_fat_serial_uuid_and_rejects_nonfat_forms(self) -> None:
@@ -314,12 +316,27 @@ class InstalledTargetTests(unittest.TestCase):
         self.assertIn("UUID=11111111-1111-1111-1111-111111111111", (root / "etc/fstab").read_text())
         self.assertIn("root=UUID=11111111-1111-1111-1111-111111111111", (boot / "cmdline.txt").read_text())
         self.assertEqual((root / "etc/hostname").read_text(), "pi-target\n")
+        localtime = root / "etc/localtime"
+        self.assertTrue(localtime.is_symlink())
+        self.assertEqual(os.readlink(localtime), "/usr/share/zoneinfo/Europe/London")
         self.assertTrue((root / "home/desk/.ssh/authorized_keys").exists())
         receipt = json.loads(provenance_path.read_text(encoding="utf-8"))
         self.assertEqual(receipt["source_revision"], "d" * 40)
         self.assertEqual(receipt["installer"], provenance["installer"])
         self.assertEqual(receipt["desktop_bundle_sha256"], provenance["desktop_bundle_sha256"])
         self.assertIn("provenance", progress)
+
+        account = installed._account_from_target(root, "desk")
+        validated = installed.validate_settings(settings)
+        checked_storage = installed._validate_storage(storage, validated)
+        for replacement in ("/usr/share/zoneinfo/UTC", None):
+            with self.subTest(replacement=replacement):
+                if localtime.is_symlink() or localtime.exists():
+                    localtime.unlink()
+                if replacement is not None:
+                    localtime.symlink_to(replacement)
+                with self.assertRaisesRegex(installed.TargetProvisionError, "timezone link"):
+                    installed._validate_result(root, account, validated, checked_storage, summary["rdp_bind"])
 
     def test_invalid_provenance_fails_before_target_commands(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()
