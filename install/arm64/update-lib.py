@@ -17,6 +17,8 @@ import shutil
 import re
 import subprocess
 import time
+import struct
+import fcntl
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -30,15 +32,22 @@ PROTECTED_FILES = (
     "/etc/ssh/sshd_config",
     "/etc/pacman.conf",
     "/etc/pacman.d/mirrorlist",
+    "/etc/sudoers",
+    "/etc/omarchy-pi/rdp-profile.toml",
 )
 PROTECTED_DIRS = (
     "/etc/mkinitcpio.conf.d",
     "/etc/NetworkManager/system-connections",
     "/etc/wpa_supplicant",
     "/etc/ssh",
+    "/etc/sudoers.d",
 )
 BOOT_KERNEL_GLOBS = ("kernel8.img", "kernel_2712.img", "vmlinuz*", "initramfs*", "*.dtb")
 CUSTOM_PACKAGES = ("hypr-rdp", "ttfx")
+GET_REBOOT_ORDER = 0x0003008B
+GET_GENCMD_RESULT = 0x00030080
+RESPONSE_OK = 0x80000000
+RESPONSE_BYTES = 0x80000004
 EXPECTED_MODULES = {"nvme", "xhci_pci", "usb_storage", "uas", "usbhid", "hid_generic", "mmc_core", "mmc_block", "ext4"}
 EXPECTED_HOOKS = {"base", "systemd", "modconf", "keyboard", "sd-vconsole", "block", "filesystems", "fsck"}
 
@@ -161,19 +170,130 @@ def is_raspberry_pi(root: str | Path = "/") -> bool:
 
 
 def bootloader_record(root: str | Path = "/") -> dict[str, Any]:
-    """Read EEPROM state through vcgencmd only; never invoke an update utility."""
+    """Read EEPROM state without invoking an update utility.
+
+    ``vcgencmd`` is preferred because it is the Raspberry Pi supported
+    interface.  Some Arch ARM images do not package it, so the fallback sends
+    only the read-only ``GET_GENCMD_RESULT`` property through the firmware
+    mailbox.  It never sends a SET tag and never invokes rpi-eeprom tooling.
+    """
 
     if str(root) != "/":
         return {"method": "fixture", "output": None}
     command = shutil.which("vcgencmd")
-    if command is None:
-        if is_raspberry_pi(root):
-            raise UpdateCheckError("vcgencmd is required for read-only Raspberry Pi EEPROM verification")
-        return {"method": None, "output": None}
-    status, output = command_output([command, "bootloader_config"], timeout=10)
-    if status != 0 or not output.strip():
-        raise UpdateCheckError("read-only vcgencmd bootloader_config failed")
-    return {"method": "vcgencmd bootloader_config", "output": output}
+    if command is not None:
+        status, output = command_output([command, "bootloader_config"], timeout=10)
+        if status == 0 and output.strip() and "boot_order" in output.lower():
+            return {"method": "vcgencmd bootloader_config", "output": output}
+    output = _vcio_bootloader_config()
+    reboot_order = _vcio_reboot_order()
+    if output and reboot_order is not None and "boot_order" in output.lower():
+        return {
+            "method": "/dev/vcio GET_GENCMD_RESULT",
+            "output": output,
+            "reboot_order": f"0x{reboot_order:08x}",
+        }
+    if is_raspberry_pi(root):
+        raise UpdateCheckError("could not read Raspberry Pi EEPROM bootloader_config via vcgencmd or /dev/vcio")
+    return {"method": None, "output": None}
+
+
+def _vcio_bootloader_config() -> str | None:
+    """Read ``bootloader_config`` using the firmware's GET gencmd property.
+
+    The ioctl is the upstream ``IOCTL_MBOX_PROPERTY`` definition.  The
+    command buffer contains only tag ``0x00030080`` (GET_GENCMD_RESULT) and
+    the literal read-only command; no EEPROM write tag can be sent here.
+    """
+
+    try:
+        devices = ("/dev/vcio_gencmd", "/dev/vcio")
+        pointer_size = struct.calcsize("P")
+        ioctl_number = (3 << 30) | (pointer_size << 16) | (100 << 8)
+        max_string = 4 * 1024
+        word_count = 6 + (max_string // 4) + 1
+        command = b"bootloader_config\0"
+    except (OSError, ValueError, struct.error):
+        return None
+    for device in devices:
+        descriptor: int | None = None
+        try:
+            message = bytearray(word_count * 4)
+            struct.pack_into("<6I", message, 0, len(message), 0, GET_GENCMD_RESULT, max_string, 0, 0)
+            message[24 : 24 + len(command)] = command
+            struct.pack_into("<I", message, 24 + max_string, 0)
+            descriptor = os.open(
+                device,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            )
+            fcntl.ioctl(descriptor, ioctl_number, message, True)
+            total, status, tag, buffer_size, response_length, command_status = struct.unpack_from("<6I", message, 0)
+            response_size = response_length & 0x7FFFFFFF
+            if (
+                total != len(message)
+                or status != 0x80000000
+                or tag != GET_GENCMD_RESULT
+                or buffer_size != max_string
+                or not (response_length & 0x80000000)
+                or response_size > max_string
+                or command_status != 0
+                or struct.unpack_from("<I", message, 24 + max_string)[0] != 0
+            ):
+                continue
+            payload = bytes(message[24 : 24 + max_string])
+            nul = payload.find(b"\0")
+            if nul < 0 or nul > response_size or any(payload[nul + 1 :]):
+                continue
+            try:
+                text = payload[:nul].decode("ascii").strip()
+            except UnicodeDecodeError:
+                continue
+            if text:
+                return text + "\n"
+        except (OSError, ValueError, fcntl.error):
+            continue
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+    return None
+
+
+def _vcio_reboot_order() -> int | None:
+    """Read the one-shot reboot-order property through the same GET-only path."""
+
+    for device in ("/dev/vcio_gencmd", "/dev/vcio"):
+        descriptor: int | None = None
+        message = bytearray(7 * 4)
+        struct.pack_into("<7I", message, 0, len(message), 0, GET_REBOOT_ORDER, 4, 4, 0, 0)
+        try:
+            descriptor = os.open(
+                device,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            )
+            fcntl.ioctl(descriptor, (3 << 30) | (struct.calcsize("P") << 16) | (100 << 8), message, True)
+            total, status, tag, buffer_size, response_length, order = struct.unpack_from("<6I", message, 0)
+            terminator = struct.unpack_from("<I", message, 24)[0]
+            if (
+                total == len(message)
+                and status == RESPONSE_OK
+                and tag == GET_REBOOT_ORDER
+                and buffer_size == 4
+                and response_length == RESPONSE_BYTES
+                and terminator == 0
+            ):
+                return order
+        except (OSError, ValueError, struct.error, fcntl.error):
+            pass
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+    return None
 
 
 def parse_mkinitcpio_config(root: str | Path = "/") -> dict[str, Any]:
@@ -197,10 +317,182 @@ def parse_mkinitcpio_config(root: str | Path = "/") -> dict[str, Any]:
     if preset_dir.is_dir() and not preset_dir.is_symlink():
         for path in sorted(preset_dir.glob("*.preset")):
             preset_text = path.read_text(errors="replace")
-            images = dict(re.findall(r"(?m)^\s*([A-Za-z0-9_]+_image)\s*=\s*['\"]([^'\"]+)", preset_text))
-            if images:
-                presets[str(path.relative_to(root_path(root, "/")))] = images
+            values_for_preset = dict(
+                re.findall(r"(?m)^\s*((?:ALL_)?kver|[A-Za-z0-9_]+_(?:image|kver))\s*=\s*['\"]([^'\"]+)", preset_text)
+            )
+            if values_for_preset:
+                presets[str(path.relative_to(root_path(root, "/")))] = values_for_preset
     return {"modules": sorted(values["MODULES"]), "hooks": sorted(values["HOOKS"]), "presets": presets}
+
+
+def _module_root(root: str | Path) -> Path:
+    for candidate in (root_path(root, "/usr/lib/modules"), root_path(root, "/lib/modules")):
+        if candidate.is_dir() and not candidate.is_symlink():
+            return candidate
+    return root_path(root, "/usr/lib/modules")
+
+
+def _kernel_versions(root: str | Path) -> dict[str, dict[str, Any]]:
+    modules = _module_root(root)
+    result: dict[str, dict[str, Any]] = {}
+    if not modules.is_dir() or modules.is_symlink():
+        return result
+    for entry in sorted(modules.iterdir()):
+        if not entry.is_dir() or entry.is_symlink():
+            continue
+        pkgbase = entry / "pkgbase"
+        result[entry.name] = {
+            "pkgbase": pkgbase.read_text(errors="replace").strip() if pkgbase.is_file() else None,
+            "modules_builtin": path_record(entry / "modules.builtin"),
+        }
+    return result
+
+
+def _kernel_package_files(root: str | Path) -> dict[str, bool]:
+    """Record whether installed linux-rpi metadata owns the Pi boot files."""
+
+    local = root_path(root, "/var/lib/pacman/local")
+    if not local.is_dir() or local.is_symlink():
+        return {}
+    result: dict[str, bool] = {"kernel8.img": False, "kernel_2712.img": False}
+    for record in sorted(local.glob("linux-rpi-*/files")):
+        if not record.is_file() or record.is_symlink():
+            continue
+        in_files = False
+        try:
+            lines = record.read_text(errors="replace").splitlines()
+        except OSError as exc:
+            raise UpdateCheckError(f"linux-rpi package file list is unreadable: {record}") from exc
+        for line in lines:
+            if line == "%FILES%":
+                in_files = True
+                continue
+            if in_files and line.startswith("%"):
+                break
+            if in_files:
+                normalized = line.lstrip("/")
+                if normalized in {"boot/kernel8.img", "boot/kernel_2712.img"}:
+                    result[Path(normalized).name] = True
+    return result
+
+
+def _initramfs_listing(root: str | Path, image: str) -> dict[str, Any]:
+    """Inspect initramfs contents when the target provides lsinitcpio."""
+
+    if str(root) == "/":
+        command = shutil.which("lsinitcpio")
+        image_path = image
+    else:
+        command_path = root_path(root, "/usr/bin/lsinitcpio")
+        command = str(command_path) if command_path.is_file() and os.access(command_path, os.X_OK) else None
+        image_path = str(root_path(root, image))
+    if command is None:
+        return {"status": "unavailable", "kernel_versions": [], "modules": []}
+    status, output = command_output([command, "-l", image_path], timeout=30)
+    if status != 0 or not output.strip():
+        return {"status": "failed", "kernel_versions": [], "modules": []}
+    versions = sorted(
+        set(
+            re.findall(
+                r"(?:^|/)(?:usr/)?lib/modules/([^/\s]+)/",
+                output,
+            )
+        )
+    )
+    modules = sorted(
+        set(
+            name.replace("-", "_")
+            for name in re.findall(r"(?:^|/)([A-Za-z0-9_.+-]+)\.ko(?:\.[^/\s]+)?(?:\s|$)", output)
+        )
+    )
+    return {"status": "ok", "kernel_versions": versions, "modules": modules}
+
+
+def kernel_artifacts(root: str | Path, mkinitcpio: dict[str, Any]) -> dict[str, Any]:
+    """Capture kernel/module/initramfs linkage facts for post-transaction checks."""
+
+    images: set[str] = set()
+    module_versions = _kernel_versions(root)
+    preset_kvers: dict[str, str] = {}
+    preset_kernel_images: dict[str, str] = {}
+    for preset, values in mkinitcpio.get("presets", {}).items():
+        for name, value in values.items():
+            if name.endswith("_image"):
+                images.add(value)
+            elif name == "ALL_kver" or name.endswith("_kver"):
+                module_match = re.search(r"/(?:usr/)?lib/modules/([^/]+)(?:/|$)", value)
+                candidate = module_match.group(1) if module_match else Path(value).name
+                if module_match or candidate in module_versions or not value.startswith("/"):
+                    preset_kvers[f"{preset}:{name}"] = candidate
+                else:
+                    preset_kernel_images[f"{preset}:{name}"] = value
+    initramfs = {image: _initramfs_listing(root, image) for image in sorted(images)}
+    return {
+        "kernel8": path_record(root_path(root, "/boot/kernel8.img")),
+        "kernel_2712": path_record(root_path(root, "/boot/kernel_2712.img")),
+        "module_versions": module_versions,
+        "preset_kvers": preset_kvers,
+        "preset_kernel_images": preset_kernel_images,
+        "linux_rpi_boot_files": _kernel_package_files(root),
+        "initramfs": initramfs,
+    }
+
+
+def verify_kernel_artifacts(state: dict[str, Any], *, root: str | Path = "/") -> list[str]:
+    """Verify that the Pi kernel, module tree and initramfs describe one build."""
+
+    failures: list[str] = []
+    artifacts = state.get("kernel_artifacts", {})
+    live_pi = str(root) == "/" and is_raspberry_pi(root)
+    kernel8 = artifacts.get("kernel8", {})
+    if kernel8.get("kind") != "file" or kernel8.get("size", 0) <= 0:
+        failures.append("/boot/kernel8.img is missing or empty")
+    modules = artifacts.get("module_versions", {})
+    preset_kvers = set(artifacts.get("preset_kvers", {}).values())
+    preset_kernel_images = artifacts.get("preset_kernel_images", {})
+    initramfs = artifacts.get("initramfs", {})
+    if live_pi and not modules:
+        failures.append("installed kernel module tree is missing")
+    if live_pi and not preset_kvers and not preset_kernel_images:
+        failures.append("linux-rpi mkinitcpio preset does not identify its kernel modules")
+    if live_pi and not initramfs:
+        failures.append("linux-rpi mkinitcpio preset does not select an initramfs image")
+    for version in sorted(preset_kvers):
+        if version not in modules:
+            failures.append(f"mkinitcpio preset selects missing kernel modules: {version}")
+        elif live_pi and modules[version].get("pkgbase") != "linux-rpi":
+            failures.append(f"mkinitcpio preset selects modules not identified as linux-rpi: {version}")
+    owned = artifacts.get("linux_rpi_boot_files", {})
+    if live_pi and state.get("packages", {}).get("linux-rpi") and not owned:
+        failures.append("linux-rpi package file ownership metadata is unavailable")
+    if live_pi and owned and not owned.get("kernel8.img", False):
+        failures.append("/boot/kernel8.img is not owned by the installed linux-rpi package")
+    for image, listing in sorted(initramfs.items()):
+        if listing.get("status") != "ok":
+            if live_pi:
+                failures.append(f"could not inspect initramfs image: {image}")
+            continue
+        listed_versions = set(listing.get("kernel_versions", []))
+        if preset_kvers and not listed_versions.intersection(preset_kvers):
+            failures.append(f"initramfs {image} does not contain the preset kernel modules")
+        if not preset_kvers and preset_kernel_images and not listed_versions.intersection(modules):
+            failures.append(f"initramfs {image} does not contain installed kernel modules")
+        if live_pi and not preset_kvers and preset_kernel_images:
+            for version in sorted(listed_versions.intersection(modules)):
+                if modules[version].get("pkgbase") != "linux-rpi":
+                    failures.append(f"initramfs {image} selects modules not identified as linux-rpi: {version}")
+    if live_pi:
+        kernel_path = root_path(root, "/boot/kernel8.img")
+        try:
+            with kernel_path.open("rb") as stream:
+                stream.seek(0x38)
+                arm64_magic = stream.read(4) == b"ARM\x64"
+        except OSError:
+            arm64_magic = False
+        file_status, file_output = command_output(["file", "-Lb", str(kernel_path)]) if not arm64_magic else (0, "")
+        if not arm64_magic and (file_status != 0 or ("ELF" not in file_output and not any(token in file_output for token in ("ARM64", "AArch64", "aarch64")))):
+            failures.append("/boot/kernel8.img is not an identifiable ARM64 kernel image")
+    return failures
 
 
 def recipe_hashes(source_dir: str | Path | None) -> dict[str, str]:
@@ -222,6 +514,41 @@ def active_source_dir(home: str | Path) -> Path | None:
     except OSError:
         return None
     return resolved if resolved.is_dir() else None
+
+
+def account_records(root: str | Path, home: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Hash only root/target authentication records; never expose shadow text."""
+
+    passwd_path = root_path(root, "/etc/passwd")
+    shadow_path = root_path(root, "/etc/shadow")
+    accounts: dict[str, str] = {}
+    homes: dict[str, str] = {}
+    if passwd_path.is_file():
+        for line in passwd_path.read_text(errors="replace").splitlines():
+            fields = line.split(":")
+            if len(fields) >= 6:
+                accounts[fields[0]] = fields[5]
+                homes[fields[0]] = fields[5]
+    target = next((name for name, account_home in homes.items() if account_home == str(home)), None)
+    live = str(root) == "/" and os.environ.get("OMARCHY_PI_TESTING") != "1"
+    if live and (not passwd_path.is_file() or "root" not in accounts or target is None):
+        raise UpdateCheckError("target/root account records are unavailable for access preservation")
+    selected = [name for name in ("root", target) if name and name in accounts]
+    auth: dict[str, Any] = {}
+    if shadow_path.is_file():
+        for line in shadow_path.read_text(errors="replace").splitlines():
+            fields = line.split(":", 1)
+            if len(fields) == 2 and fields[0] in selected:
+                auth[fields[0]] = {"sha256": hashlib.sha256(line.encode()).hexdigest()}
+    elif str(root) == "/" and os.geteuid() == 0 and os.environ.get("OMARCHY_PI_TESTING") != "1":
+        raise UpdateCheckError("/etc/shadow is unavailable for authentication-state preservation")
+    if live and any(name not in auth for name in selected):
+        raise UpdateCheckError("target/root shadow records are unavailable for authentication-state preservation")
+    ssh: dict[str, Any] = {}
+    for name in selected:
+        ssh_path = root_path(root, homes[name]) / ".ssh"
+        ssh[name] = directory_record(ssh_path)
+    return auth, ssh
 
 
 def compare_recipe_hashes(old_release: str | Path, new_release: str | Path) -> list[str]:
@@ -267,6 +594,8 @@ def snapshot(*, root: str | Path = "/", home: str | Path | None = None, source_d
     user_state = {
         name: directory_record(home_path / name) for name in user_files
     }
+    account_auth, account_ssh = account_records(root, home_path)
+    mkinitcpio = parse_mkinitcpio_config(root)
     return {
         "created_at": int(time.time()),
         "architecture": os.environ.get("OMARCHY_PI_ARCH", platform.machine()),
@@ -274,9 +603,12 @@ def snapshot(*, root: str | Path = "/", home: str | Path | None = None, source_d
         "protected": protected,
         "protected_dirs": protected_dirs,
         "boot_entries": boot_entries,
-        "mkinitcpio": parse_mkinitcpio_config(root),
+        "mkinitcpio": mkinitcpio,
+        "kernel_artifacts": kernel_artifacts(root, mkinitcpio),
         "custom_recipes": recipe_hashes(source_dir),
         "user_state": user_state,
+        "account_auth": account_auth,
+        "account_ssh": account_ssh,
         "bootloader": bootloader_record(str(root)),
     }
 
@@ -289,6 +621,12 @@ def changed_protected(before: dict[str, Any], after: dict[str, Any]) -> list[str
         for path in sorted(set(old) | set(new)):
             if old.get(path) != new.get(path):
                 changed.append(path)
+    for key in ("account_auth", "account_ssh"):
+        old = before.get(key, {})
+        new = after.get(key, {})
+        for account in sorted(set(old) | set(new)):
+            if old.get(account) != new.get(account):
+                changed.append(f"{key}:{account}")
     if before.get("bootloader") != after.get("bootloader"):
         changed.append("bootloader")
     return changed
@@ -337,12 +675,15 @@ def verify_boot_state(before: dict[str, Any], after: dict[str, Any], *, root: st
             failures.append(f"mkinitcpio preset disappeared: {preset}")
     for preset, values in new_mkinit.get("presets", {}).items():
         for key, image in values.items():
+            if not key.endswith("_image"):
+                continue
             image_path = root_path(root, image if image.startswith("/") else "/boot/" + Path(image).name)
             if not image_path.is_file() or image_path.stat().st_size <= 0:
                 failures.append(f"mkinitcpio preset {preset} points to missing image {image}")
     boot = root_path(root, "/boot")
     if not boot.is_dir():
         failures.append("/boot is not a directory")
+    failures.extend(verify_kernel_artifacts(after, root=root))
     return failures
 
 

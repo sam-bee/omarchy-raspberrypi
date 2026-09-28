@@ -42,6 +42,14 @@ class UpdateHelperTests(unittest.TestCase):
         (self.root / "usr/share/omarchy-pi").mkdir(parents=True)
         (self.home / ".config/omarchy-pi-rdp").mkdir(parents=True)
         (self.root / "etc/pacman.conf").write_text("SigLevel = Required DatabaseOptional\n")
+        (self.root / "etc/passwd").write_text(
+            f"root:x:0:0:root:/root:/bin/bash\n"
+            f"tester:x:1000:1000:Tester:{self.home}:/bin/bash\n"
+        )
+        (self.root / "etc/shadow").write_text(
+            "root:$6$root-hash:1:0:99999:7:::\n"
+            "tester:$6$tester-hash:1:0:99999:7:::\n"
+        )
         (self.root / "etc/mkinitcpio.conf").write_text(
             "MODULES=(nvme xhci_pci usb_storage uas usbhid hid_generic mmc_core mmc_block ext4)\n"
             "HOOKS=(base systemd modconf keyboard sd-vconsole block filesystems fsck)\n"
@@ -96,6 +104,16 @@ class UpdateHelperTests(unittest.TestCase):
         after = update_lib.snapshot(root=self.root, home=self.home)
         self.assertIn("/boot/config.txt", update_lib.compare_snapshots(before, after))
 
+    def test_existing_authentication_state_change_is_reported_without_plaintext(self) -> None:
+        before = update_lib.snapshot(root=self.root, home=self.home)
+        (self.root / "etc/shadow").write_text(
+            "root:$6$root-hash:1:0:99999:7:::\n"
+            "tester:$6$changed-hash:1:0:99999:7:::\n"
+        )
+        after = update_lib.snapshot(root=self.root, home=self.home)
+        self.assertTrue(any(item.startswith("account_auth:") for item in update_lib.changed_protected(before, after)))
+        self.assertNotIn("tester-hash", json.dumps(before))
+
     def test_missing_kernel8_and_initramfs_fail_boot_verification(self) -> None:
         before = update_lib.snapshot(root=self.root, home=self.home)
         (self.root / "boot/kernel8.img").unlink()
@@ -104,6 +122,31 @@ class UpdateHelperTests(unittest.TestCase):
         failures = update_lib.verify_boot_state(before, after, root=self.root)
         self.assertTrue(any("kernel8.img" in failure for failure in failures))
         self.assertTrue(any("boot entry disappeared" in failure for failure in failures))
+
+    def test_kernel_modules_and_initramfs_must_match_preset(self) -> None:
+        version = "6.18.53-1-rpi"
+        modules = self.root / "usr/lib/modules" / version
+        modules.mkdir(parents=True)
+        (modules / "pkgbase").write_text("linux-rpi\n")
+        (modules / "modules.builtin").write_text("")
+        (self.root / "etc/mkinitcpio.d/linux-rpi.preset").write_text(
+            "ALL_kver='/usr/lib/modules/6.18.53-1-rpi'\n"
+            "default_image='/boot/initramfs-linux.img'\n"
+        )
+        lsinitcpio = self.root / "usr/bin/lsinitcpio"
+        lsinitcpio.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\n' usr/lib/modules/6.18.53-1-rpi/kernel/fs/ext4.ko\n"
+        )
+        lsinitcpio.chmod(0o755)
+        state = update_lib.snapshot(root=self.root, home=self.home)
+        self.assertEqual(update_lib.verify_kernel_artifacts(state, root=self.root), [])
+        (self.root / "etc/mkinitcpio.d/linux-rpi.preset").write_text(
+            "ALL_kver='/usr/lib/modules/missing-kernel'\n"
+            "default_image='/boot/initramfs-linux.img'\n"
+        )
+        broken = update_lib.snapshot(root=self.root, home=self.home)
+        self.assertTrue(any("missing-kernel" in item for item in update_lib.verify_kernel_artifacts(broken, root=self.root)))
 
     def test_package_database_failure_does_not_look_like_empty_success(self) -> None:
         os.environ["OMARCHY_PI_PACKAGE_DB"] = str(self.root / "missing.json")

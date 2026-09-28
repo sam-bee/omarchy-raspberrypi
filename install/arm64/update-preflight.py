@@ -10,7 +10,7 @@ import platform
 import sys
 from pathlib import Path
 
-from update_lib import UpdateCheckError, active_source_dir, atomic_json, compare_recipe_hashes, snapshot, state_path
+from update_lib import UpdateCheckError, active_source_dir, atomic_json, compare_recipe_hashes, snapshot, state_path, verify_boot_state
 
 
 def parser() -> argparse.ArgumentParser:
@@ -65,6 +65,9 @@ def main(argv: list[str] | None = None) -> int:
         result = snapshot(root=args.root, home=args.home, source_dir=source_dir)
     except (UpdateCheckError, OSError) as exc:
         return fail(str(exc), as_json=args.json)
+    baseline_failures = verify_boot_state(result, result, root=args.root)
+    if baseline_failures:
+        return fail("; ".join(baseline_failures), as_json=args.json)
     baseline = args.baseline
     if baseline is None and args.state_dir:
         baseline = str(state_path(args.state_dir, "baseline.json"))
