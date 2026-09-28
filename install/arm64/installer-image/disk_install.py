@@ -732,6 +732,10 @@ def _make_key(key_identity: Mapping[str, Any], *, job_dir: Path) -> tuple[str, s
     key_part, _unused = _partition_devices(key_disk)
     current = _revalidate(key_identity, role="key")
     _checked(["wipefs", "--all", "--force", "--", key_disk])
+    # wipefs removes the old partition/filesystem signatures.  Let udev
+    # publish that change before rediscovering the identity; otherwise a
+    # transient stale lsblk/sysfs graph can look like device replacement.
+    _checked(["udevadm", "settle", "--timeout=30"])
     current = _current_identity(current, role="key")
     if current["path"] != key_disk:
         raise InstallError("key device path changed during preparation")
@@ -878,6 +882,10 @@ def prepare_target(
             key_part, key_uuid, key_file, key_mount = _make_key(key, job_dir=job_dir)
 
         _checked(["wipefs", "--all", "--force", "--", target_path])
+        # As above, settle the kernel/udev view before the post-wipe identity
+        # guard.  The guard remains mandatory; this only removes the expected
+        # partition-signature propagation race.
+        _checked(["udevadm", "settle", "--timeout=30"])
         # Re-run the identity guard after wipefs and before partitioning.  The
         # command itself is destructive, so later retries still fail closed.
         current_target = _revalidate(target, role="target")

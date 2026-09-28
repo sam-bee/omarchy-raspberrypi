@@ -299,12 +299,82 @@ class DiskInstallTests(unittest.TestCase):
         self.assertIn("2097152", sfdisk[1] or "")
         self.assertIn(["mkfs.fat", "-F", "32", "-n", "PI-BOOT", "--", "/dev/nvme0n1p1"], [argv for argv, _ in commands])
         self.assertIn(["mkfs.ext4", "-F", "-U", "random", "-L", "OMARCHY-ROOT", "--", "/dev/nvme0n1p2"], [argv for argv, _ in commands])
+        wipefs_index = next(index for index, (argv, _input) in enumerate(commands) if argv[0] == "wipefs")
+        self.assertEqual(commands[wipefs_index + 1][0], ["udevadm", "settle", "--timeout=30"])
         self.assertTrue(any(
             argv[:7] == ["mount", "-t", "vfat", "-o", "fmask=0133,dmask=0022", "--", "/dev/nvme0n1p1"]
             and argv[7].endswith("/root/boot")
             for argv, _ in commands
         ))
         self.assertTrue(any(argv[:2] == ["umount", "--"] for argv, _ in commands))
+
+    def test_post_wipe_settle_failure_stops_target_and_key_mutation(self) -> None:
+        """A lost udev view must fail closed before any new partitioning."""
+
+        for mode, key_identity, passphrase in (("plain", None, None), ("key", self.blank_key, "recovery-passphrase")):
+            with self.subTest(mode=mode):
+                commands: list[list[str]] = []
+
+                def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+                    commands.append(command)
+                    if command[:2] == ["udevadm", "settle"] and "--timeout=30" in command:
+                        raise disk_install.InstallError("command failed: udevadm")
+                    return _result(command)
+
+                with tempfile.TemporaryDirectory() as temporary:
+                    temporary_root = Path(temporary)
+                    with mock.patch.multiple(
+                        disk_install,
+                        _run=mock.Mock(side_effect=runner),
+                        _preflight_error=mock.Mock(return_value=None),
+                        discover_disks=mock.Mock(return_value=[self.target["/dev/nvme0n1"], self.blank_key]),
+                        MOUNT_BASE=temporary_root / "mnt",
+                        SECRET_BASE=temporary_root / "run",
+                    ):
+                        with self.assertRaisesRegex(disk_install.InstallError, "udevadm"):
+                            with disk_install.prepare_target(self.target["/dev/nvme0n1"], mode, passphrase, key_identity):
+                                self.fail("preparation unexpectedly reached the mount boundary")
+                    self.assertFalse(any(argv[0] in {"sfdisk", "mkfs.fat", "mkfs.ext4", "cryptsetup"} for argv in commands))
+                    self.assertFalse(list((temporary_root / "mnt").glob("omarchy-pi-install-*")))
+                    self.assertFalse(list((temporary_root / "run").glob("omarchy-pi-install-*")))
+
+    def test_post_wipe_stale_identity_still_fails_closed_before_partitioning(self) -> None:
+        """Settling must not weaken the identity guard if the graph stays stale."""
+
+        stale_target = dict(self.target["/dev/nvme0n1"])
+        stale_target["identity"] = dict(stale_target["identity"])
+        stale_target["eligible"] = False
+        stale_target["reasons"] = ["sysfs block graph is unavailable"]
+        calls = 0
+
+        def discover() -> list[dict[str, object]]:
+            nonlocal calls
+            calls += 1
+            return [stale_target if calls >= 3 else self.target["/dev/nvme0n1"]]
+
+        commands: list[list[str]] = []
+
+        def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return _result(command)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            with mock.patch.multiple(
+                disk_install,
+                _run=mock.Mock(side_effect=runner),
+                _preflight_error=mock.Mock(return_value=None),
+                discover_disks=mock.Mock(side_effect=discover),
+                MOUNT_BASE=temporary_root / "mnt",
+                SECRET_BASE=temporary_root / "run",
+            ):
+                with self.assertRaisesRegex(disk_install.InstallError, "sysfs block graph is unavailable"):
+                    with disk_install.prepare_target(self.target["/dev/nvme0n1"], "plain", None):
+                        self.fail("preparation unexpectedly reached the mount boundary")
+            self.assertIn(["udevadm", "settle", "--timeout=30"], commands)
+            self.assertFalse(any(argv[0] in {"sfdisk", "mkfs.fat", "mkfs.ext4"} for argv in commands))
+            self.assertFalse(list((temporary_root / "mnt").glob("omarchy-pi-install-*")))
+            self.assertFalse(list((temporary_root / "run").glob("omarchy-pi-install-*")))
 
     def test_cleanup_tree_failure_is_reported_and_staging_is_retained(self) -> None:
         def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -372,6 +442,10 @@ class DiskInstallTests(unittest.TestCase):
         self.assertEqual(luks_format_input, "recovery-passphrase")
         key_sfdisk = next(value for argv, value in commands if argv[0] == "sfdisk" and argv[-1] == "/dev/sdb")
         self.assertIn(",524288,83", key_sfdisk or "")
+        wipefs_indices = [index for index, (argv, _input) in enumerate(commands) if argv[0] == "wipefs"]
+        self.assertEqual(len(wipefs_indices), 2)
+        for index in wipefs_indices:
+            self.assertEqual(commands[index + 1][0], ["udevadm", "settle", "--timeout=30"])
 
 
 if __name__ == "__main__":
