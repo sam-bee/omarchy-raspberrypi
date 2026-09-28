@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 HERE = Path(__file__).resolve().parent
@@ -213,6 +214,23 @@ class StageInstallerServicesTests(unittest.TestCase):
                 path = target / "usr/local/libexec/omarchy-pi" / relative
                 self.assertTrue(path.is_file(), relative)
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), mode, relative)
+            validator = target / "usr/local/libexec/omarchy-pi" / stage.RUNTIME_VALIDATOR_DESTINATION
+            self.assertEqual(validator.read_bytes(), stage.RUNTIME_VALIDATOR_SOURCE.read_bytes())
+            self.assertEqual(stat.S_IMODE(validator.stat().st_mode), 0o755)
+            provenance = json.loads((target / "usr/lib/omarchy-pi/installer-provenance.json").read_text())
+            relative = "usr/local/libexec/omarchy-pi/" + stage.RUNTIME_VALIDATOR_DESTINATION
+            self.assertEqual(provenance["files"][relative], hashlib.sha256(validator.read_bytes()).hexdigest())
+
+    def test_missing_declared_runtime_validator_fails_before_staging(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = self.make_target(root)
+            binary, digest = self.make_binary(root)
+            missing = root / "missing-verify-hypr-rdp-runtime.py"
+            with patch.object(stage, "RUNTIME_VALIDATOR_SOURCE", missing):
+                with self.assertRaisesRegex(stage.ServiceStageError, "source file is missing"):
+                    stage.stage_services(target, binary, digest, require_root=False)
+            self.assertFalse((target / "usr/local").exists())
 
     def test_hash_mismatch_and_private_settings_fail_before_staging(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -32,6 +32,11 @@ NETWORKD_PRESET_CONTENT = b"disable systemd-networkd*\n"
 EXPECTED_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 ELF_MACHINE_AARCH64 = 183
 PT_INTERP = 3
+# The target RDP service runs this public validator after installation.  Keep
+# its source tied to the reviewed session runtime instead of requiring a
+# separately assembled native archive to provide a possibly stale copy.
+RUNTIME_VALIDATOR_SOURCE = Path(__file__).resolve().parents[1] / "session/systemd/verify-hypr-rdp-runtime.py"
+RUNTIME_VALIDATOR_DESTINATION = "verify-hypr-rdp-runtime.py"
 
 LIBEXEC_FILES = {
     "settings.py": 0o644,
@@ -163,6 +168,19 @@ def _source_file(source_root: Path, name: str) -> Path:
         raise ServiceStageError(f"source file is missing: {name}") from exc
     if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
         raise ServiceStageError(f"source file is not a regular file: {name}")
+    return path
+
+
+def _source_path(path: Path, description: str) -> Path:
+    """Validate a declared source outside the installer-image directory."""
+
+    _reject_symlink_components(path)
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ServiceStageError(f"source file is missing: {description}") from exc
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise ServiceStageError(f"source file is not a regular file: {description}")
     return path
 
 
@@ -380,6 +398,12 @@ def _unit_source_names() -> Iterable[tuple[str, Path, int, str]]:
     root = Path(__file__).resolve().parent
     for name, mode in LIBEXEC_FILES.items():
         yield name, _source_file(root, name), mode, "libexec"
+    yield (
+        RUNTIME_VALIDATOR_DESTINATION,
+        _source_path(RUNTIME_VALIDATOR_SOURCE, "session/systemd/verify-hypr-rdp-runtime.py"),
+        0o755,
+        "libexec",
+    )
     yield "omarchy-pi-install", _source_file(root, "omarchy-pi-install"), 0o755, "bin"
     for name, mode in SHARE_FILES.items():
         yield name, _source_file(root, name), mode, "share"

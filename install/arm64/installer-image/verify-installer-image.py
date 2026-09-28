@@ -85,6 +85,7 @@ EXECUTABLE_PAYLOAD_FILES = (
     "usr/local/libexec/omarchy-pi/provision-network.py",
     "usr/local/libexec/omarchy-pi/provision-rdp.py",
     "usr/local/libexec/omarchy-pi/verify-installer-rdp-runtime.py",
+    "usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py",
     "usr/local/libexec/omarchy-pi/launch-installer-session.py",
     "usr/local/libexec/omarchy-pi/start-installer-session.sh",
     "usr/local/libexec/omarchy-pi/start-installer-desktop.sh",

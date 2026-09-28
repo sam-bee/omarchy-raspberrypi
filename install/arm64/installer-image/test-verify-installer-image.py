@@ -233,6 +233,18 @@ class VerifyInstallerImageTests(unittest.TestCase):
         with self.assertRaises(verify.ImageVerificationError):
             verify._verify_installer_provenance(root)
 
+    def test_rdp_runtime_validator_is_required_and_hash_checked(self):
+        temporary, image, root, boot = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        validator = root / "usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py"
+        verify._verify_installer_provenance(root)
+        validator.write_bytes(validator.read_bytes() + b"\n# stale copy\n")
+        with self.assertRaisesRegex(verify.ImageVerificationError, "does not match"):
+            verify._verify_installer_provenance(root)
+        validator.unlink()
+        with self.assertRaisesRegex(verify.ImageVerificationError, "installer provenance"):
+            verify._verify_installer_provenance(root)
+
     def test_required_font_must_be_present_and_nonempty(self) -> None:
         temporary, image, root_source, boot_source = self.make_fixture()
         self.addCleanup(temporary.cleanup)

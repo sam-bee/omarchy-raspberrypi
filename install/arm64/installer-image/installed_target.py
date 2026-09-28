@@ -846,16 +846,20 @@ def _runtime_validator_source() -> Path:
     raise _error("corrected target RDP runtime validator is unavailable")
 
 
-def _overlay_runtime_validator(root: Path) -> None:
-    """Overlay the reviewed validator after the desktop leaf copies its bundle."""
+def _runtime_validator_bytes() -> bytes:
+    """Read the exact reviewed validator staged beside this provisioner."""
 
     source = _runtime_validator_source()
     try:
-        source_bytes = source.read_bytes()
+        return source.read_bytes()
     except OSError:
         raise _error("corrected target RDP runtime validator is unreadable") from None
-    if b"PROFILE_POLICY" not in source_bytes or b"check_profile_policy" not in source_bytes:
-        raise _error("corrected target RDP runtime validator is not the reviewed source")
+
+
+def _overlay_runtime_validator(root: Path) -> None:
+    """Overlay the reviewed validator after the desktop leaf copies its bundle."""
+
+    source_bytes = _runtime_validator_bytes()
     destination = _target_path(root, "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py")
     if not destination.is_file() or destination.is_symlink():
         raise _error("target RDP runtime validator is missing")
@@ -1173,6 +1177,7 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
         expected_policy = f'username = {json.dumps(account.username)}\nbind = {json.dumps(rdp_bind)}\n'
         config_text = config_path.read_text(encoding="utf-8")
         validator_bytes = runtime_validator.read_bytes() if runtime_validator.is_file() and not runtime_validator.is_symlink() else b""
+        expected_validator_sha256 = hashlib.sha256(_runtime_validator_bytes()).hexdigest()
         if (
             rdp_bind not in config_text
             or f'username = {json.dumps(account.username)}' not in config_text
@@ -1185,8 +1190,7 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
             or runtime_validator.is_symlink()
             or not (stat.S_IMODE(runtime_validator.stat().st_mode) & 0o111)
             or (os.geteuid() == 0 and runtime_validator.stat().st_uid != 0)
-            or b"PROFILE_POLICY" not in validator_bytes
-            or b"check_profile_policy" not in validator_bytes
+            or hashlib.sha256(validator_bytes).hexdigest() != expected_validator_sha256
             or tls_path.exists()
             or tls_path.is_symlink()
         ):
