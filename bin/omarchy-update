@@ -2,11 +2,13 @@
 
 # omarchy:summary=Update Omarchy and system packages
 # omarchy:alias=omarchy up
-# omarchy:args=[-y]
+# omarchy:args=[-y|--status|--watch]
 # omarchy:examples=omarchy update | omarchy update -y
 # omarchy:requires-sudo=true
 
-if [[ $(uname -m) != "x86_64" ]]; then
+if [[ $(uname -m) == "aarch64" && -f "$OMARCHY_PATH/.omarchy-pi-source-commit" && -f "$OMARCHY_PATH/install/arm64/update.py" ]]; then
+  exec /usr/bin/python3 "$OMARCHY_PATH/install/arm64/update.py" "$@"
+elif [[ $(uname -m) != "x86_64" ]]; then
   echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
   exit 1
 fi
