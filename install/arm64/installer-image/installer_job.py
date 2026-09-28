@@ -888,7 +888,15 @@ def _run_worker() -> int:
         job_id = state.get("job_id")
         if not isinstance(job_id, str):
             return 1
-        private_request = _read_json(_request_path(), missing_ok=True)
+        try:
+            private_request = _read_json(_request_path(), missing_ok=True)
+        except InstallerError:
+            # The queued state and worker lock establish ownership of this
+            # unusable request.  Discard it without exposing parse or file
+            # contents, then require an explicit restart.
+            _request_path().unlink(missing_ok=True)
+            _mark_interrupted(state, "the queued request is unreadable; explicit restart is required")
+            return 1
         if private_request is None:
             _mark_interrupted(state, "the queued request is unavailable; explicit restart is required")
             return 1

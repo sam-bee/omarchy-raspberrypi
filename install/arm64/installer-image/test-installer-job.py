@@ -324,6 +324,25 @@ class InstallerJobTests(unittest.TestCase):
         self.assertNotIn(SECRET, json.dumps(state))
         self.assertNotIn(SECRET, job._log_path(job_id).read_text())
 
+    def test_worker_discards_unreadable_request_without_target_access(self):
+        calls = self.fake_recovery()
+        job_id = "unreadable-job-12345678"
+        sentinel = "malformed-request-sentinel"
+        job._save_state({"status": "queued", "phase": "recovery-queued", "job_id": job_id})
+        job._request_path().write_text(
+            f'{{"job_id":"{job_id}","passphrase":"{sentinel}",',
+            encoding="utf-8",
+        )
+
+        self.assertEqual(job._run_worker(), 1)
+        state = job._load_state()
+        self.assertEqual(state["status"], "interrupted")
+        self.assertEqual(state["error"], "the queued request is unreadable; explicit restart is required")
+        self.assertFalse(job._request_path().exists())
+        self.assertEqual(calls, [])
+        self.assertNotIn(sentinel, json.dumps(state))
+        self.assertNotIn(sentinel, job._log_path(job_id).read_text())
+
     def test_plan_is_secret_free_and_requires_explicit_confirmation(self) -> None:
         plan = job._handle_request({**self.request(), "action": "plan"})
         encoded = json.dumps(plan)
