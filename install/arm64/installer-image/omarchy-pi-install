@@ -1,0 +1,18 @@
+#!/usr/bin/python3 -I
+"""Fixed, session-independent terminal entrypoint for the installer."""
+
+import os
+import sys
+
+
+if len(sys.argv) != 1:
+    print("omarchy-pi-install accepts no arguments", file=sys.stderr)
+    raise SystemExit(64)
+
+os.environ.clear()
+os.environ.update({"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"})
+os.execve(
+    "/usr/bin/python3",
+    ["/usr/bin/python3", "-I", "/usr/local/libexec/omarchy-pi/installer_job.py", "--frontend"],
+    dict(os.environ),
+)

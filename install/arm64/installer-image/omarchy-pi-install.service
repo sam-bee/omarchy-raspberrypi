@@ -1,0 +1,20 @@
+[Unit]
+Description=Omarchy Pi disk installer worker
+RequiresMountsFor=/var/lib/omarchy-pi/installer
+AssertPathExists=/usr/lib/omarchy-pi/installer-image.marker
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+WorkingDirectory=/
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/omarchy-pi/installer_job.py --worker
+StandardInput=null
+StandardOutput=null
+StandardError=journal
+Restart=no
+TimeoutStartSec=infinity
+
+# This unit has no [Install] section.  The fixed root control wrapper starts
+# one explicitly after a confirmed submission; it is never enabled at boot.

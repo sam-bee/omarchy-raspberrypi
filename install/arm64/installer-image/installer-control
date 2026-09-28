@@ -1,0 +1,21 @@
+#!/usr/bin/python3 -I
+"""Fixed, isolated privileged entrypoint for the installer controller."""
+
+import os
+import sys
+
+
+if len(sys.argv) != 1:
+    print("installer-control accepts no arguments", file=sys.stderr)
+    raise SystemExit(64)
+
+# Do not let a caller-selected interpreter path or loader configuration reach
+# the root controller.  The controller itself uses only absolute executable
+# paths for system commands.
+os.environ.clear()
+os.environ.update({"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"})
+os.execve(
+    "/usr/bin/python3",
+    ["/usr/bin/python3", "-I", "/usr/local/libexec/omarchy-pi/installer_job.py", "--control"],
+    dict(os.environ),
+)
