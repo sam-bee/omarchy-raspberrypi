@@ -53,7 +53,7 @@ The first command asks for confirmation. `-y` confirms the complete update. The 
 
 The package phase downloads and applies the complete Arch Linux ARM transaction through pacman with the target keyring and its normal package signature checks. It refuses the transaction when an EEPROM package is pending. The source phase resolves the fixed HTTPS repository and `quattro-rpi5` branch to an exact full commit SHA, prepares a clean checkout in the user's private cache, and then stages the downstream source release archive. The session stager keeps the `current` and `previous` releases and preserves edited managed configuration. A source commit SHA is provenance for the downstream archive; it is not an additional pacman package signature.
 
-Before package application, the updater checks the old and candidate source releases. A new or changed ARM migration must have an exact entry in `install/arm64/migrations.allowlist`, including its SHA-256 and a `run` or `skip` decision. Missing, stale or malformed review data stops the job. Changes to the downstream `hypr-rdp` or `ttfx` package recipe also stop the job until that recipe change has received explicit review. These checks refuse an ambiguous migration or custom recipe; they do not run a broad automatic Pi migration.
+Before package application, the updater checks the old and candidate source releases. A new or changed ARM migration must have an exact entry in `install/arm64/migrations.allowlist`, including its SHA-256 and a `run` or `skip` decision. Missing, stale or malformed review data stops the job. Changes to the downstream `hypr-rdp` or `ttfx` package recipe also stop the job; the current updater has no recipe accept override, so delivery requires a separately reviewed package compatibility change. These checks refuse an ambiguous migration or custom recipe; they do not run a broad automatic Pi migration.
 
 For each job, inspect the durable records in `/var/lib/omarchy-pi-updates/<job>/`. `update.log` contains the worker output, `result.json` contains the persisted phase and result, `package-plan.txt` contains the planned package set, and `packages-before.json` and `packages-after.json` record the installed package sets. If a job fails, preserve and inspect these records before retrying; a package transaction may already have changed the system.
 
@@ -77,17 +77,17 @@ omarchy-pi-recover status
 omarchy-pi-recover status --watch
 ```
 
-The token has the exact form `RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>`. Copy it exactly, including its angle-bracket placeholders. Planning and inspection require the explicit target, that token and one existing credential:
+Copy the exact token returned by `discover` into `--confirm-target`; do not reconstruct or shorten it. For an encrypted root, planning, inspection and repair require exactly one existing credential: either `--key-file` or `--passphrase`. For a plaintext root, omit both credential flags.
 
 ```bash
 omarchy-pi-recover plan \
   --target /dev/mmcblk0 \
-  --confirm-target 'RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>' \
+  --confirm-target '<token from discover>' \
   --passphrase
 
 omarchy-pi-recover inspect \
   --target /dev/mmcblk0 \
-  --confirm-target 'RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>' \
+  --confirm-target '<token from discover>' \
   --key-file /path/to/existing-unlock-key
 ```
 
@@ -96,7 +96,7 @@ omarchy-pi-recover inspect \
 ```bash
 omarchy-pi-recover repair \
   --target /dev/mmcblk0 \
-  --confirm-target 'RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>' \
+  --confirm-target '<token from discover>' \
   --key-file /path/to/existing-unlock-key \
   --confirm-repair
 ```
