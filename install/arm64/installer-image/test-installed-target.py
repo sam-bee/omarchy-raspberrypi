@@ -11,7 +11,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 HERE = Path(__file__).resolve().parent
@@ -20,6 +22,15 @@ assert SPEC and SPEC.loader
 installed = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = installed
 SPEC.loader.exec_module(installed)
+
+RDP_SPEC = importlib.util.spec_from_file_location(
+    "verify_hypr_rdp_runtime",
+    HERE.parent / "session/systemd/verify-hypr-rdp-runtime.py",
+)
+assert RDP_SPEC and RDP_SPEC.loader
+rdp_runtime = importlib.util.module_from_spec(RDP_SPEC)
+sys.modules[RDP_SPEC.name] = rdp_runtime
+RDP_SPEC.loader.exec_module(rdp_runtime)
 
 
 PUBLIC_KEY = "ssh-ed25519 " + ("A" * 43) + "="
@@ -223,6 +234,7 @@ class InstalledTargetTests(unittest.TestCase):
             root / "usr/share/i18n/locales",
             root / "usr/share/kbd/keymaps",
             root / "usr/bin",
+            root / "usr/local/libexec/omarchy-pi",
             boot,
             source / "install/arm64",
         ):
@@ -233,6 +245,9 @@ class InstalledTargetTests(unittest.TestCase):
         (root / "usr/share/zoneinfo/Europe/London").write_bytes(b"tz")
         (root / "usr/share/i18n/locales/C").write_bytes(b"locale")
         (root / "usr/share/kbd/keymaps/gb.map.gz").write_bytes(b"keymap")
+        validator = root / "usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py"
+        validator.write_text("PROFILE_POLICY = True\ndef check_profile_policy(): pass\n", encoding="ascii")
+        validator.chmod(0o755)
         (source / "install/arm64/provision-desktop-root.sh").write_text("#!/bin/bash\n", encoding="ascii")
         storage = {
             "root": root,
@@ -337,6 +352,122 @@ class InstalledTargetTests(unittest.TestCase):
                     localtime.symlink_to(replacement)
                 with self.assertRaisesRegex(installed.TargetProvisionError, "timezone link"):
                     installed._validate_result(root, account, validated, checked_storage, summary["rdp_bind"])
+
+    def test_rdp_modes_publish_runtime_policy_without_precreating_tls(self) -> None:
+        for mode, expected_bind in (("loopback", "127.0.0.1:3389"), ("lan", "0.0.0.0:3389")):
+            with self.subTest(mode=mode):
+                temporary, root, boot, payload, settings, storage = self.make_fixture()
+                self.addCleanup(temporary.cleanup)
+                settings = {**settings, "rdp_mode": mode}
+                runner = FakeRunner(root, boot)
+                original = installed._configure_boot
+                installed._configure_boot = lambda *args, **kwargs: None
+                try:
+                    summary = installed.provision_target(
+                        root,
+                        payload,
+                        settings,
+                        storage,
+                        lambda phase: None,
+                        runner=runner,
+                        machine="aarch64",
+                    )
+                finally:
+                    installed._configure_boot = original
+                profile = root / "home/desk/.config/omarchy-pi-rdp/config.toml"
+                self.assertIn(f'bind = "{expected_bind}"', profile.read_text(encoding="utf-8"))
+                self.assertIn('username = "desk"', profile.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    (root / "etc/omarchy-pi/rdp-profile.toml").read_text(encoding="utf-8"),
+                    f'username = "desk"\nbind = "{expected_bind}"\n',
+                )
+                self.assertFalse((root / "home/desk/.config/hypr-rdp").exists())
+                self.assertEqual(summary["rdp_bind"], expected_bind)
+
+                # Exercise the installed runtime guard against the policy and
+                # profile emitted by the target provisioner.  The service sees
+                # /home/desk after boot, so this fixture mirrors that namespace
+                # while retaining the generated bind and username fields.
+                runtime_home = Path(temporary.name) / "runtime-home"
+                shutil.copytree(root / "home/desk/.config/omarchy-pi-rdp", runtime_home / ".config/omarchy-pi-rdp")
+                runtime_config = runtime_home / ".config/omarchy-pi-rdp/config.toml"
+                runtime_config.write_text(
+                    runtime_config.read_text(encoding="utf-8").replace(
+                        "/home/desk/.config/omarchy-pi-rdp/password",
+                        str(runtime_home / ".config/omarchy-pi-rdp/password"),
+                    ),
+                    encoding="utf-8",
+                )
+                old_policy = rdp_runtime.PROFILE_POLICY
+                old_owner = rdp_runtime.PACKAGE_OWNER_UID
+                old_trusted = rdp_runtime.trusted_package_file
+                rdp_runtime.PROFILE_POLICY = root / "etc/omarchy-pi/rdp-profile.toml"
+                rdp_runtime.PACKAGE_OWNER_UID = os.getuid()
+                rdp_runtime.trusted_package_file = lambda path, executable=False: rdp_runtime.path_info(
+                    path,
+                    owner_uid=os.getuid(),
+                    executable=executable,
+                    non_writable=True,
+                )
+                try:
+                    with patch.object(
+                        rdp_runtime.pwd,
+                        "getpwuid",
+                        return_value=SimpleNamespace(pw_name="desk"),
+                    ):
+                        self.assertEqual(
+                            rdp_runtime.check_profile_policy(1001),
+                            {"username": "desk", "bind": expected_bind},
+                        )
+                        rdp_runtime.check_config(runtime_home, 1001)
+                finally:
+                    rdp_runtime.PROFILE_POLICY = old_policy
+                    rdp_runtime.PACKAGE_OWNER_UID = old_owner
+                    rdp_runtime.trusted_package_file = old_trusted
+
+                policy_path = root / "etc/omarchy-pi/rdp-profile.toml"
+                policy_path.write_text(
+                    f'username = "desk"\nbind = "{"0.0.0.0:3389" if expected_bind == "127.0.0.1:3389" else "127.0.0.1:3389"}"\n',
+                    encoding="utf-8",
+                )
+                account = installed._account_from_target(root, "desk")
+                validated = installed.validate_settings(settings)
+                checked_storage = installed._validate_storage(storage, validated)
+                with self.assertRaisesRegex(installed.TargetProvisionError, "RDP profile"):
+                    installed._validate_result(root, account, validated, checked_storage, expected_bind)
+                policy_path.write_text(
+                    f'username = "desk"\nbind = "{expected_bind}"\n',
+                    encoding="utf-8",
+                )
+                validator_path = root / "usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py"
+                validator_path.write_text("# stale bundle validator\n", encoding="ascii")
+                with self.assertRaisesRegex(installed.TargetProvisionError, "RDP profile"):
+                    installed._validate_result(root, account, validated, checked_storage, expected_bind)
+
+        temporary, root, boot, payload, settings, storage = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        settings = {**settings, "rdp_mode": "disabled", "rdp_password": None}
+        runner = FakeRunner(root, boot)
+        original = installed._configure_boot
+        installed._configure_boot = lambda *args, **kwargs: None
+        try:
+            summary = installed.provision_target(
+                root,
+                payload,
+                settings,
+                storage,
+                lambda phase: None,
+                runner=runner,
+                machine="aarch64",
+            )
+        finally:
+            installed._configure_boot = original
+        self.assertEqual(summary["rdp_bind"], None)
+        self.assertFalse((root / "etc/omarchy-pi/rdp-profile.toml").exists())
+        self.assertFalse((root / "home/desk/.config/omarchy-pi-rdp").exists())
+        self.assertFalse(
+            (root / "home/desk/.config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service").exists()
+        )
 
     def test_invalid_provenance_fails_before_target_commands(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()

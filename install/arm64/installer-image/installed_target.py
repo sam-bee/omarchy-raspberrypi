@@ -833,6 +833,35 @@ def _configure_admin(root: Path, account: Account, *, runner: Runner, boot: Path
     return sudoers
 
 
+def _runtime_validator_source() -> Path:
+    """Locate the installer-staged validator, with a source-tree test fallback."""
+
+    candidates = (
+        Path(__file__).resolve().with_name("verify-hypr-rdp-runtime.py"),
+        Path(__file__).resolve().parents[1] / "session/systemd/verify-hypr-rdp-runtime.py",
+    )
+    for candidate in candidates:
+        if candidate.is_file() and not candidate.is_symlink():
+            return candidate
+    raise _error("corrected target RDP runtime validator is unavailable")
+
+
+def _overlay_runtime_validator(root: Path) -> None:
+    """Overlay the reviewed validator after the desktop leaf copies its bundle."""
+
+    source = _runtime_validator_source()
+    try:
+        source_bytes = source.read_bytes()
+    except OSError:
+        raise _error("corrected target RDP runtime validator is unreadable") from None
+    if b"PROFILE_POLICY" not in source_bytes or b"check_profile_policy" not in source_bytes:
+        raise _error("corrected target RDP runtime validator is not the reviewed source")
+    destination = _target_path(root, "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py")
+    if not destination.is_file() or destination.is_symlink():
+        raise _error("target RDP runtime validator is missing")
+    _atomic_write(destination, source_bytes, mode=0o755)
+
+
 def _configure_password(root: Path, boot: Path, username: str, password: str, *, runner: Runner) -> None:
     _target_exec(root, boot, ["/usr/bin/chpasswd"], runner=runner, input_text=f"{username}:{password}\n")
 
@@ -840,6 +869,7 @@ def _configure_password(root: Path, boot: Path, username: str, password: str, *,
 def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any]) -> str:
     profile_root = account.home / ".config/omarchy-pi-rdp"
     tls_root = account.home / ".config/hypr-rdp"
+    policy_path = _target_path(root, "/etc/omarchy-pi/rdp-profile.toml")
     mode = settings["rdp_mode"]
     wants = account.home / ".config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service"
     if mode == "disabled":
@@ -847,20 +877,18 @@ def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any
         _remove_managed(profile_root / "password")
         _remove_managed(profile_root)
         _remove_managed(tls_root)
+        _remove_managed(policy_path)
         if os.path.lexists(wants):
             if not wants.is_symlink() or os.readlink(wants) != "/etc/systemd/user/omarchy-pi-hypr-rdp.service":
                 raise _error("target RDP enablement is not managed")
             wants.unlink()
         return "disabled"
-    if os.path.lexists(profile_root) or os.path.lexists(tls_root):
+    if os.path.lexists(profile_root) or os.path.lexists(tls_root) or os.path.lexists(policy_path):
         raise _error("target RDP profile already exists")
     _reject_symlink_components(profile_root.parent)
     profile_root.mkdir(mode=0o700, parents=True, exist_ok=False)
     os.chown(profile_root, account.uid, account.gid)
     os.chmod(profile_root, 0o700)
-    tls_root.mkdir(mode=0o700, exist_ok=False)
-    os.chown(tls_root, account.uid, account.gid)
-    os.chmod(tls_root, 0o700)
     bind = "127.0.0.1:3389" if mode == "loopback" else "0.0.0.0:3389"
     password_path = profile_root / "password"
     # The file is written through the installer's mounted host path, but the
@@ -878,9 +906,11 @@ def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any
         'audio_mode = "off"\n'
         'file_transfer_mode = "off"\n'
     )
+    policy = f'username = {json.dumps(account.username)}\nbind = {json.dumps(bind)}\n'.encode("utf-8")
     try:
         _atomic_write(password_path, settings["rdp_password"].encode(), mode=0o600, uid=account.uid, gid=account.gid)
         _atomic_write(profile_root / "config.toml", config.encode(), mode=0o600, uid=account.uid, gid=account.gid)
+        _atomic_write(policy_path, policy, mode=0o644)
         _ensure_parent(wants)
         if os.path.lexists(wants):
             if not wants.is_symlink() or os.readlink(wants) != "/etc/systemd/user/omarchy-pi-hypr-rdp.service":
@@ -894,11 +924,15 @@ def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any
                 path.unlink()
             except FileNotFoundError:
                 pass
-        for directory in (profile_root, tls_root):
+        for directory in (profile_root,):
             try:
                 directory.rmdir()
             except OSError:
                 pass
+        try:
+            policy_path.unlink()
+        except FileNotFoundError:
+            pass
         raise
     return bind
 
@@ -1129,10 +1163,33 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
             raise _error("disabled target RDP profile remains")
         if os.path.lexists(account.home / ".config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service"):
             raise _error("disabled target RDP service remains enabled")
+        if os.path.lexists(_target_path(root, "/etc/omarchy-pi/rdp-profile.toml")):
+            raise _error("disabled target RDP policy remains")
     else:
         config_path = account.home / ".config/omarchy-pi-rdp/config.toml"
         tls_path = account.home / ".config/hypr-rdp"
-        if rdp_bind not in config_path.read_text(encoding="utf-8") or not tls_path.is_dir() or tls_path.is_symlink():
+        policy_path = _target_path(root, "/etc/omarchy-pi/rdp-profile.toml")
+        runtime_validator = _target_path(root, "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py")
+        expected_policy = f'username = {json.dumps(account.username)}\nbind = {json.dumps(rdp_bind)}\n'
+        config_text = config_path.read_text(encoding="utf-8")
+        validator_bytes = runtime_validator.read_bytes() if runtime_validator.is_file() and not runtime_validator.is_symlink() else b""
+        if (
+            rdp_bind not in config_text
+            or f'username = {json.dumps(account.username)}' not in config_text
+            or not policy_path.is_file()
+            or policy_path.is_symlink()
+            or stat.S_IMODE(policy_path.stat().st_mode) != 0o644
+            or (os.geteuid() == 0 and policy_path.stat().st_uid != 0)
+            or policy_path.read_text(encoding="utf-8") != expected_policy
+            or not runtime_validator.is_file()
+            or runtime_validator.is_symlink()
+            or not (stat.S_IMODE(runtime_validator.stat().st_mode) & 0o111)
+            or (os.geteuid() == 0 and runtime_validator.stat().st_uid != 0)
+            or b"PROFILE_POLICY" not in validator_bytes
+            or b"check_profile_policy" not in validator_bytes
+            or tls_path.exists()
+            or tls_path.is_symlink()
+        ):
             raise _error("target RDP profile does not match settings")
     ssh_wants = _target_path(root, "/etc/systemd/system/multi-user.target.wants/sshd.service")
     if settings["ssh_enabled"]:
@@ -1191,6 +1248,7 @@ def provision_target(
             validated["username"],
         ],
     )
+    _overlay_runtime_validator(root)
     account = _account_from_target(root, validated["username"])
 
     progress("target identity")

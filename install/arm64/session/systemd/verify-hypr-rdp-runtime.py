@@ -18,6 +18,7 @@ from typing import NoReturn
 
 BINARY = Path("/usr/bin/hypr-rdp")
 SHA256_FILE = Path("/usr/share/omarchy-pi/hypr-rdp.sha256")
+PROFILE_POLICY = Path("/etc/omarchy-pi/rdp-profile.toml")
 PACKAGE_OWNER_UID = 0
 RUNTIME_ROOT = Path("/run/user")
 
@@ -206,7 +207,50 @@ def check_package_pin() -> str:
     return actual_digest
 
 
-def check_config(home: Path, uid: int) -> tuple[Path, Path]:
+def check_profile_policy(uid: int) -> dict[str, str]:
+    """Read the root-owned public policy for a freshly provisioned target.
+
+    Generic desktop installs deliberately have no policy file and retain the
+    reviewed loopback/``omarchy-pi`` profile below.  A mounted-target install
+    publishes only its selected username and bind address here; it never
+    publishes the RDP password or TLS material.
+    """
+
+    try:
+        PROFILE_POLICY.lstat()
+    except FileNotFoundError:
+        return {"username": "omarchy-pi", "bind": "127.0.0.1:3389"}
+    except OSError as exc:
+        fail(f"cannot inspect the RDP profile policy: {exc.strerror}")
+    trusted_package_file(PROFILE_POLICY)
+    raw_policy = read_regular_file(
+        PROFILE_POLICY,
+        owner_uid=PACKAGE_OWNER_UID,
+        mode=0o644,
+        max_size=1024,
+    )
+    try:
+        policy = tomllib.loads(raw_policy.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        fail(f"cannot parse the RDP profile policy ({type(exc).__name__})")
+    if set(policy) != {"username", "bind"}:
+        fail("RDP profile policy fields differ from the reviewed target policy")
+    username = policy.get("username")
+    bind = policy.get("bind")
+    if not isinstance(username, str) or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", username):
+        fail("RDP profile policy username is invalid")
+    if bind not in {"127.0.0.1:3389", "0.0.0.0:3389"}:
+        fail("RDP profile policy bind is invalid")
+    try:
+        account = pwd.getpwuid(uid)
+    except KeyError:
+        fail("RDP profile policy account is absent")
+    if getattr(account, "pw_name", None) != username:
+        fail("RDP profile policy username differs from the service account")
+    return {"username": username, "bind": bind}
+
+
+def check_config(home: Path, uid: int, profile: dict[str, str] | None = None) -> tuple[Path, Path]:
     config_dir = home / ".config/omarchy-pi-rdp"
     real_directory(config_dir, owner_uid=uid, mode=0o700)
     config_path = config_dir / "config.toml"
@@ -218,9 +262,11 @@ def check_config(home: Path, uid: int) -> tuple[Path, Path]:
     if "password" in config:
         fail("plaintext password in config is forbidden; use password_file")
 
+    if profile is None:
+        profile = check_profile_policy(uid)
     expected = {
-        "bind": "127.0.0.1:3389",
-        "username": "omarchy-pi",
+        "bind": profile["bind"],
+        "username": profile["username"],
         "resolution": "1280x720",
         "fps": 20,
         "egfx_codec": "avc420",
@@ -307,11 +353,12 @@ def main(argv: list[str] | None = None) -> None:
     home, runtime = check_account(args.uid, args.home, args.runtime)
     display = check_wayland_socket(runtime, args.uid)
     digest = check_package_pin()
-    check_config(home, args.uid)
+    profile = check_profile_policy(args.uid)
+    check_config(home, args.uid, profile)
     tls_exists = check_tls(home, args.uid)
     print(
         "hypr-rdp preflight: OK "
-        f"sha256={digest} bind=127.0.0.1:3389 display={display} "
+        f"sha256={digest} bind={profile['bind']} display={display} "
         f"tls={'existing' if tls_exists else 'to-create-or-reuse'}"
     )
 
