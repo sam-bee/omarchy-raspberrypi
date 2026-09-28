@@ -18,6 +18,7 @@ request and are never put in an argv vector.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import gzip
 import hashlib
 import json
 import os
@@ -27,6 +28,7 @@ import stat
 import subprocess
 from typing import Any, Callable, Iterable, Mapping, Sequence
 import uuid
+import zlib
 
 
 class RecoveryError(RuntimeError):
@@ -766,6 +768,7 @@ class RepairPlan:
     preserved_paths: tuple[str, ...]
     kernel_name: str
     missing_kernel: bool
+    restore_source: str
     rebuild_initramfs: bool = True
 
     def public(self) -> dict[str, Any]:
@@ -775,6 +778,7 @@ class RepairPlan:
             "preserved_paths": list(self.preserved_paths),
             "kernel_name": self.kernel_name,
             "missing_kernel": self.missing_kernel,
+            "restore_source": self.restore_source,
             "rebuild_initramfs": self.rebuild_initramfs,
             "scope": "boot and initramfs only",
         }
@@ -835,9 +839,8 @@ def _nspawn_command(root: Path, boot: Path, command: Sequence[str]) -> tuple[str
         "systemd-nspawn",
         "--quiet",
         "--register=no",
-        "--private-users=no",
-        "--network-namespace-path=/proc/1/ns/net",
-        "--resolv-conf=replace-host",
+        "--private-network",
+        "--resolv-conf=off",
         "--timezone=off",
         "--pipe",
         f"--bind={boot}:/boot",
@@ -871,6 +874,161 @@ class CachedKernelPackage:
     architecture: str
 
 
+@dataclass(frozen=True, slots=True)
+class InstalledKernelVmlinuz:
+    """A package-owned kernel image already present below ``/usr``."""
+
+    image: Path
+    relative_path: str
+    module_version: str
+    package_dir: Path
+
+
+def _linux_rpi_records(root: Path) -> list[tuple[Path, str, str]]:
+    """Return installed linux-rpi records from the target-local database.
+
+    Pacman record directory names are not a stable source of the package
+    name.  In particular, the package version and the kernel module version
+    can differ (for example ``6.18.53-1`` versus
+    ``6.18.53-1-rpi``), so the desc fields are authoritative here.
+    """
+
+    local = root / "var/lib/pacman/local"
+    if not local.is_dir() or local.is_symlink():
+        return []
+    records: list[tuple[Path, str, str]] = []
+    for directory in sorted(local.iterdir(), key=lambda item: item.name):
+        if not directory.is_dir() or directory.is_symlink():
+            continue
+        name = _pacman_field(directory / "desc", "NAME")
+        version = _pacman_field(directory / "desc", "VERSION")
+        architecture = _pacman_field(directory / "desc", "ARCH")
+        if name == "linux-rpi" and version and architecture:
+            records.append((directory, version, architecture))
+    return records
+
+
+def _package_file_list(path: Path) -> set[str]:
+    """Read a pacman local ``files`` record, normalising leading slashes."""
+
+    _regular_file(path, description="linux-rpi package file list", nonempty=False)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise _fail("linux-rpi package file list is unreadable") from exc
+    files: set[str] = set()
+    in_files = False
+    for line in lines:
+        if line == "%FILES%":
+            in_files = True
+            continue
+        if in_files and line.startswith("%"):
+            break
+        if in_files and line:
+            files.add(line.lstrip("/"))
+    return files
+
+
+def _preset_kernel_version(root: Path) -> str | None:
+    """Read the one linux-rpi ``ALL_kver`` selected by mkinitcpio."""
+
+    preset_dir = root / "etc/mkinitcpio.d"
+    versions: set[str] = set()
+    for preset in sorted(preset_dir.glob("linux-rpi*.preset")):
+        if not preset.is_file() or preset.is_symlink():
+            continue
+        _regular_file(preset, description="target linux-rpi mkinitcpio preset")
+        try:
+            text = preset.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise _fail("target linux-rpi mkinitcpio preset is unreadable") from exc
+        for line in text.splitlines():
+            match = re.fullmatch(r"\s*ALL_kver\s*=\s*['\"]([^'\"]+)['\"]\s*", line)
+            if not match:
+                continue
+            value = match.group(1)
+            module_match = re.search(r"/(?:usr/)?lib/modules/([^/]+)(?:/|$)", value)
+            versions.add(module_match.group(1) if module_match else value)
+    if len(versions) > 1:
+        raise _fail("target linux-rpi presets select different kernel modules")
+    return next(iter(versions), None)
+
+
+def _mtree_digest(path: Path, relative_path: str) -> str | None:
+    """Return the package mtree SHA-256 for one exact path."""
+
+    _regular_file(path, description="linux-rpi package mtree")
+    try:
+        payload = path.read_bytes()
+        if payload.startswith(b"\x1f\x8b"):
+            payload = gzip.decompress(payload)
+        text = payload.decode("utf-8")
+    except (OSError, UnicodeError, EOFError, gzip.BadGzipFile, zlib.error) as exc:
+        raise _fail("linux-rpi package mtree is unreadable") from exc
+    expected = "./" + relative_path
+    for line in text.splitlines():
+        fields = line.split()
+        if not fields or fields[0] not in {expected, relative_path}:
+            continue
+        match = re.search(r"(?:^|\s)sha256digest=([0-9a-fA-F]{64})(?:\s|$)", line)
+        if match:
+            return match.group(1).lower()
+        return None
+    return None
+
+
+def _installed_linux_rpi_vmlinuz(root: Path) -> InstalledKernelVmlinuz | None:
+    """Find an exact, package-owned installed kernel for boot restoration.
+
+    A missing cache archive is common on an installed target.  The package
+    database still records the installed module image and its mtree digest,
+    which lets recovery copy that exact image without a package transaction.
+    ``None`` means the package metadata has no usable candidate; a present
+    candidate with missing or mismatched provenance is a hard refusal.
+    """
+
+    records = _linux_rpi_records(root)
+    if not records:
+        return None
+    preset_version = _preset_kernel_version(root)
+    candidates: list[InstalledKernelVmlinuz] = []
+    for package_dir, _version, _architecture in records:
+        files_path = package_dir / "files"
+        if not files_path.exists():
+            continue
+        files = _package_file_list(files_path)
+        for relative in sorted(files):
+            match = re.fullmatch(r"usr/lib/modules/([^/]+)/vmlinuz", relative)
+            if not match:
+                continue
+            module_version = match.group(1)
+            if preset_version is None:
+                raise _fail("target linux-rpi preset has no selected module version")
+            if module_version != preset_version:
+                continue
+            image = root / relative
+            if not image.exists():
+                continue
+            _regular_file(image, description="installed linux-rpi kernel image")
+            pkgbase = image.parent / "pkgbase"
+            _regular_file(pkgbase, description="installed linux-rpi module provenance")
+            try:
+                pkgbase_value = pkgbase.read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeError) as exc:
+                raise _fail("installed linux-rpi module provenance is unreadable") from exc
+            if pkgbase_value != "linux-rpi":
+                raise _fail("installed kernel image is not linux-rpi package-owned")
+            digest = _mtree_digest(package_dir / "mtree", relative)
+            if digest is None:
+                raise _fail("installed linux-rpi kernel image has no package digest")
+            if hashlib.sha256(image.read_bytes()).hexdigest() != digest:
+                raise _fail("installed linux-rpi kernel image failed package digest verification")
+            candidates.append(InstalledKernelVmlinuz(image, relative, module_version, package_dir))
+    if len(candidates) > 1:
+        raise _fail("installed linux-rpi kernel image is ambiguous")
+    return candidates[0] if candidates else None
+
+
 def _validate_cached_package_file(path: Path, *, description: str) -> None:
     _regular_file(path, description=description)
     try:
@@ -889,23 +1047,12 @@ def _installed_linux_rpi_archive(root: Path) -> CachedKernelPackage:
     the separate route.
     """
 
-    local = root / "var/lib/pacman/local"
-    if not local.is_dir() or local.is_symlink():
+    records = _linux_rpi_records(root)
+    if not records:
         raise _fail("exact installed linux-rpi archive is unavailable; use the separate installer handoff")
-    package_versions: list[str] = []
-    package_architectures: list[str] = []
-    for directory in sorted(local.iterdir(), key=lambda item: item.name):
-        if directory.is_dir() and not directory.is_symlink() and directory.name.startswith("linux-rpi-"):
-            name = _pacman_field(directory / "desc", "NAME")
-            version = _pacman_field(directory / "desc", "VERSION")
-            architecture = _pacman_field(directory / "desc", "ARCH")
-            if name == "linux-rpi" and version and architecture:
-                package_versions.append(version)
-                package_architectures.append(architecture)
-    if len(package_versions) != 1:
+    if len(records) != 1:
         raise _fail("exact installed linux-rpi archive is unavailable; use the separate installer handoff")
-    version = package_versions[0]
-    architecture = package_architectures[0]
+    _package_dir, version, architecture = records[0]
     cache = root / "var/cache/pacman/pkg"
     if not cache.is_dir() or cache.is_symlink():
         raise _fail("exact installed linux-rpi archive is unavailable; use the separate installer handoff")
@@ -946,17 +1093,31 @@ def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
         raise _fail("target linux-rpi mkinitcpio preset is missing")
     commands: list[tuple[str, ...]] = []
     verification_commands: list[tuple[str, ...]] = []
+    restore_source = "none"
     if missing_kernel:
-        package = _installed_linux_rpi_archive(root_dir)
-        archive_inside_target = "/" + package.archive.relative_to(root_dir).as_posix()
-        signature_inside_target = "/" + package.signature.relative_to(root_dir).as_posix()
-        verification_commands.extend(
-            [
-                _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman-key", "--verify", signature_inside_target, archive_inside_target)),
-                _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "-Qp", "--print-format", "%n %v %a", "--", archive_inside_target)),
-            ]
-        )
-        commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "--noconfirm", "-U", archive_inside_target)))
+        installed_image = _installed_linux_rpi_vmlinuz(root_dir)
+        if installed_image is not None:
+            restore_source = "installed-module-vmlinuz"
+            source_inside_target = "/" + installed_image.relative_path
+            commands.append(
+                _nspawn_command(
+                    root_dir,
+                    boot_dir,
+                    ("/usr/bin/install", "--mode=0644", "--preserve-timestamps", "--", source_inside_target, f"/boot/{kernel_name}"),
+                )
+            )
+        else:
+            restore_source = "signed-local-archive"
+            package = _installed_linux_rpi_archive(root_dir)
+            archive_inside_target = "/" + package.archive.relative_to(root_dir).as_posix()
+            signature_inside_target = "/" + package.signature.relative_to(root_dir).as_posix()
+            verification_commands.extend(
+                [
+                    _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman-key", "--verify", signature_inside_target, archive_inside_target)),
+                    _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "-Qp", "--print-format", "%n %v %a", "--", archive_inside_target)),
+                ]
+            )
+            commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "--noconfirm", "-U", archive_inside_target)))
     commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/mkinitcpio", "-P")))
     commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img")))
     return RepairPlan(
@@ -965,6 +1126,7 @@ def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
         preserved_paths=(str(cmdline), str(config), str(crypttab)) if crypttab.exists() else (str(cmdline), str(config)),
         kernel_name=kernel_name,
         missing_kernel=missing_kernel,
+        restore_source=restore_source,
     )
 
 

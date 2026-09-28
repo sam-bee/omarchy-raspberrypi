@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -96,6 +97,11 @@ class FixtureRunner:
                 return subprocess.CompletedProcess(command, 0, "", "")
             if "/usr/bin/pacman" in command and "-Qp" in command:
                 return subprocess.CompletedProcess(command, 0, "linux-rpi 6.1-1 aarch64\n", "")
+            if "/usr/bin/install" in command:
+                source = root / command[-2].lstrip("/")
+                destination = root / command[-1].lstrip("/")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
             if command[-2:] == ["/usr/bin/mkinitcpio", "-P"]:
                 (root / "boot/initramfs-linux.img").write_bytes(b"repaired-initramfs")
             if command[-4:-1] == ["/usr/bin/pacman", "--noconfirm", "-U"]:
@@ -118,7 +124,7 @@ class RecoveryTests(unittest.TestCase):
         (self.source / "boot/cmdline.txt").write_text("root=UUID=" + LUKS_UUID + " rw rootwait\n", encoding="utf-8")
         (self.source / "boot/config.txt").write_text("dtparam=pciex1_gen=2\nkernel=kernel8.img\n", encoding="utf-8")
         (self.source / "etc/crypttab").write_text("cryptroot UUID=" + LUKS_UUID + " none\n", encoding="utf-8")
-        (self.source / "etc/mkinitcpio.d/linux-rpi.preset").write_text("PRESETS=('default')\n", encoding="utf-8")
+        (self.source / "etc/mkinitcpio.d/linux-rpi.preset").write_text("ALL_kver='/usr/lib/modules/6.1-rpi'\nPRESETS=('default')\n", encoding="utf-8")
         (self.source / "usr/lib/omarchy-pi/installer-provenance.json").write_text(json.dumps({"source_revision": "a" * 40}), encoding="utf-8")
         package_dir = self.source / "var/lib/pacman/local/linux-rpi-6.1-1"
         package_dir.mkdir(parents=True)
@@ -127,7 +133,14 @@ class RecoveryTests(unittest.TestCase):
         archive.parent.mkdir(parents=True)
         archive.write_bytes(b"signed-fixture-archive")
         (archive.parent / (archive.name + ".sig")).write_bytes(b"signed-fixture-signature")
-        (self.source / "usr/lib/modules/6.1").mkdir(parents=True)
+        modules = self.source / "usr/lib/modules/6.1-rpi"
+        modules.mkdir(parents=True)
+        (modules / "pkgbase").write_text("linux-rpi\n", encoding="utf-8")
+        image = modules / "vmlinuz"
+        image.write_bytes(b"installed-package-kernel")
+        (package_dir / "files").write_text("%FILES%\nusr/lib/modules/6.1-rpi/vmlinuz\n\n", encoding="utf-8")
+        digest = hashlib.sha256(image.read_bytes()).hexdigest()
+        (package_dir / "mtree").write_text(f"#mtree\n./usr/lib/modules/6.1-rpi/vmlinuz type=file sha256digest={digest}\n", encoding="utf-8")
         self.runner = FixtureRunner(self.source)
 
     def tearDown(self) -> None:
@@ -219,7 +232,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(response["missing_kernel"])
         open_call = next(call for call in self.runner.calls if call[:2] == ["cryptsetup", "open"] and "--readonly" not in call)
         self.assertNotIn("--readonly", open_call)
-        self.assertTrue(any(call[:1] == ["systemd-nspawn"] and "/usr/bin/pacman" in call and "linux-rpi" in " ".join(call) for call in self.runner.calls))
+        self.assertTrue(any(call[:1] == ["systemd-nspawn"] and "/usr/bin/install" in call and "/usr/lib/modules/6.1-rpi/vmlinuz" in call for call in self.runner.calls))
         self.assertEqual((self.source / "boot/cmdline.txt").read_bytes(), before_cmdline)
         self.assertEqual((self.source / "boot/config.txt").read_bytes(), before_config)
 
@@ -227,16 +240,29 @@ class RecoveryTests(unittest.TestCase):
         plan = recovery.plan_boot_repair(self.source, self.source / "boot")
         self.assertTrue(plan.missing_kernel)
         self.assertEqual(plan.commands[0][0], "systemd-nspawn")
-        self.assertIn("/usr/bin/pacman", plan.commands[0])
-        self.assertTrue(plan.verification_commands)
+        self.assertIn("/usr/bin/install", plan.commands[0])
+        self.assertFalse(plan.verification_commands)
+        self.assertEqual(plan.restore_source, "installed-module-vmlinuz")
         self.assertIn("--timezone=off", plan.commands[0])
         self.assertIn("--bind=" + str(self.source / "boot") + ":/boot", plan.commands[0])
         self.assertTrue(any(command[0] == "systemd-nspawn" and "/usr/bin/mkinitcpio" in command for command in plan.commands))
         self.assertNotIn("config.txt", " ".join(" ".join(command) for command in plan.commands))
 
-    def test_missing_exact_kernel_archive_refuses_instead_of_using_a_repository(self) -> None:
+    def test_missing_kernel_uses_exact_installed_vmlinuz_without_cache(self) -> None:
         shutil.rmtree(self.source / "var/cache/pacman/pkg")
-        with self.assertRaisesRegex(recovery.RecoveryError, "exact installed linux-rpi archive"):
+        plan = recovery.plan_boot_repair(self.source, self.source / "boot")
+        self.assertEqual(plan.restore_source, "installed-module-vmlinuz")
+        self.assertFalse(plan.verification_commands)
+
+    def test_missing_vmlinuz_uses_exact_signed_archive_fallback(self) -> None:
+        (self.source / "usr/lib/modules/6.1-rpi/vmlinuz").unlink()
+        plan = recovery.plan_boot_repair(self.source, self.source / "boot")
+        self.assertEqual(plan.restore_source, "signed-local-archive")
+        self.assertTrue(plan.verification_commands)
+
+    def test_tampered_installed_vmlinuz_is_refused(self) -> None:
+        (self.source / "usr/lib/modules/6.1-rpi/vmlinuz").write_bytes(b"tampered")
+        with self.assertRaisesRegex(recovery.RecoveryError, "digest verification"):
             recovery.plan_boot_repair(self.source, self.source / "boot")
 
     def test_cleanup_retains_failed_resources_for_a_safe_retry(self) -> None:
