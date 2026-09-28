@@ -147,6 +147,18 @@ class InstalledTargetTests(unittest.TestCase):
         with self.assertRaises(installed.TargetProvisionError):
             installed.validate_target_options(root, {**settings, "keymap": "missing"})
 
+    def test_storage_accepts_fat_serial_uuid_and_rejects_nonfat_forms(self) -> None:
+        temporary, root, boot, payload, settings, storage = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        storage = {**storage, "boot_uuid": "ABCD-1234"}
+        checked = installed._validate_storage(storage, installed.validate_settings(settings))
+        self.assertEqual(checked["boot_uuid"], "ABCD-1234")
+        installed._write_fstab(root, checked)
+        self.assertIn("UUID=ABCD-1234 /boot vfat", (root / "etc/fstab").read_text(encoding="utf-8"))
+        for invalid in ("abcd1234", "ABCD1234", "0000-0000", "ABCD-1234-5678"):
+            with self.subTest(invalid=invalid), self.assertRaises(installed.TargetProvisionError):
+                installed._validate_storage({**storage, "boot_uuid": invalid}, installed.validate_settings(settings))
+
     def test_wifi_profile_persists_target_country_without_host_network_commands(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()
         self.addCleanup(temporary.cleanup)
@@ -192,7 +204,7 @@ class InstalledTargetTests(unittest.TestCase):
             "root": root,
             "boot": boot,
             "root_uuid": "11111111-1111-1111-1111-111111111111",
-            "boot_uuid": "22222222-2222-2222-2222-222222222222",
+            "boot_uuid": "ABCD-1234",
             "luks_uuid": None,
             "key_uuid": None,
             "key_path": None,

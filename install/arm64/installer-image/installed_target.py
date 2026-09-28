@@ -47,6 +47,7 @@ _UUID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}
 _TIMEZONE = re.compile(r"[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*\Z")
 _LOCALE = re.compile(r"[A-Za-z0-9_.@+-]{1,80}\Z")
 _KEYMAP = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+/@-]{0,79}\Z")
+_FAT_UUID = re.compile(r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\Z")
 _SSH_TYPES = frozenset(
     {
         "ssh-ed25519",
@@ -261,16 +262,20 @@ def _reject_symlink_components(path: Path, *, include_leaf: bool = True) -> None
             break
 
 
-def _validate_uuid(value: Any, field: str, *, required: bool = False) -> str | None:
+def _validate_uuid(value: Any, field: str, *, required: bool = False, fat_serial: bool = False) -> str | None:
     if value is None or value == "":
         if required:
             raise _error(f"{field} is required")
         return None
-    if not isinstance(value, str) or not _UUID.fullmatch(value):
+    pattern = _FAT_UUID if fat_serial else _UUID
+    if not isinstance(value, str) or not pattern.fullmatch(value):
         raise _error(f"{field} is not a UUID")
     if set(value.replace("-", "")) == {"0"}:
         raise _error(f"{field} is not a usable UUID")
-    return value.lower()
+    # FAT volume serials are emitted by blkid in the filesystem's displayed
+    # case.  Preserve that spelling for the fstab entry; canonical UUIDs use
+    # lower case everywhere else.
+    return value if fat_serial else value.lower()
 
 
 def _validate_storage(storage: Mapping[str, Any], settings: Mapping[str, Any]) -> dict[str, Any]:
@@ -296,7 +301,7 @@ def _validate_storage(storage: Mapping[str, Any], settings: Mapping[str, Any]) -
         "root": root,
         "boot": boot,
         "root_uuid": _validate_uuid(storage["root_uuid"], "root_uuid", required=True),
-        "boot_uuid": _validate_uuid(storage["boot_uuid"], "boot_uuid", required=True),
+        "boot_uuid": _validate_uuid(storage["boot_uuid"], "boot_uuid", required=True, fat_serial=True),
         "luks_uuid": _validate_uuid(storage["luks_uuid"], "luks_uuid", required=settings["encryption"] != "plain"),
         "key_uuid": _validate_uuid(storage["key_uuid"], "key_uuid", required=settings["encryption"] == "key"),
         "key_path": None,
@@ -964,6 +969,10 @@ def _configure_boot(root: Path, boot: Path, storage: Mapping[str, Any], *, runne
 
 def _host_key_fingerprint(root: Path) -> str:
     candidates = sorted(root.joinpath("etc/ssh").glob("ssh_host_*_key.pub"))
+    # Ed25519 is the normal OpenSSH host identity and the one clients will
+    # generally negotiate first.  Keep the deterministic sorted fallback for
+    # targets where that key type is unavailable.
+    candidates.sort(key=lambda path: (0 if path.name == "ssh_host_ed25519_key.pub" else 1, path.name))
     for path in candidates:
         if not path.is_file() or path.is_symlink():
             continue
