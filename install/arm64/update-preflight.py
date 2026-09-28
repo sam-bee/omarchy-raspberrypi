@@ -59,7 +59,7 @@ def pacman_signature_failures(config: str, *, root: str) -> list[str]:
     if not repositories:
         return failures + ["pacman-conf returned no repositories"]
     for repository in repositories:
-        status, output = command_output([pacman_conf, "--repo-name", repository, "SigLevel"])
+        status, output = command_output([pacman_conf, "--repo", repository, "SigLevel"])
         if status != 0:
             failures.append(f"pacman-conf could not read effective SigLevel for {repository}")
             continue
