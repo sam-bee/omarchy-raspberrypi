@@ -770,6 +770,9 @@ class RepairPlan:
     missing_kernel: bool
     restore_source: str
     rebuild_initramfs: bool = True
+    restore_digest: str | None = None
+    restore_size: int | None = None
+    restore_source_path: str | None = None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -779,6 +782,9 @@ class RepairPlan:
             "kernel_name": self.kernel_name,
             "missing_kernel": self.missing_kernel,
             "restore_source": self.restore_source,
+            "restore_digest": self.restore_digest,
+            "restore_size": self.restore_size,
+            "restore_source_path": self.restore_source_path,
             "rebuild_initramfs": self.rebuild_initramfs,
             "scope": "boot and initramfs only",
         }
@@ -882,6 +888,19 @@ class InstalledKernelVmlinuz:
     relative_path: str
     module_version: str
     package_dir: Path
+    size: int
+    digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class InstallerKernelImage:
+    """An installer boot image matching the selected target package record."""
+
+    image: Path
+    relative_path: str
+    package_dir: Path
+    size: int
+    digest: str
 
 
 def _linux_rpi_records(root: Path) -> list[tuple[Path, str, str]]:
@@ -954,8 +973,8 @@ def _preset_kernel_version(root: Path) -> str | None:
     return next(iter(versions), None)
 
 
-def _mtree_digest(path: Path, relative_path: str) -> str | None:
-    """Return the package mtree SHA-256 for one exact path."""
+def _mtree_metadata(path: Path, relative_path: str) -> tuple[int | None, str | None]:
+    """Return the package mtree size and SHA-256 for one exact path."""
 
     _regular_file(path, description="linux-rpi package mtree")
     try:
@@ -970,11 +989,19 @@ def _mtree_digest(path: Path, relative_path: str) -> str | None:
         fields = line.split()
         if not fields or fields[0] not in {expected, relative_path}:
             continue
-        match = re.search(r"(?:^|\s)sha256digest=([0-9a-fA-F]{64})(?:\s|$)", line)
-        if match:
-            return match.group(1).lower()
-        return None
-    return None
+        size_match = re.search(r"(?:^|\s)size=([0-9]+)(?:\s|$)", line)
+        digest_match = re.search(r"(?:^|\s)sha256digest=([0-9a-fA-F]{64})(?:\s|$)", line)
+        return (
+            int(size_match.group(1)) if size_match else None,
+            digest_match.group(1).lower() if digest_match else None,
+        )
+    return None, None
+
+
+def _mtree_digest(path: Path, relative_path: str) -> str | None:
+    """Return the package mtree SHA-256 for one exact path."""
+
+    return _mtree_metadata(path, relative_path)[1]
 
 
 def _installed_linux_rpi_vmlinuz(root: Path) -> InstalledKernelVmlinuz | None:
@@ -1009,7 +1036,13 @@ def _installed_linux_rpi_vmlinuz(root: Path) -> InstalledKernelVmlinuz | None:
             image = root / relative
             if not image.exists():
                 continue
-            _regular_file(image, description="installed linux-rpi kernel image")
+            _regular_file(image, description="installed linux-rpi kernel image", nonempty=False)
+            if image.stat().st_size == 0:
+                # Arch's linux-rpi package may intentionally ship a zero-byte
+                # module-tree placeholder while the real firmware kernel is
+                # packaged at /boot/kernel8.img.  It is unavailable as a
+                # restore source, but does not invalidate the package record.
+                continue
             pkgbase = image.parent / "pkgbase"
             _regular_file(pkgbase, description="installed linux-rpi module provenance")
             try:
@@ -1023,10 +1056,69 @@ def _installed_linux_rpi_vmlinuz(root: Path) -> InstalledKernelVmlinuz | None:
                 raise _fail("installed linux-rpi kernel image has no package digest")
             if hashlib.sha256(image.read_bytes()).hexdigest() != digest:
                 raise _fail("installed linux-rpi kernel image failed package digest verification")
-            candidates.append(InstalledKernelVmlinuz(image, relative, module_version, package_dir))
+            candidates.append(
+                InstalledKernelVmlinuz(
+                    image,
+                    relative,
+                    module_version,
+                    package_dir,
+                    image.stat().st_size,
+                    digest,
+                )
+            )
     if len(candidates) > 1:
         raise _fail("installed linux-rpi kernel image is ambiguous")
     return candidates[0] if candidates else None
+
+
+def _installer_kernel_image(
+    root: Path,
+    kernel_name: str,
+    source: str | Path | None,
+) -> InstallerKernelImage | None:
+    """Find a verified current-installer kernel for an empty module image.
+
+    The source is outside the target mounts (normally the installer runtime's
+    ``/boot/kernel8.img``).  The target's local linux-rpi file list and mtree
+    are the authority for both ownership and bytes; no host package database
+    or repository is consulted.
+    """
+
+    if source is None or kernel_name != "kernel8.img":
+        return None
+    records = _linux_rpi_records(root)
+    if len(records) != 1:
+        return None
+    package_dir, _version, _architecture = records[0]
+    relative = f"boot/{kernel_name}"
+    try:
+        files = _package_file_list(package_dir / "files")
+    except RecoveryError:
+        return None
+    if relative not in files:
+        return None
+    size, digest = _mtree_metadata(package_dir / "mtree", relative)
+    if size is None or digest is None:
+        return None
+    try:
+        candidate = _absolute(source, description="installer kernel")
+        _reject_symlink_components(candidate)
+        _regular_file(candidate, description="installer kernel")
+    except RecoveryError:
+        return None
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        # A path below the target mount is not the independent installer
+        # source this fallback is meant to authenticate.
+        return None
+    if candidate.stat().st_size != size:
+        return None
+    if hashlib.sha256(candidate.read_bytes()).hexdigest() != digest:
+        return None
+    return InstallerKernelImage(candidate, relative, package_dir, size, digest)
 
 
 def _validate_cached_package_file(path: Path, *, description: str) -> None:
@@ -1069,7 +1161,12 @@ def _installed_linux_rpi_archive(root: Path) -> CachedKernelPackage:
     return CachedKernelPackage(candidates[0], signature, version, architecture)
 
 
-def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
+def plan_boot_repair(
+    root: str | Path,
+    boot: str | Path,
+    *,
+    installer_kernel: str | Path | None = "/boot/kernel8.img",
+) -> RepairPlan:
     """Plan a package-kernel/initramfs repair without changing the target."""
 
     root_dir, boot_dir = _target_root_paths(root, boot)
@@ -1094,11 +1191,16 @@ def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
     commands: list[tuple[str, ...]] = []
     verification_commands: list[tuple[str, ...]] = []
     restore_source = "none"
+    restore_digest: str | None = None
+    restore_size: int | None = None
+    restore_source_path: str | None = None
     if missing_kernel:
         installed_image = _installed_linux_rpi_vmlinuz(root_dir)
         if installed_image is not None:
             restore_source = "installed-module-vmlinuz"
             source_inside_target = "/" + installed_image.relative_path
+            restore_digest = installed_image.digest
+            restore_size = installed_image.size
             commands.append(
                 _nspawn_command(
                     root_dir,
@@ -1107,17 +1209,35 @@ def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
                 )
             )
         else:
-            restore_source = "signed-local-archive"
-            package = _installed_linux_rpi_archive(root_dir)
-            archive_inside_target = "/" + package.archive.relative_to(root_dir).as_posix()
-            signature_inside_target = "/" + package.signature.relative_to(root_dir).as_posix()
-            verification_commands.extend(
-                [
-                    _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman-key", "--verify", signature_inside_target, archive_inside_target)),
-                    _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "-Qp", "--print-format", "%n %v %a", "--", archive_inside_target)),
-                ]
-            )
-            commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "--noconfirm", "-U", archive_inside_target)))
+            installer_image = _installer_kernel_image(root_dir, kernel_name, installer_kernel)
+            if installer_image is not None:
+                restore_source = "installer-boot-kernel8"
+                restore_digest = installer_image.digest
+                restore_size = installer_image.size
+                restore_source_path = str(installer_image.image)
+                destination = boot_dir / kernel_name
+                commands.append(
+                    (
+                        "/usr/bin/install",
+                        "--mode=0644",
+                        "--preserve-timestamps",
+                        "--",
+                        str(installer_image.image),
+                        str(destination),
+                    )
+                )
+            else:
+                restore_source = "signed-local-archive"
+                package = _installed_linux_rpi_archive(root_dir)
+                archive_inside_target = "/" + package.archive.relative_to(root_dir).as_posix()
+                signature_inside_target = "/" + package.signature.relative_to(root_dir).as_posix()
+                verification_commands.extend(
+                    [
+                        _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman-key", "--verify", signature_inside_target, archive_inside_target)),
+                        _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "-Qp", "--print-format", "%n %v %a", "--", archive_inside_target)),
+                    ]
+                )
+                commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "--noconfirm", "-U", archive_inside_target)))
     commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/mkinitcpio", "-P")))
     commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img")))
     return RepairPlan(
@@ -1127,6 +1247,9 @@ def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
         kernel_name=kernel_name,
         missing_kernel=missing_kernel,
         restore_source=restore_source,
+        restore_digest=restore_digest,
+        restore_size=restore_size,
+        restore_source_path=restore_source_path,
     )
 
 
@@ -1155,7 +1278,13 @@ def _verify_cached_kernel_package(root: Path, boot: Path, plan: RepairPlan, runn
         raise _fail("cached linux-rpi archive does not match the installed package")
 
 
-def repair_target(root: str | Path, boot: str | Path, *, runner: Runner = subprocess.run) -> dict[str, Any]:
+def repair_target(
+    root: str | Path,
+    boot: str | Path,
+    *,
+    installer_kernel: str | Path | None = "/boot/kernel8.img",
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
     """Execute only the reviewed boot/initramfs repair plan.
 
     The caller must already have mounted the target writable through
@@ -1164,7 +1293,7 @@ def repair_target(root: str | Path, boot: str | Path, *, runner: Runner = subpro
     repair; any change is reported as a failed repair.
     """
 
-    plan = plan_boot_repair(root, boot)
+    plan = plan_boot_repair(root, boot, installer_kernel=installer_kernel)
     root_dir, boot_dir = _target_root_paths(root, boot)
     before = _hash_paths(plan.preserved_paths)
     _verify_cached_kernel_package(root_dir, boot_dir, plan, runner)
@@ -1177,6 +1306,10 @@ def repair_target(root: str | Path, boot: str | Path, *, runner: Runner = subpro
         raise _fail("boot repair changed preserved configuration")
     if not _kernel_present(boot_dir, plan.kernel_name):
         raise _fail("configured Pi kernel is still missing after repair")
+    if plan.restore_digest is not None:
+        restored = boot_dir / plan.kernel_name
+        if restored.stat().st_size != plan.restore_size or hashlib.sha256(restored.read_bytes()).hexdigest() != plan.restore_digest:
+            raise _fail("restored Pi kernel failed package digest verification")
     initramfs = boot_dir / "initramfs-linux.img"
     _regular_file(initramfs, description="repaired initramfs")
     return {**plan.public(), "preserved_unchanged": True, "initramfs": str(initramfs)}

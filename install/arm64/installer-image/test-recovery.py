@@ -89,6 +89,12 @@ class FixtureRunner:
                     if item.is_file():
                         shutil.copy2(item, target)
             return subprocess.CompletedProcess(command, 0, "", "")
+        if command[:1] in (["install"], ["/usr/bin/install"]):
+            source = Path(command[-2])
+            destination = Path(command[-1])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            return subprocess.CompletedProcess(command, 0, "", "")
         if command[:1] == ["umount"]:
             return subprocess.CompletedProcess(command, 0, "", "")
         if command[:1] == ["systemd-nspawn"]:
@@ -138,9 +144,12 @@ class RecoveryTests(unittest.TestCase):
         (modules / "pkgbase").write_text("linux-rpi\n", encoding="utf-8")
         image = modules / "vmlinuz"
         image.write_bytes(b"installed-package-kernel")
-        (package_dir / "files").write_text("%FILES%\nusr/lib/modules/6.1-rpi/vmlinuz\n\n", encoding="utf-8")
+        (package_dir / "files").write_text("%FILES%\nboot/kernel8.img\nusr/lib/modules/6.1-rpi/vmlinuz\n\n", encoding="utf-8")
         digest = hashlib.sha256(image.read_bytes()).hexdigest()
-        (package_dir / "mtree").write_text(f"#mtree\n./usr/lib/modules/6.1-rpi/vmlinuz type=file sha256digest={digest}\n", encoding="utf-8")
+        (package_dir / "mtree").write_text(
+            f"#mtree\n./usr/lib/modules/6.1-rpi/vmlinuz type=file size={image.stat().st_size} sha256digest={digest}\n",
+            encoding="utf-8",
+        )
         self.runner = FixtureRunner(self.source)
 
     def tearDown(self) -> None:
@@ -259,6 +268,59 @@ class RecoveryTests(unittest.TestCase):
         plan = recovery.plan_boot_repair(self.source, self.source / "boot")
         self.assertEqual(plan.restore_source, "signed-local-archive")
         self.assertTrue(plan.verification_commands)
+
+    def test_empty_vmlinuz_uses_verified_installer_boot_kernel(self) -> None:
+        image = self.source / "usr/lib/modules/6.1-rpi/vmlinuz"
+        image.write_bytes(b"")
+        installer_boot = self.base / "installer-boot"
+        installer_boot.mkdir()
+        source = installer_boot / "kernel8.img"
+        source.write_bytes(b"installer-package-kernel")
+        package_dir = self.source / "var/lib/pacman/local/linux-rpi-6.1-1"
+        (package_dir / "mtree").write_text(
+            "#mtree\n"
+            "./usr/lib/modules/6.1-rpi/vmlinuz type=file size=0 sha256digest="
+            + hashlib.sha256(b"").hexdigest()
+            + "\n"
+            + "./boot/kernel8.img type=file size="
+            + str(source.stat().st_size)
+            + " sha256digest="
+            + hashlib.sha256(source.read_bytes()).hexdigest()
+            + "\n",
+            encoding="utf-8",
+        )
+        plan = recovery.plan_boot_repair(self.source, self.source / "boot", installer_kernel=source)
+        self.assertEqual(plan.restore_source, "installer-boot-kernel8")
+        self.assertEqual(plan.restore_source_path, str(source))
+        self.assertEqual(plan.restore_size, source.stat().st_size)
+        self.assertEqual(plan.restore_digest, hashlib.sha256(source.read_bytes()).hexdigest())
+        self.assertEqual(plan.commands[0][:4], ("/usr/bin/install", "--mode=0644", "--preserve-timestamps", "--"))
+        self.assertNotIn("systemd-nspawn", plan.commands[0])
+
+    def test_repair_copies_verified_installer_boot_kernel_and_checks_digest(self) -> None:
+        image = self.source / "usr/lib/modules/6.1-rpi/vmlinuz"
+        image.write_bytes(b"")
+        installer_boot = self.base / "installer-boot"
+        installer_boot.mkdir()
+        source = installer_boot / "kernel8.img"
+        source.write_bytes(b"installer-package-kernel")
+        package_dir = self.source / "var/lib/pacman/local/linux-rpi-6.1-1"
+        (package_dir / "mtree").write_text(
+            "#mtree\n"
+            "./usr/lib/modules/6.1-rpi/vmlinuz type=file size=0 sha256digest="
+            + hashlib.sha256(b"").hexdigest()
+            + "\n"
+            + "./boot/kernel8.img type=file size="
+            + str(source.stat().st_size)
+            + " sha256digest="
+            + hashlib.sha256(source.read_bytes()).hexdigest()
+            + "\n",
+            encoding="utf-8",
+        )
+        report = recovery.repair_target(self.source, self.source / "boot", installer_kernel=source, runner=self.runner)
+        self.assertEqual(report["restore_source"], "installer-boot-kernel8")
+        self.assertEqual((self.source / "boot/kernel8.img").read_bytes(), source.read_bytes())
+        self.assertTrue(any(command[:1] in (["install"], ["/usr/bin/install"]) for command in self.runner.calls))
 
     def test_tampered_installed_vmlinuz_is_refused(self) -> None:
         (self.source / "usr/lib/modules/6.1-rpi/vmlinuz").write_bytes(b"tampered")
