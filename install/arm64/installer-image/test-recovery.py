@@ -259,6 +259,11 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(any(command[0] == "systemd-nspawn" and "/usr/bin/mkinitcpio" in command for command in plan.commands))
         self.assertNotIn("config.txt", " ".join(" ".join(command) for command in plan.commands))
 
+    def test_merged_usr_lib_symlink_is_one_module_tree(self) -> None:
+        (self.source / "lib").symlink_to("usr/lib", target_is_directory=True)
+        plan = recovery.plan_boot_repair(self.source, self.source / "boot")
+        self.assertEqual(plan.module_version, "6.1-rpi")
+
     def test_mismatched_preset_module_tree_is_refused_before_repair(self) -> None:
         preset = self.source / "etc/mkinitcpio.d/linux-rpi.preset"
         preset.write_text("ALL_kver='/usr/lib/modules/6.2-rpi'\nPRESETS=('default')\n", encoding="utf-8")

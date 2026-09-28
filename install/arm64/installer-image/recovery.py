@@ -1124,9 +1124,17 @@ def _selected_module_tree(root: Path) -> tuple[str, Path]:
     for base in (root / "usr/lib/modules", root / "lib/modules"):
         candidate = base / version
         if candidate.is_dir() and not candidate.is_symlink():
-            if module_dir is not None:
+            if module_dir is None:
+                # Probe usr/lib first so merged-/usr targets retain their
+                # canonical package path when /lib is a symlink to it.
+                module_dir = candidate
+                continue
+            try:
+                same_tree = os.path.samefile(module_dir, candidate)
+            except OSError as exc:
+                raise _fail("selected linux-rpi module tree cannot be compared") from exc
+            if not same_tree:
                 raise _fail("selected linux-rpi module tree is ambiguous")
-            module_dir = candidate
     if module_dir is None:
         raise _fail("selected linux-rpi module tree is missing")
     pkgbase = module_dir / "pkgbase"
