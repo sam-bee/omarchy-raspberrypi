@@ -767,6 +767,7 @@ class RepairPlan:
     verification_commands: tuple[tuple[str, ...], ...]
     preserved_paths: tuple[str, ...]
     kernel_name: str
+    module_version: str
     missing_kernel: bool
     restore_source: str
     rebuild_initramfs: bool = True
@@ -780,6 +781,7 @@ class RepairPlan:
             "verification_commands": [list(command) for command in self.verification_commands],
             "preserved_paths": list(self.preserved_paths),
             "kernel_name": self.kernel_name,
+            "module_version": self.module_version,
             "missing_kernel": self.missing_kernel,
             "restore_source": self.restore_source,
             "restore_digest": self.restore_digest,
@@ -829,15 +831,6 @@ def _kernel_present(boot: Path, name: str) -> bool:
         return False
     _regular_file(candidate, description="configured Pi kernel", nonempty=False)
     return candidate.stat().st_size > 0
-
-
-def _module_tree_present(root: Path) -> bool:
-    for base in (root / "usr/lib/modules", root / "lib/modules"):
-        if not base.is_dir() or base.is_symlink():
-            continue
-        if any(item.is_dir() and not item.is_symlink() for item in base.iterdir()):
-            return True
-    return False
 
 
 def _nspawn_command(root: Path, boot: Path, command: Sequence[str]) -> tuple[str, ...]:
@@ -1121,6 +1114,41 @@ def _installer_kernel_image(
     return InstallerKernelImage(candidate, relative, package_dir, size, digest)
 
 
+def _selected_module_tree(root: Path) -> tuple[str, Path]:
+    """Validate the preset's module tree against target-local ownership."""
+
+    version = _preset_kernel_version(root)
+    if not version:
+        raise _fail("target linux-rpi preset has no selected module version")
+    module_dir: Path | None = None
+    for base in (root / "usr/lib/modules", root / "lib/modules"):
+        candidate = base / version
+        if candidate.is_dir() and not candidate.is_symlink():
+            if module_dir is not None:
+                raise _fail("selected linux-rpi module tree is ambiguous")
+            module_dir = candidate
+    if module_dir is None:
+        raise _fail("selected linux-rpi module tree is missing")
+    pkgbase = module_dir / "pkgbase"
+    _regular_file(pkgbase, description="selected linux-rpi module provenance")
+    try:
+        pkgbase_value = pkgbase.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise _fail("selected linux-rpi module provenance is unreadable") from exc
+    if pkgbase_value != "linux-rpi":
+        raise _fail("selected linux-rpi module provenance is not linux-rpi")
+    relative = f"usr/lib/modules/{version}/pkgbase"
+    owned = False
+    for package_dir, _package_version, _architecture in _linux_rpi_records(root):
+        files_path = package_dir / "files"
+        if files_path.exists() and relative in _package_file_list(files_path):
+            owned = True
+            break
+    if not owned:
+        raise _fail("selected linux-rpi module tree is not package-owned")
+    return version, module_dir
+
+
 def _validate_cached_package_file(path: Path, *, description: str) -> None:
     _regular_file(path, description=description)
     try:
@@ -1180,8 +1208,7 @@ def plan_boot_repair(
     _optional_regular(crypttab, description="target encryption configuration")
     kernel_name = _configured_kernel(boot_dir)
     missing_kernel = not _kernel_present(boot_dir, kernel_name)
-    if not _module_tree_present(root_dir):
-        raise _fail("target linux-rpi modules are missing")
+    module_version, _module_dir = _selected_module_tree(root_dir)
     preset_dir = root_dir / "etc/mkinitcpio.d"
     if not preset_dir.is_dir():
         raise _fail("target mkinitcpio preset directory is missing")
@@ -1245,6 +1272,7 @@ def plan_boot_repair(
         verification_commands=tuple(verification_commands),
         preserved_paths=(str(cmdline), str(config), str(crypttab)) if crypttab.exists() else (str(cmdline), str(config)),
         kernel_name=kernel_name,
+        module_version=module_version,
         missing_kernel=missing_kernel,
         restore_source=restore_source,
         restore_digest=restore_digest,
@@ -1299,8 +1327,12 @@ def repair_target(
     _verify_cached_kernel_package(root_dir, boot_dir, plan, runner)
     for command in plan.commands:
         result = _run(runner, command)
-        if command[-3:] == ("/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img") and not _stdout(result).strip():
-            raise _fail("repaired initramfs validation returned no module listing")
+        if command[-3:] == ("/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img"):
+            listing = _stdout(result)
+            if not listing.strip():
+                raise _fail("repaired initramfs validation returned no module listing")
+            if f"lib/modules/{plan.module_version}/" not in listing:
+                raise _fail("repaired initramfs does not contain the selected linux-rpi modules")
     after = _hash_paths(plan.preserved_paths)
     if before != after:
         raise _fail("boot repair changed preserved configuration")

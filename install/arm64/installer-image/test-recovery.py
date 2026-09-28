@@ -29,6 +29,7 @@ BOOT_UUID = "ABCD-1234"
 class FixtureRunner:
     def __init__(self, source_root: Path) -> None:
         self.source_root = source_root
+        self.bad_initramfs_listing = False
         self.calls: list[list[str]] = []
         self.inputs: list[str | None] = []
         self.inventory = {
@@ -113,7 +114,8 @@ class FixtureRunner:
             if command[-4:-1] == ["/usr/bin/pacman", "--noconfirm", "-U"]:
                 (root / "boot/kernel8.img").write_bytes(b"restored-kernel")
             if command[-3:] == ["/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img"]:
-                return subprocess.CompletedProcess(command, 0, "usr/lib/modules/6.1/kernel/ext4.ko\n", "")
+                listing = "usr/lib/modules/6.0-rpi/kernel/ext4.ko\n" if self.bad_initramfs_listing else "usr/lib/modules/6.1-rpi/kernel/ext4.ko\n"
+                return subprocess.CompletedProcess(command, 0, listing, "")
             return subprocess.CompletedProcess(command, 0, "", "")
         raise AssertionError(f"unexpected command: {command}")
 
@@ -144,7 +146,7 @@ class RecoveryTests(unittest.TestCase):
         (modules / "pkgbase").write_text("linux-rpi\n", encoding="utf-8")
         image = modules / "vmlinuz"
         image.write_bytes(b"installed-package-kernel")
-        (package_dir / "files").write_text("%FILES%\nboot/kernel8.img\nusr/lib/modules/6.1-rpi/vmlinuz\n\n", encoding="utf-8")
+        (package_dir / "files").write_text("%FILES%\nboot/kernel8.img\nusr/lib/modules/6.1-rpi/\nusr/lib/modules/6.1-rpi/pkgbase\nusr/lib/modules/6.1-rpi/vmlinuz\n\n", encoding="utf-8")
         digest = hashlib.sha256(image.read_bytes()).hexdigest()
         (package_dir / "mtree").write_text(
             f"#mtree\n./usr/lib/modules/6.1-rpi/vmlinuz type=file size={image.stat().st_size} sha256digest={digest}\n",
@@ -256,6 +258,20 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("--bind=" + str(self.source / "boot") + ":/boot", plan.commands[0])
         self.assertTrue(any(command[0] == "systemd-nspawn" and "/usr/bin/mkinitcpio" in command for command in plan.commands))
         self.assertNotIn("config.txt", " ".join(" ".join(command) for command in plan.commands))
+
+    def test_mismatched_preset_module_tree_is_refused_before_repair(self) -> None:
+        preset = self.source / "etc/mkinitcpio.d/linux-rpi.preset"
+        preset.write_text("ALL_kver='/usr/lib/modules/6.2-rpi'\nPRESETS=('default')\n", encoding="utf-8")
+        module_dir = self.source / "usr/lib/modules/6.2-rpi"
+        module_dir.mkdir()
+        (module_dir / "pkgbase").write_text("linux-rpi\n", encoding="utf-8")
+        with self.assertRaisesRegex(recovery.RecoveryError, "not package-owned"):
+            recovery.plan_boot_repair(self.source, self.source / "boot")
+
+    def test_repair_rejects_initramfs_for_wrong_module_version(self) -> None:
+        self.runner.bad_initramfs_listing = True
+        with self.assertRaisesRegex(recovery.RecoveryError, "selected linux-rpi modules"):
+            recovery.repair_target(self.source, self.source / "boot", runner=self.runner)
 
     def test_missing_kernel_uses_exact_installed_vmlinuz_without_cache(self) -> None:
         shutil.rmtree(self.source / "var/cache/pacman/pkg")
