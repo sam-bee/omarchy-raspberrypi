@@ -30,6 +30,7 @@ class FixtureRunner:
     def __init__(self, source_root: Path) -> None:
         self.source_root = source_root
         self.bad_initramfs_listing = False
+        self.cached_package_metadata = "Name            : linux-rpi\nVersion         : 6.1-1\nArchitecture    : aarch64\n"
         self.calls: list[list[str]] = []
         self.inputs: list[str | None] = []
         self.inventory = {
@@ -102,8 +103,8 @@ class FixtureRunner:
             root = Path(command[command.index("--directory") + 1])
             if "/usr/bin/pacman-key" in command:
                 return subprocess.CompletedProcess(command, 0, "", "")
-            if "/usr/bin/pacman" in command and "-Qp" in command:
-                return subprocess.CompletedProcess(command, 0, "linux-rpi 6.1-1 aarch64\n", "")
+            if "/usr/bin/pacman" in command and "-Qip" in command:
+                return subprocess.CompletedProcess(command, 0, self.cached_package_metadata, "")
             if "/usr/bin/install" in command:
                 source = root / command[-2].lstrip("/")
                 destination = root / command[-1].lstrip("/")
@@ -289,6 +290,14 @@ class RecoveryTests(unittest.TestCase):
         plan = recovery.plan_boot_repair(self.source, self.source / "boot")
         self.assertEqual(plan.restore_source, "signed-local-archive")
         self.assertTrue(plan.verification_commands)
+        self.assertIn("-Qip", plan.verification_commands[1])
+        self.assertIn("LC_ALL=C", plan.verification_commands[1])
+
+    def test_cached_archive_metadata_mismatch_is_rejected(self) -> None:
+        (self.source / "usr/lib/modules/6.1-rpi/vmlinuz").unlink()
+        self.runner.cached_package_metadata = "Name            : linux-rpi\nVersion         : 6.1-2\nArchitecture    : aarch64\n"
+        with self.assertRaisesRegex(recovery.RecoveryError, "does not match the installed package"):
+            recovery.repair_target(self.source, self.source / "boot", runner=self.runner)
 
     def test_empty_vmlinuz_uses_verified_installer_boot_kernel(self) -> None:
         image = self.source / "usr/lib/modules/6.1-rpi/vmlinuz"

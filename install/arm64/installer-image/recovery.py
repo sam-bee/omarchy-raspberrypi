@@ -1269,7 +1269,7 @@ def plan_boot_repair(
                 verification_commands.extend(
                     [
                         _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman-key", "--verify", signature_inside_target, archive_inside_target)),
-                        _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "-Qp", "--print-format", "%n %v %a", "--", archive_inside_target)),
+                        _nspawn_command(root_dir, boot_dir, ("/usr/bin/env", "LC_ALL=C", "/usr/bin/pacman", "-Qip", "--", archive_inside_target)),
                     ]
                 )
                 commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "--noconfirm", "-U", archive_inside_target)))
@@ -1309,8 +1309,16 @@ def _verify_cached_kernel_package(root: Path, boot: Path, plan: RepairPlan, runn
         raise _fail("kernel package verification plan is invalid")
     _run(runner, plan.verification_commands[0])
     metadata = _run(runner, plan.verification_commands[1])
-    fields = _stdout(metadata).strip().split()
-    if fields != ["linux-rpi", package.version, package.architecture]:
+    parsed: dict[str, str] = {}
+    for line in _stdout(metadata).splitlines():
+        match = re.fullmatch(r"(Name|Version|Architecture)\s*:\s*(\S.*)", line)
+        if match:
+            field, value = match.groups()
+            if field in parsed:
+                raise _fail("cached linux-rpi archive metadata is ambiguous")
+            parsed[field] = value.strip()
+    expected = {"Name": "linux-rpi", "Version": package.version, "Architecture": package.architecture}
+    if parsed != expected:
         raise _fail("cached linux-rpi archive does not match the installed package")
 
 
