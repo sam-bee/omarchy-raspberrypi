@@ -438,6 +438,7 @@ def _run_tar_copy(staging: Path, root_mount: Path) -> None:
         "--numeric-owner",
         "--acls",
         "--xattrs",
+        "--xattrs-include=*",
         "--format=pax",
         "--",
         *entries,
@@ -453,6 +454,7 @@ def _run_tar_copy(staging: Path, root_mount: Path) -> None:
         "--same-permissions",
         "--acls",
         "--xattrs",
+        "--xattrs-include=*",
     ]
     try:
         archive = subprocess.Popen(archive_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

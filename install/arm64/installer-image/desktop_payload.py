@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -10,6 +11,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 
 PAYLOAD_DIRECTORY = Path('/usr/local/share/omarchy-pi/desktop')
@@ -89,6 +91,11 @@ def inspect_bundle(bundle: Path, expected_sha256: str) -> dict:
                         if len(parts) != 2 or member.size > MIB:
                             raise PayloadError('desktop manifest has an invalid size/path')
                         manifest = json.load(archive.extractfile(member))
+        # tar stops at its end marker before zstd has necessarily written
+        # archive padding. Drain the pipe before waiting, including on hosts
+        # with a small pipe buffer, so the decompressor cannot deadlock.
+        while process.stdout.read(MIB):
+            pass
         if process.wait() != 0:
             raise PayloadError('desktop bundle decompression failed')
     except (tarfile.TarError, ValueError, OSError) as exc:
@@ -190,7 +197,7 @@ def prepare_payload(bundle: Path = BUNDLE, descriptor: Path = DESCRIPTOR, work: 
     (work / '.extracting').chmod(0o600)
     prefix = metadata['archive_prefix']
     command = ['tar', '--zstd', '--extract', '--file', str(bundle), '--directory', str(work),
-               '--strip-components=1', '--numeric-owner', '--same-owner', '--same-permissions', '--acls', '--xattrs',
+               '--strip-components=1', '--numeric-owner', '--same-owner', '--same-permissions', '--acls', '--xattrs', '--xattrs-include=*',
                '--', f'{prefix}/rootfs', f'{prefix}/source', f'{prefix}/desktop-manifest.json']
     result = subprocess.run(command, check=False, capture_output=True)
     if result.returncode:
@@ -220,3 +227,31 @@ def reset_incomplete_payload() -> None:
     if work.stat().st_uid != 0 or info.st_uid != 0 or info.st_mode & 0o077 or marker.read_text().strip() != metadata['sha256']:
         raise PayloadError('partial extraction does not belong to this installer')
     shutil.rmtree(work)
+
+
+def copy_payload(payload: Path, root: Path, boot: Path) -> None:
+    """Populate the freshly mounted target, preserving root metadata."""
+    payload, root, boot = (Path(os.path.abspath(path)) for path in (payload, root, boot))
+    for path in (payload, root, boot):
+        if path == Path('/') or not path.is_dir():
+            raise PayloadError('payload copy requires ordinary mounted directories')
+        if any(part.is_symlink() for part in (path, *path.parents)):
+            raise PayloadError('payload copy path contains a symlink')
+    if boot != root / 'boot' or payload == root or root in payload.parents or payload in root.parents:
+        raise PayloadError('payload copy directories overlap or boot is misplaced')
+    if set(entry.name for entry in root.iterdir()) - {'lost+found', 'boot'} or any(boot.iterdir()):
+        raise PayloadError('target filesystems are not empty')
+    source_root = payload / 'rootfs'
+    if source_root.is_symlink() or not source_root.is_dir():
+        raise PayloadError('prepared payload has no root tree')
+    # These helpers operate only on trees; the assembler's block-device
+    # commands and image creation entry points are never called here.
+    specification = importlib.util.spec_from_file_location('installer_payload_assembler', Path(__file__).with_name('assemble-image.py'))
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[specification.name] = module
+    specification.loader.exec_module(module)
+    try:
+        module.copy_root_without_boot(source_root, root)
+        module.copy_boot_tree(source_root / 'boot', boot)
+    except module.ImageAssemblyError as exc:
+        raise PayloadError(str(exc)) from exc
