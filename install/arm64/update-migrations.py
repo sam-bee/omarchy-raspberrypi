@@ -129,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         print(message, file=sys.stderr if args.json else sys.stdout)
         environment = os.environ.copy()
         environment["OMARCHY_PATH"] = str(Path(args.new_release))
+        environment["PATH"] = str(Path(args.new_release) / "bin") + ":" + environment.get("PATH", "/usr/bin:/bin")
         try:
             subprocess.run(["/bin/bash", "-euo", "pipefail", str(script)], check=True, env=environment)
         except subprocess.CalledProcessError as exc:

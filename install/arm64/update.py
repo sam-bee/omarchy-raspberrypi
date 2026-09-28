@@ -210,7 +210,10 @@ def worker(job):
             # EEPROM gate. Apply the same synchronized databases with -Su.
             command(["/usr/bin/env", "OMARCHY_UPDATE_PACMAN=1", "/usr/bin/pacman", "-Syuw", "--noconfirm"])
             pending = command(["/usr/bin/pacman", "-Sup", "--print-format", "%n %v"], capture_output=True, text=True).stdout
-            (job / "package-plan.txt").write_text(pending)
+            package_plan = job / "package-plan.txt"
+            package_plan.write_text(pending)
+            package_plan.chmod(0o640)
+            os.chown(package_plan, 0, account.pw_gid)
             packages = {line.split()[0] for line in pending.splitlines() if line.strip()}
             if any("eeprom" in name.lower() for name in packages):
                 raise UpdateError("The transaction includes EEPROM packages; review those separately before updating")

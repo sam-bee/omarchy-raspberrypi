@@ -192,13 +192,16 @@ class UpdateRunnerTests(unittest.TestCase):
         def fake_write_json(path, value, gid):
             Path(path).write_text(json.dumps(value) + "\n", encoding="utf-8")
 
-        with mock.patch.object(update, "STATE_ROOT", state_root), mock.patch.object(update, "require_pi"), mock.patch.object(update.os, "geteuid", return_value=0), mock.patch.object(update.pwd, "getpwuid", return_value=self.account), mock.patch.object(update, "active_release", return_value=self.release), mock.patch.object(update, "command", side_effect=fake_command), mock.patch.object(update, "user_command", side_effect=fake_user_command), mock.patch.object(update, "write_json", side_effect=fake_write_json), mock.patch.object(update.Path, "stat", fake_stat):
+        with mock.patch.object(update, "STATE_ROOT", state_root), mock.patch.object(update, "require_pi"), mock.patch.object(update.os, "geteuid", return_value=0), mock.patch.object(update.os, "chown") as chown, mock.patch.object(update.pwd, "getpwuid", return_value=self.account), mock.patch.object(update, "active_release", return_value=self.release), mock.patch.object(update, "command", side_effect=fake_command), mock.patch.object(update, "user_command", side_effect=fake_user_command), mock.patch.object(update, "write_json", side_effect=fake_write_json), mock.patch.object(update.Path, "stat", fake_stat):
             status = update.worker(job)
 
         self.assertEqual(status, 1)
         result = json.loads((job / "result.json").read_text())
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["phase"], "update-packages")
+        package_plan = job / "package-plan.txt"
+        self.assertEqual(stat.S_IMODE(package_plan.stat().st_mode), 0o640)
+        chown.assert_any_call(package_plan, 0, self.account.pw_gid)
         self.assertFalse(any("activate" in call for call in calls))
 
 
