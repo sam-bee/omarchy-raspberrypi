@@ -76,7 +76,12 @@ with tempfile.TemporaryDirectory(prefix="omarchy-payload-test-") as temporary:
             + "\n",
             encoding="utf-8",
         )
+    (target / "root/.ssh").mkdir()
+    (target / "root/.cache").mkdir()
     module._validate_generic_root(target)
+    (target / "root/.cache/private-file").write_text("must not ship")
+    expect_error(lambda: module._validate_generic_root(target))
+    (target / "root/.cache/private-file").unlink()
     module._validate_generic_accounts(target)
 
     (etc / "passwd").write_text(

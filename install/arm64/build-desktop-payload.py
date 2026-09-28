@@ -566,9 +566,16 @@ def _validate_generic_root(target: Path, *, allow_stock_alarm: bool = False) -> 
         if home.is_symlink() or not home.is_dir():
             raise DesktopPayloadError(f"target root has an invalid home directory: {home}")
         entries = list(home.iterdir())
-        if home.name == "root" and len(entries) == 1 and entries[0].name == ".ssh":
-            if entries[0].is_dir() and not entries[0].is_symlink() and not any(entries[0].iterdir()):
-                continue
+        if home.name == "root" and all(
+            entry.name in {".ssh", ".cache"}
+            and entry.is_dir()
+            and not entry.is_symlink()
+            and not any(entry.iterdir())
+            for entry in entries
+        ):
+            # Package hooks can create an empty root cache directory. Neither
+            # empty directory contains login identity or user data.
+            continue
         if home.name == "home" and allow_stock_alarm and len(entries) == 1:
             if entries[0].name == "alarm" and _has_stock_alarm_account(target):
                 continue
