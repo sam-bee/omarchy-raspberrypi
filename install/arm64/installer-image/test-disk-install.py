@@ -197,6 +197,41 @@ class DiskInstallTests(unittest.TestCase):
         reasons = disk_install._reason_mounts(target, disk_install._node_path_index(nodes), mounts)
         self.assertEqual(reasons, ["mounted source /dev/disk/by-uuid/rootfs"])
 
+    def test_findmnt_nested_children_are_flattened(self) -> None:
+        document = {
+            "filesystems": [{
+                "target": "/",
+                "source": "/dev/nvme0n1p2",
+                "children": [{
+                    "target": "/boot",
+                    "source": "/dev/nvme0n1p1",
+                    "children": [{"target": "/boot/firmware", "source": "/dev/nvme0n1p1"}],
+                }],
+            }],
+        }
+        with mock.patch.object(disk_install, "_checked", return_value=_result(["findmnt"], json.dumps(document))):
+            mounts = disk_install._findmnt_mounts()
+        self.assertEqual([mount["target"] for mount in mounts], ["/", "/boot", "/boot/firmware"])
+        self.assertTrue(all("children" not in mount for mount in mounts))
+
+    def test_graph_requests_explicit_lsblk_tree(self) -> None:
+        calls: list[list[str]] = []
+
+        def checked(command: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            if command[0] == "lsblk":
+                return _result(command, json.dumps({"blockdevices": []}))
+            if command[0] == "findmnt":
+                return _result(command, json.dumps({"filesystems": []}))
+            raise AssertionError(f"unexpected graph command: {command}")
+
+        with mock.patch.object(disk_install, "_checked", side_effect=checked), mock.patch.object(
+            disk_install, "_swap_sources", return_value=set()
+        ), mock.patch.object(disk_install, "_preflight_error", return_value=None):
+            disk_install._graph()
+        lsblk = next(command for command in calls if command[0] == "lsblk")
+        self.assertIn("--tree", lsblk)
+
     def test_stable_identity_swap_is_rejected(self) -> None:
         replacement = dict(self.target["/dev/nvme0n1"])
         replacement["identity"] = dict(replacement["identity"], stable_id="serial:REPLACEMENT")

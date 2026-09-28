@@ -204,7 +204,18 @@ def _findmnt_mounts() -> list[dict[str, Any]]:
         "TARGET,SOURCE,FSTYPE,OPTIONS,MAJ:MIN",
     ])
     document = _parse_json(result, "findmnt")
-    return [dict(item) for item in document.get("filesystems", []) if isinstance(item, dict)]
+    def flatten(items: Any) -> list[dict[str, Any]]:
+        mounts: list[dict[str, Any]] = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            current = dict(item)
+            children = current.pop("children", [])
+            mounts.append(current)
+            mounts.extend(flatten(children))
+        return mounts
+
+    return flatten(document.get("filesystems", []))
 
 
 def _swap_sources() -> set[str]:
@@ -385,6 +396,7 @@ def _graph() -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[str], str 
     result = _checked([
         "lsblk",
         "--json",
+        "--tree",
         "--paths",
         "--bytes",
         "--output",
