@@ -45,7 +45,7 @@ def pacman_signature_failures(config: str, *, root: str) -> list[str]:
         if not match:
             continue
         tokens = {token.lower() for token in match.group(1).split()}
-        if {"never", "optional", "packageoptional", "trustall", "packagetrustall"} & tokens:
+        if {"never", "optional", "packagenever", "packageoptional", "trustall", "packagetrustall"} & tokens:
             failures.append("pacman.conf contains an unsigned or untrusted SigLevel")
     if root != "/" or os.environ.get("OMARCHY_PI_TESTING") == "1":
         return failures
@@ -64,7 +64,7 @@ def pacman_signature_failures(config: str, *, root: str) -> list[str]:
             failures.append(f"pacman-conf could not read effective SigLevel for {repository}")
             continue
         tokens = {token.lower() for token in re.split(r"[\s=]+", output) if token}
-        if {"never", "optional", "packageoptional", "trustall", "packagetrustall"} & tokens:
+        if {"never", "optional", "packagenever", "packageoptional", "trustall", "packagetrustall"} & tokens:
             failures.append(f"repository {repository} does not require trusted package signatures")
         if not {"required", "packagerequired"} & tokens:
             failures.append(f"repository {repository} lacks PackageRequired signature policy")

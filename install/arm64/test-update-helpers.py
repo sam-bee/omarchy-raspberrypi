@@ -179,6 +179,9 @@ class UpdateHelperTests(unittest.TestCase):
             update_preflight.pacman_signature_failures("SigLevel\t=\tNever\n", root=str(self.root))
         )
         self.assertTrue(
+            update_preflight.pacman_signature_failures("SigLevel = PackageNever\n", root=str(self.root))
+        )
+        self.assertTrue(
             update_preflight.pacman_signature_failures("[core]\nSigLevel = PackageOptional\n", root=str(self.root))
         )
 
