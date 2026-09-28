@@ -56,7 +56,44 @@ class InstallerSessionTests(unittest.TestCase):
 
             unit = launcher.launch(settings, runner=runner)
             self.assertEqual(unit, f"omarchy-installer-session@{account.pw_name}.service")
-            self.assertEqual(calls, [["/usr/bin/systemctl", "start", "--no-block", unit]])
+            runtime_unit = f"user-runtime-dir@{account.pw_uid}.service"
+            self.assertEqual(
+                calls,
+                [
+                    ["/usr/bin/systemctl", "start", runtime_unit],
+                    ["/usr/bin/systemctl", "is-active", "--quiet", runtime_unit],
+                    ["/usr/bin/systemctl", "start", "--no-block", unit],
+                ],
+            )
+
+    def test_desktop_queue_is_blocked_when_runtime_directory_is_not_active(self) -> None:
+        account = pwd.getpwuid(os.getuid())
+        if os.getuid() == 0 or not account.pw_name.islower() or not account.pw_name.replace("_", "a").replace("-", "a").isalnum():
+            self.skipTest("test account is unsuitable for validated installer username")
+        home = Path(account.pw_dir)
+        if home.stat().st_uid != os.getuid() or home.stat().st_mode & 0o022:
+            self.skipTest("test account home is not suitable")
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Path(directory) / "installer-settings.toml"
+            settings.write_text(self.settings_text(account.pw_name), encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                if command[:3] == ["/usr/bin/systemctl", "is-active", "--quiet"]:
+                    return subprocess.CompletedProcess(command, 3, "", "")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with self.assertRaisesRegex(launcher.SessionLaunchError, "runtime directory is not active"):
+                launcher.launch(settings, runner=runner)
+            runtime_unit = f"user-runtime-dir@{account.pw_uid}.service"
+            self.assertEqual(
+                calls,
+                [
+                    ["/usr/bin/systemctl", "start", runtime_unit],
+                    ["/usr/bin/systemctl", "is-active", "--quiet", runtime_unit],
+                ],
+            )
 
     def test_invalid_settings_fail_before_systemctl(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

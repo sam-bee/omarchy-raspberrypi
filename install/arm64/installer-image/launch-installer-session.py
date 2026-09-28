@@ -17,6 +17,7 @@ from settings import InstallerSettings, SettingsError, load_settings
 
 SETTINGS_FILE = Path("/boot/installer-settings.toml")
 SESSION_UNIT = "omarchy-installer-session@{username}.service"
+RUNTIME_DIR_UNIT = "user-runtime-dir@{uid}.service"
 
 
 class SessionLaunchError(RuntimeError):
@@ -64,7 +65,33 @@ def launch(
     except SettingsError as exc:
         raise SessionLaunchError("installer settings are invalid") from exc
     account = _account(settings)
+    runtime_unit = RUNTIME_DIR_UNIT.format(uid=account.pw_uid)
     unit = SESSION_UNIT.format(username=settings.username)
+
+    try:
+        runtime_result = runner(
+            ["/usr/bin/systemctl", "start", runtime_unit],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SessionLaunchError("could not start the account runtime directory") from exc
+    if getattr(runtime_result, "returncode", 1) != 0:
+        raise SessionLaunchError("systemd rejected the account runtime directory")
+
+    try:
+        active_result = runner(
+            ["/usr/bin/systemctl", "is-active", "--quiet", runtime_unit],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SessionLaunchError("could not verify the account runtime directory") from exc
+    if getattr(active_result, "returncode", 1) != 0:
+        raise SessionLaunchError("account runtime directory is not active")
+
     try:
         result = runner(
             ["/usr/bin/systemctl", "start", "--no-block", unit],
