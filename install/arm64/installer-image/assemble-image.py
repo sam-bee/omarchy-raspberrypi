@@ -28,7 +28,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Sequence
+from typing import BinaryIO, Sequence
 
 
 SECTOR_SIZE = 512
@@ -299,9 +299,34 @@ def estimate_root_payload_bytes(staging: Path) -> int:
     return total
 
 
+def estimate_ext4_payload_bytes(staging: Path) -> int:
+    """Budget 4 KiB allocation and inodes, including directories/symlinks."""
+    total = 4096
+    for current, dirs, files in os.walk(staging, followlinks=False):
+        relative = Path(current).relative_to(staging)
+        if relative == Path("boot") or Path("boot") in relative.parents:
+            dirs[:] = []
+            continue
+        if relative == Path("."):
+            dirs[:] = [name for name in dirs if name != "boot"]
+        for name in (*dirs, *files):
+            info = (Path(current) / name).lstat()
+            total += 512  # inode and extended metadata allowance
+            if stat.S_ISREG(info.st_mode):
+                total += ((info.st_size + 4095) // 4096) * 4096
+            elif stat.S_ISDIR(info.st_mode):
+                total += 4096
+            elif stat.S_ISLNK(info.st_mode):
+                total += 4096  # conservative even for inline short links
+    return total
+
+
 def recommended_root_size_mib(staging: Path, extra_mib: int = DEFAULT_ROOT_EXTRA_MIB) -> int:
-    payload_mib = (estimate_root_payload_bytes(staging) + MIB - 1) // MIB
-    return max(MIN_ROOT_SIZE_MIB, payload_mib + extra_mib)
+    payload_mib = (estimate_ext4_payload_bytes(staging) + MIB - 1) // MIB
+    # Keep the requested allowance usable after ext4's default 5% reserve,
+    # inode tables, journal, allocation rounding and filesystem metadata.
+    usable_mib = payload_mib + extra_mib + 128
+    return max(MIN_ROOT_SIZE_MIB, (usable_mib * 100 + 89) // 90)
 
 
 def make_layout(boot_size_mib: int, root_size_mib: int) -> ImageLayout:
@@ -456,30 +481,61 @@ def _run_tar_copy(staging: Path, root_mount: Path) -> None:
         "--xattrs",
         "--xattrs-include=*",
     ]
-    try:
-        archive = subprocess.Popen(archive_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except OSError as exc:
-        raise ImageAssemblyError(f"could not start metadata-preserving tar archive: {exc}") from exc
-    assert archive.stdout is not None
-    assert archive.stderr is not None
+    def terminate_archive(process: subprocess.Popen[bytes]) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+    def read_archive_stderr(stream: BinaryIO) -> str:
+        max_bytes = 64 * 1024
+        stream.flush()
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(max(0, size - max_bytes))
+        detail = stream.read(max_bytes).decode(errors="replace")
+        if size > max_bytes:
+            detail = "[earlier tar diagnostics truncated]\n" + detail
+        return detail
+
     extracted = None
     extract_error: BaseException | None = None
-    try:
+    archive_returncode: int | None = None
+    archive_stderr = ""
+    with tempfile.TemporaryFile() as archive_stderr_file:
         try:
-            extracted = subprocess.run(
-                extract_command,
-                stdin=archive.stdout,
+            archive = subprocess.Popen(
+                archive_command,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
+                stderr=archive_stderr_file,
             )
-        except BaseException as exc:
-            extract_error = exc
-    finally:
-        archive.stdout.close()
-    archive_stderr = archive.stderr.read().decode(errors="replace")
-    archive.stderr.close()
-    archive_returncode = archive.wait()
+        except OSError as exc:
+            raise ImageAssemblyError(f"could not start metadata-preserving tar archive: {exc}") from exc
+        assert archive.stdout is not None
+        try:
+            try:
+                extracted = subprocess.run(
+                    extract_command,
+                    stdin=archive.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+            except BaseException as exc:
+                extract_error = exc
+        finally:
+            archive.stdout.close()
+            if extract_error is not None or (extracted is not None and extracted.returncode != 0):
+                terminate_archive(archive)
+            archive_returncode = archive.wait()
+        archive_stderr = read_archive_stderr(archive_stderr_file)
     if extract_error is not None:
         raise extract_error
     assert extracted is not None

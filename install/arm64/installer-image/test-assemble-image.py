@@ -3,11 +3,16 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import importlib.util
 import os
 from pathlib import Path
+import signal
 import stat
+import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -87,7 +92,8 @@ class AssembleImageTests(unittest.TestCase):
             (staging / "usr").mkdir()
             (staging / "usr/payload").write_bytes(b"payload")
             self.assertEqual(assemble_image.DEFAULT_ROOT_EXTRA_MIB, 1024)
-            self.assertEqual(assemble_image.recommended_root_size_mib(staging), 1025)
+            self.assertEqual(assemble_image.recommended_root_size_mib(staging), 1282)
+            self.assertGreaterEqual(assemble_image.estimate_ext4_payload_bytes(staging), 3 * 4096)
 
     def test_fat_boot_tree_rejects_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -139,6 +145,107 @@ class AssembleImageTests(unittest.TestCase):
             self.assertFalse((root_mount / "boot").exists())
             if xattr_supported:
                 self.assertEqual(os.getxattr(copied, xattr_name), xattr_value)
+
+    def test_tar_copy_does_not_deadlock_when_producer_stderr_exceeds_pipe_buffer(self) -> None:
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as stream:
+            data = b"producer payload\n"
+            info = tarfile.TarInfo("etc/from-producer")
+            info.size = len(data)
+            info.uid = os.getuid()
+            info.gid = os.getgid()
+            stream.addfile(info, io.BytesIO(data))
+        encoded = base64.b64encode(archive.getvalue()).decode("ascii")
+        module_path = str(MODULE_PATH.resolve())
+        helper = f'''\
+import base64
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+spec = importlib.util.spec_from_file_location("assemble_image_child", {module_path!r})
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+real_popen = subprocess.Popen
+
+def producer(command, *args, **kwargs):
+    if command[:2] == ["tar", "--create"]:
+        program = "import os,base64; os.write(2,b'x'*200000); os.write(1,base64.b64decode(" + repr({encoded!r}) + "))"
+        return real_popen([sys.executable, "-c", program], *args, **kwargs)
+    return real_popen(command, *args, **kwargs)
+
+module.subprocess.Popen = producer
+with tempfile.TemporaryDirectory() as temporary:
+    staging = Path(temporary) / "staging"
+    root = Path(temporary) / "root"
+    (staging / "boot").mkdir(parents=True)
+    (staging / "etc").mkdir()
+    root.mkdir()
+    (staging / "etc/source").write_bytes(b"source")
+    module._run_tar_copy(staging, root)
+    assert (root / "etc/from-producer").read_bytes() == b"producer payload\\n"
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            helper_path = Path(temporary) / "tar-stderr-overflow.py"
+            helper_path.write_text(helper, encoding="utf-8")
+            child = subprocess.Popen(
+                [sys.executable, str(helper_path)],
+                start_new_session=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            try:
+                stdout, stderr = child.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.communicate()
+                self.fail("tar copy hung while producer stderr exceeded a pipe buffer")
+        self.assertEqual(child.returncode, 0, stderr or stdout)
+
+    def test_tar_copy_terminates_producer_when_extraction_is_interrupted(self) -> None:
+        class Producer:
+            def __init__(self) -> None:
+                self.stdout = io.BytesIO()
+                self.terminated = False
+                self.waited = False
+
+            def poll(self) -> int | None:
+                return -15 if self.terminated else None
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+            def kill(self) -> None:
+                self.terminated = True
+
+            def wait(self, timeout: float | None = None) -> int:
+                self.waited = True
+                return -15
+
+        with tempfile.TemporaryDirectory() as temporary:
+            staging = Path(temporary) / "staging"
+            root = Path(temporary) / "root"
+            (staging / "etc").mkdir(parents=True)
+            (staging / "etc/source").write_bytes(b"source")
+            root.mkdir()
+            producer = Producer()
+            with mock.patch.object(assemble_image.subprocess, "Popen", return_value=producer), mock.patch.object(
+                assemble_image.subprocess, "run", side_effect=KeyboardInterrupt
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    assemble_image._run_tar_copy(staging, root)
+            self.assertTrue(producer.terminated)
+            self.assertTrue(producer.waited)
 
     def test_boot_only_staging_is_rejected_as_an_empty_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
