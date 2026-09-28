@@ -36,7 +36,72 @@ The host's Arch Linux ARM repositories and keyring remain authoritative. Preserv
 
 Selected system setup, update, migration, repository, reset, hibernation and boot-theme entry points reject non-x86 hosts before mutating work. They do not accept a target override: planner simulation must never authorize native system operations. The focused guard tests enumerate the covered commands and prove refusal before mocked privileged commands or file changes. Migration listing remains read-only and available.
 
-These guards are defense against normal accidental entry, not a sandbox or a complete audit of all Omarchy commands. Direct execution of installation leaves or migration files, raw pacman operations, individual maintenance helpers and independently supplied upstream scripts can bypass them. Do not deploy the tree or treat ARM updates as supported on the strength of these checks. Future updates must also retain this downstream branch rather than replacing it with official package-owned files.
+These guards are defense against normal accidental entry, not a sandbox or a complete audit of all Omarchy commands. Direct execution of installation leaves or migration files, raw pacman operations, individual maintenance helpers and independently supplied upstream scripts can bypass them. They do not by themselves validate a deployment. Installed Pi updates use the bounded updater below, with separate package, source, migration and recovery checks. Future updates must also retain this downstream branch rather than replacing it with official package-owned files.
+
+## Pi updates
+
+On an installed Pi with an active user-owned source release, use the normal Omarchy entry point as the desktop user:
+
+```bash
+omarchy update
+omarchy update -y
+omarchy update --status
+omarchy update --watch
+```
+
+The first command asks for confirmation. `-y` confirms the complete update. The updater records a job under PID 1, so closing the terminal does not stop it; `--status` reads the latest persisted result and `--watch` reconnects to its log. A completed job records that a reboot is required but does not reboot the machine. Do not run the command with `sudo`; it obtains the required privileged worker through its own boundary.
+
+The package phase downloads and applies the complete Arch Linux ARM transaction through pacman with the target keyring and its normal package signature checks. It refuses the transaction when an EEPROM package is pending. The source phase resolves the fixed HTTPS repository and `quattro-rpi5` branch to an exact full commit SHA, prepares a clean checkout in the user's private cache, and then stages the downstream source release archive. The session stager keeps the `current` and `previous` releases and preserves edited managed configuration. A source commit SHA is provenance for the downstream archive; it is not an additional pacman package signature.
+
+Before package application, the updater checks the old and candidate source releases. A new or changed ARM migration must have an exact entry in `install/arm64/migrations.allowlist`, including its SHA-256 and a `run` or `skip` decision. Missing, stale or malformed review data stops the job. Changes to the downstream `hypr-rdp` or `ttfx` package recipe also stop the job until that recipe change has received explicit review. These checks refuse an ambiguous migration or custom recipe; they do not run a broad automatic Pi migration.
+
+For each job, inspect the durable records in `/var/lib/omarchy-pi-updates/<job>/`. `update.log` contains the worker output, `result.json` contains the persisted phase and result, `package-plan.txt` contains the planned package set, and `packages-before.json` and `packages-after.json` record the installed package sets. If a job fails, preserve and inspect these records before retrying; a package transaction may already have changed the system.
+
+Source rollback is separate from package rollback. The active source helper can move the user session back to its previous staged release:
+
+```bash
+python3 "$HOME/.local/share/omarchy-pi/current/install/arm64/update-source.py" rollback --json
+```
+
+This changes the user-owned source pointer and managed session files only. It does not undo ALARM package changes, migrations, caches, boot files or a reboot. Use the installer USB recovery path below for a bounded boot repair or for the separate installer handoff; do not treat source rollback as a complete system rollback.
+
+## USB recovery commands
+
+From the installer USB, run `omarchy-pi-recover` as the installer session user. It submits requests through the fixed root controller; credentials are read transiently and are not written to job records. Use an existing unlock key with `--key-file` or prompt for the existing passphrase with `--passphrase`.
+
+Start with the read-only inventory and save the exact target token printed for the intended disk:
+
+```bash
+omarchy-pi-recover discover
+omarchy-pi-recover status
+omarchy-pi-recover status --watch
+```
+
+The token has the exact form `RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>`. Copy it exactly, including its angle-bracket placeholders. Planning and inspection require the explicit target, that token and one existing credential:
+
+```bash
+omarchy-pi-recover plan \
+  --target /dev/mmcblk0 \
+  --confirm-target 'RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>' \
+  --passphrase
+
+omarchy-pi-recover inspect \
+  --target /dev/mmcblk0 \
+  --confirm-target 'RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>' \
+  --key-file /path/to/existing-unlock-key
+```
+
+`plan` and `inspect` unlock and mount read-only for their bounded operation. `repair` requires the same exact target token, one existing credential and the `--confirm-repair` flag:
+
+```bash
+omarchy-pi-recover repair \
+  --target /dev/mmcblk0 \
+  --confirm-target 'RECOVER <path> <stable-id-or-<missing>> <root-uuid-or-<missing>> <boot-uuid-or-<missing>>' \
+  --key-file /path/to/existing-unlock-key \
+  --confirm-repair
+```
+
+The controller maps `--confirm-repair` to the exact internal confirmation `REPAIR BOOT ONLY` and then permits only the configured boot and initramfs repair. It refuses ambiguous, mounted, active-swap, installer or key media targets and does not format storage, change LUKS keyslots, change EEPROM or boot order, or provide full-system rollback. Native Pi acceptance of this recovery flow remains a separate test gate.
 
 The new upstream lock PAM file is an explicit operator-approved change; staging does not apply it automatically. Retain the recorded authorization and rollback baseline; existing authorization for this exact change does not need to be requested again. Staging must preserve existing authentication policies.
 

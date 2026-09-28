@@ -1,6 +1,6 @@
 # Supervised Arch Linux ARM maintenance gate
 
-**Status: NVMe maintenance remains a plan.** A disposable-media upgrade and restore rehearsal can provide useful evidence, but it does not authorize an encrypted-NVMe transaction, a complete Omarchy updater, or a general hardware claim. Record machine-specific results, package versions, boot identifiers and recovery details in private deployment evidence. Recheck repository state and take a new exact-state baseline before any future maintenance transaction. This is not an Omarchy updater or an apply script.
+**Status: supervised maintenance gate.** This document describes a manual review and recovery rehearsal for a specific Pi. It does not establish native acceptance or a general hardware claim. The installed Pi updater is documented in the [ARM compatibility guide](../../arm64.md#pi-updates); use that entry point for the durable `omarchy update` job. Record machine-specific results, package versions, boot identifiers and recovery details in private deployment evidence. Recheck repository state and take a new exact-state baseline before any future maintenance transaction.
 
 ## Starting point and prerequisites
 
@@ -47,7 +47,7 @@ For a failed or interrupted transaction, first preserve its log and inspect the 
 
 If SSH or boot is lost, remote commands cannot recover the machine. Use the available physical console, recorded LUKS passphrase, or existing rescue USB to inspect and restore the affected state. Do not repartition or format either device, rewrite the rescue USB, or change LUKS keyslots as routine rollback.
 
-The current ARM compatibility layer has no package apply mode. Its guards protect selected Omarchy entrypoints against ordinary accidental use; they are not a sandbox for raw pacman commands or individual helper scripts. A future automated updater needs a separate reviewed design and fail-closed tests before it can replace these manual gates.
+The durable Pi updater is a separate path from this manual maintenance gate. Its package and source transaction, migration review, durable logs and source-only rollback limits are documented in the [ARM compatibility guide](../../arm64.md#pi-updates). Its existence does not replace the target-specific evidence and recovery checks in this runbook, and native acceptance remains a separate gate. The ARM guards protect selected Omarchy entrypoints against ordinary accidental use; they are not a sandbox for raw pacman commands or individual helper scripts.
 
 For a bounded, private, read-only snapshot of Pi stability evidence, use the [Pi stability collector](pi-stability-collector.md). It is a diagnostic aid and does not authorize a maintenance transaction.
 
