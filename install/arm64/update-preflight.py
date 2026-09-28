@@ -52,6 +52,17 @@ def pacman_signature_failures(config: str, *, root: str) -> list[str]:
     pacman_conf = shutil.which("pacman-conf")
     if pacman_conf is None:
         return failures + ["pacman-conf is unavailable; effective repository signature policy cannot be verified"]
+    status, global_output = command_output([pacman_conf, "SigLevel"])
+    if status != 0:
+        return failures + ["pacman-conf could not read effective global SigLevel"]
+    global_tokens = {token.lower() for token in re.split(r"[\s=]+", global_output) if token}
+    unsafe = {"never", "optional", "packagenever", "packageoptional", "trustall", "packagetrustall"}
+    if unsafe & global_tokens:
+        failures.append("effective global SigLevel does not require trusted package signatures")
+    if not {"required", "packagerequired"} & global_tokens:
+        failures.append("effective global SigLevel lacks PackageRequired")
+    if not {"trustedonly", "packagetrustedonly"} & global_tokens:
+        failures.append("effective global SigLevel lacks PackageTrustedOnly")
     status, output = command_output([pacman_conf, "--repo-list"])
     if status != 0:
         return failures + ["pacman-conf could not enumerate repositories"]
@@ -64,10 +75,8 @@ def pacman_signature_failures(config: str, *, root: str) -> list[str]:
             failures.append(f"pacman-conf could not read effective SigLevel for {repository}")
             continue
         tokens = {token.lower() for token in re.split(r"[\s=]+", output) if token}
-        if {"never", "optional", "packagenever", "packageoptional", "trustall", "packagetrustall"} & tokens:
+        if unsafe & tokens:
             failures.append(f"repository {repository} does not require trusted package signatures")
-        if not {"required", "packagerequired"} & tokens:
-            failures.append(f"repository {repository} lacks PackageRequired signature policy")
     return failures
 
 

@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -184,6 +185,47 @@ class UpdateHelperTests(unittest.TestCase):
         self.assertTrue(
             update_preflight.pacman_signature_failures("[core]\nSigLevel = PackageOptional\n", root=str(self.root))
         )
+
+    def test_signature_policy_inherits_global_for_empty_and_partial_repo_overrides(self) -> None:
+        def command_output(command: list[str], *, timeout: float = 15) -> tuple[int, str]:
+            del timeout
+            if command[-1] == "SigLevel" and "--repo" not in command:
+                return 0, "PackageRequired\nPackageTrustedOnly\nDatabaseOptional\nDatabaseTrustedOnly\n"
+            if command[-1] == "--repo-list":
+                return 0, "core\nextra\n"
+            repository = command[command.index("--repo") + 1]
+            return 0, "" if repository == "core" else "DatabaseOptional\n"
+
+        with (
+            mock.patch.dict(os.environ, {"OMARCHY_PI_TESTING": "0"}),
+            mock.patch.object(update_preflight.shutil, "which", return_value="/usr/bin/pacman-conf"),
+            mock.patch.object(update_preflight, "command_output", side_effect=command_output),
+        ):
+            self.assertEqual(
+                update_preflight.pacman_signature_failures(
+                    "SigLevel = Required DatabaseOptional\n", root="/"
+                ),
+                [],
+            )
+
+    def test_signature_policy_rejects_hostile_repo_package_override(self) -> None:
+        def command_output(command: list[str], *, timeout: float = 15) -> tuple[int, str]:
+            del timeout
+            if command[-1] == "SigLevel" and "--repo" not in command:
+                return 0, "PackageRequired\nPackageTrustedOnly\nDatabaseOptional\n"
+            if command[-1] == "--repo-list":
+                return 0, "core\n"
+            return 0, "PackageOptional\n"
+
+        with (
+            mock.patch.dict(os.environ, {"OMARCHY_PI_TESTING": "0"}),
+            mock.patch.object(update_preflight.shutil, "which", return_value="/usr/bin/pacman-conf"),
+            mock.patch.object(update_preflight, "command_output", side_effect=command_output),
+        ):
+            failures = update_preflight.pacman_signature_failures(
+                "SigLevel = Required DatabaseOptional\n", root="/"
+            )
+        self.assertTrue(any("repository core" in failure for failure in failures))
 
     def test_migration_policy_requires_exact_hash_and_reason(self) -> None:
         old_migrations = self.source_old / "migrations"

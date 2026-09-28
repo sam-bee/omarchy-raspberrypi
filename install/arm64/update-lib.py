@@ -251,7 +251,7 @@ def _vcio_bootloader_config() -> str | None:
                 continue
             if text:
                 return text + "\n"
-        except (OSError, ValueError, fcntl.error):
+        except (OSError, ValueError):
             continue
         finally:
             if descriptor is not None:
@@ -286,7 +286,7 @@ def _vcio_reboot_order() -> int | None:
                 and terminator == 0
             ):
                 return order
-        except (OSError, ValueError, struct.error, fcntl.error):
+        except (OSError, ValueError, struct.error):
             pass
         finally:
             if descriptor is not None:
