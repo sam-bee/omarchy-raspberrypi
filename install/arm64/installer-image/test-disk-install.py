@@ -328,6 +328,9 @@ class DiskInstallTests(unittest.TestCase):
         cryptsetup_commands = [argv for argv, _ in commands if argv[0] == "cryptsetup"]
         self.assertTrue(any(argv[1] == "luksFormat" for argv in cryptsetup_commands))
         self.assertTrue(any(argv[1] == "luksAddKey" for argv in cryptsetup_commands))
+        add_key = next(argv for argv in cryptsetup_commands if argv[1] == "luksAddKey")
+        self.assertIn("--new-keyfile", add_key)
+        self.assertNotIn("--new-key-file", add_key)
         for argv, _input in commands:
             self.assertNotIn("recovery-passphrase", argv)
         luks_format_input = next(value for argv, value in commands if argv[:2] == ["cryptsetup", "luksFormat"])

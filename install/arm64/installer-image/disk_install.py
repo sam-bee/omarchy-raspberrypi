@@ -67,6 +67,12 @@ def _run(command: Sequence[str], *, input_text: str | None = None, check: bool =
             capture_output=True,
             check=check,
         )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() if isinstance(exc.stderr, str) else ""
+        if input_text and detail:
+            detail = detail.replace(input_text, "<redacted>")
+        suffix = f": {detail}" if detail else ""
+        raise InstallError(f"command failed: {command[0]}{suffix}") from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise InstallError(f"command failed to start: {command[0]}") from exc
 
@@ -902,7 +908,7 @@ def prepare_target(
                 _checked([
                     "cryptsetup", "luksAddKey", "--batch-mode",
                     "--key-file", os.fspath(recovery_file),
-                    "--new-key-file", os.fspath(key_file), "--", root_device,
+                    "--new-keyfile", os.fspath(key_file), "--", root_device,
                 ])
             root_source = mapper_path
             # The open operation below is intentionally repeated after the
