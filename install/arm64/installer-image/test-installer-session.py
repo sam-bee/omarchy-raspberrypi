@@ -60,6 +60,8 @@ class InstallerSessionTests(unittest.TestCase):
             self.assertEqual(
                 calls,
                 [
+                    ["/usr/bin/systemctl", "restart", launcher.USERDB_UNIT],
+                    ["/usr/bin/systemctl", "is-active", "--quiet", launcher.USERDB_UNIT],
                     ["/usr/bin/systemctl", "start", runtime_unit],
                     ["/usr/bin/systemctl", "is-active", "--quiet", runtime_unit],
                     ["/usr/bin/systemctl", "start", "--no-block", unit],
@@ -77,21 +79,71 @@ class InstallerSessionTests(unittest.TestCase):
             settings = Path(directory) / "installer-settings.toml"
             settings.write_text(self.settings_text(account.pw_name), encoding="utf-8")
             calls: list[list[str]] = []
+            runtime_unit = f"user-runtime-dir@{account.pw_uid}.service"
 
             def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
                 calls.append(command)
-                if command[:3] == ["/usr/bin/systemctl", "is-active", "--quiet"]:
+                if command == ["/usr/bin/systemctl", "is-active", "--quiet", runtime_unit]:
                     return subprocess.CompletedProcess(command, 3, "", "")
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with self.assertRaisesRegex(launcher.SessionLaunchError, "runtime directory is not active"):
                 launcher.launch(settings, runner=runner)
-            runtime_unit = f"user-runtime-dir@{account.pw_uid}.service"
             self.assertEqual(
                 calls,
                 [
+                    ["/usr/bin/systemctl", "restart", launcher.USERDB_UNIT],
+                    ["/usr/bin/systemctl", "is-active", "--quiet", launcher.USERDB_UNIT],
                     ["/usr/bin/systemctl", "start", runtime_unit],
                     ["/usr/bin/systemctl", "is-active", "--quiet", runtime_unit],
+                ],
+            )
+
+    def test_userdb_refresh_failure_blocks_runtime_start(self) -> None:
+        account = pwd.getpwuid(os.getuid())
+        if os.getuid() == 0 or not account.pw_name.islower() or not account.pw_name.replace("_", "a").replace("-", "a").isalnum():
+            self.skipTest("test account is unsuitable for validated installer username")
+        home = Path(account.pw_dir)
+        if home.stat().st_uid != os.getuid() or home.stat().st_mode & 0o022:
+            self.skipTest("test account home is not suitable")
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Path(directory) / "installer-settings.toml"
+            settings.write_text(self.settings_text(account.pw_name), encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                return subprocess.CompletedProcess(command, 1 if command[-2:] == ["restart", launcher.USERDB_UNIT] else 0, "", "")
+
+            with self.assertRaisesRegex(launcher.SessionLaunchError, "system user database refresh"):
+                launcher.launch(settings, runner=runner)
+            self.assertEqual(calls, [["/usr/bin/systemctl", "restart", launcher.USERDB_UNIT]])
+
+    def test_userdb_refresh_must_be_active_before_runtime_start(self) -> None:
+        account = pwd.getpwuid(os.getuid())
+        if os.getuid() == 0 or not account.pw_name.islower() or not account.pw_name.replace("_", "a").replace("-", "a").isalnum():
+            self.skipTest("test account is unsuitable for validated installer username")
+        home = Path(account.pw_dir)
+        if home.stat().st_uid != os.getuid() or home.stat().st_mode & 0o022:
+            self.skipTest("test account home is not suitable")
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Path(directory) / "installer-settings.toml"
+            settings.write_text(self.settings_text(account.pw_name), encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                if command == ["/usr/bin/systemctl", "is-active", "--quiet", launcher.USERDB_UNIT]:
+                    return subprocess.CompletedProcess(command, 3, "", "")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with self.assertRaisesRegex(launcher.SessionLaunchError, "system user database is not active"):
+                launcher.launch(settings, runner=runner)
+            self.assertEqual(
+                calls,
+                [
+                    ["/usr/bin/systemctl", "restart", launcher.USERDB_UNIT],
+                    ["/usr/bin/systemctl", "is-active", "--quiet", launcher.USERDB_UNIT],
                 ],
             )
 

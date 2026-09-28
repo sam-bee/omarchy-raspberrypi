@@ -18,6 +18,7 @@ from settings import InstallerSettings, SettingsError, load_settings
 SETTINGS_FILE = Path("/boot/installer-settings.toml")
 SESSION_UNIT = "omarchy-installer-session@{username}.service"
 RUNTIME_DIR_UNIT = "user-runtime-dir@{uid}.service"
+USERDB_UNIT = "systemd-userdbd.service"
 
 
 class SessionLaunchError(RuntimeError):
@@ -67,6 +68,30 @@ def launch(
     account = _account(settings)
     runtime_unit = RUNTIME_DIR_UNIT.format(uid=account.pw_uid)
     unit = SESSION_UNIT.format(username=settings.username)
+
+    try:
+        userdb_result = runner(
+            ["/usr/bin/systemctl", "restart", USERDB_UNIT],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SessionLaunchError("could not refresh the system user database") from exc
+    if getattr(userdb_result, "returncode", 1) != 0:
+        raise SessionLaunchError("systemd rejected the system user database refresh")
+
+    try:
+        userdb_active_result = runner(
+            ["/usr/bin/systemctl", "is-active", "--quiet", USERDB_UNIT],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SessionLaunchError("could not verify the system user database") from exc
+    if getattr(userdb_active_result, "returncode", 1) != 0:
+        raise SessionLaunchError("system user database is not active")
 
     try:
         runtime_result = runner(
