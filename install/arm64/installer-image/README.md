@@ -41,3 +41,19 @@ Add `--apply` to the same command only after reviewing the plan. The script
 does not read or copy `/boot/installer-settings.toml`; the image contains
 only the non-secret settings example, so credentials must be supplied later
 through the documented first-boot path.
+
+## Prepare the desktop user
+
+After the target user has been created, the release has been staged at
+`~/.local/share/omarchy-pi/current`, and the desktop packages are installed,
+run this as that user:
+
+```sh
+bash "$HOME/.local/share/omarchy-pi/current/install/arm64/setup-desktop-user.sh"
+```
+
+The entry point validates the release pointer, sets `OMARCHY_PATH` and the
+release, user-bin and mise-shim paths, then runs the existing theme, image,
+mise and user-agent setup leaves in order. It performs no host or sudo work
+and leaves the default agent unset. The first run needs network access for
+the mise bootstrap and its managed tools.
