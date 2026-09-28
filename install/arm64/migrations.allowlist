@@ -1,0 +1,4 @@
+# Newly introduced migrations require an ARM review before they can run.
+# Format: migration filename<TAB>run|skip<TAB>exact SHA-256<TAB>review rationale
+# A skip entry must document why the migration is Pi-inapplicable.  Missing or
+# stale entries stop the package transaction before it starts.
