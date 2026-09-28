@@ -327,6 +327,53 @@ def _parse_info(stdout: bytes) -> list[dict[str, str]]:
     return records
 
 
+def _validate_custom_archive_metadata(
+    pacman: str,
+    archive: Path,
+    record: dict[str, str],
+) -> None:
+    """Cross-check the manifest against the archive's native package metadata."""
+
+    result = _run(
+        [
+            pacman,
+            "--query",
+            "--file",
+            os.fspath(archive),
+        ]
+    )
+    matches: list[tuple[str, str]] = []
+    for line in result.stdout.decode(errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) == 2 and PACKAGE_NAME.fullmatch(fields[0]) and not any(
+            character.isspace() for character in fields[1]
+        ):
+            matches.append((fields[0], fields[1]))
+    if len(matches) != 1:
+        raise DesktopPayloadError(f"pacman did not return one package record for {archive.name}")
+    package, version = matches[0]
+    if package != record["package"] or version != record["version"]:
+        raise DesktopPayloadError(
+            f"custom archive metadata differs from manifest: {archive.name} "
+            f"({package} {version}; expected {record['package']} {record['version']})"
+        )
+
+
+def _validate_installed_custom_packages(
+    installed: Sequence[dict[str, str]],
+    custom: Sequence[Path],
+    records: dict[str, dict[str, str]],
+) -> None:
+    by_name = {item["name"]: item["version"] for item in installed}
+    for archive in custom:
+        record = records[archive.name]
+        if by_name.get(record["package"]) != record["version"]:
+            raise DesktopPayloadError(
+                f"installed custom package differs from manifest: {record['package']} "
+                f"{by_name.get(record['package'], '<missing>')} (expected {record['version']})"
+            )
+
+
 def _source_revision(source_checkout: Path | None, source_revision: str | None) -> tuple[str, str]:
     if (source_checkout is None) == (source_revision is None):
         raise DesktopPayloadError("provide exactly one of --source-checkout or --source-revision")
@@ -344,6 +391,124 @@ def _source_revision(source_checkout: Path | None, source_revision: str | None) 
     if status.stdout.strip():
         raise DesktopPayloadError("source checkout must be clean before it is bundled")
     return revision, "git-checkout"
+
+
+def _account_file(target: Path, name: str) -> Path:
+    path = target / "etc" / name
+    _reject_symlink_components(path)
+    try:
+        info = path.lstat()
+    except FileNotFoundError as exc:
+        raise DesktopPayloadError(f"target is missing /etc/{name}") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise DesktopPayloadError(f"target /etc/{name} must be a regular file")
+    return path
+
+
+def _lock_stock_root_password(target: Path) -> None:
+    """Lock the stock root account in the disposable target template only."""
+
+    path = _account_file(target, "shadow")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise DesktopPayloadError("target /etc/shadow is not readable text") from exc
+    lines = content.splitlines(keepends=True)
+    updated: list[str] = []
+    root_count = 0
+    for line in lines:
+        body = line.rstrip("\r\n")
+        suffix = line[len(body) :]
+        fields = body.split(":")
+        if fields and fields[0] == "root":
+            root_count += 1
+            if len(fields) < 2:
+                raise DesktopPayloadError("target root shadow entry is malformed")
+            fields[1] = "!"
+            body = ":".join(fields)
+        updated.append(body + suffix)
+    if root_count != 1:
+        raise DesktopPayloadError("target must contain exactly one root shadow entry")
+    new_content = "".join(updated)
+    if new_content != content:
+        path.write_text(new_content, encoding="utf-8")
+
+
+def _remove_account_backups(target: Path) -> None:
+    """Remove account-file backups created while deleting stock accounts."""
+
+    for name in ("passwd-", "shadow-", "group-", "gshadow-"):
+        path = target / "etc" / name
+        _reject_symlink_components(path)
+        if not os.path.lexists(path):
+            continue
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise DesktopPayloadError(f"target /etc/{name} must not be a special file")
+        path.unlink()
+
+
+def _validate_generic_accounts(target: Path) -> None:
+    """Reject shipped login identities and require a locked root account."""
+
+    passwd_path = _account_file(target, "passwd")
+    shadow_path = _account_file(target, "shadow")
+    gshadow_path = _account_file(target, "gshadow")
+    try:
+        passwd_lines = passwd_path.read_text(encoding="utf-8").splitlines()
+        shadow_lines = shadow_path.read_text(encoding="utf-8").splitlines()
+        gshadow_lines = gshadow_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise DesktopPayloadError("target account files are not readable text") from exc
+
+    passwd_names: set[str] = set()
+    for line in passwd_lines:
+        if not line:
+            continue
+        fields = line.split(":")
+        if len(fields) != 7 or not fields[2].isdigit():
+            raise DesktopPayloadError("target has an invalid passwd entry")
+        name = fields[0]
+        if name in passwd_names:
+            raise DesktopPayloadError(f"target has a duplicate passwd entry: {name}")
+        passwd_names.add(name)
+        uid = int(fields[2])
+        if name == "alarm" or 1000 <= uid < 65534:
+            raise DesktopPayloadError(f"target has a non-system account: {name}")
+    if "root" not in passwd_names:
+        raise DesktopPayloadError("target is missing the root account")
+
+    root_shadow: list[list[str]] = []
+    for line in shadow_lines:
+        if not line:
+            continue
+        fields = line.split(":")
+        if len(fields) != 9:
+            raise DesktopPayloadError("target has an invalid shadow entry")
+        if fields[0] == "root":
+            root_shadow.append(fields)
+        if fields[0] == "alarm":
+            raise DesktopPayloadError("target has an alarm shadow entry")
+    if len(root_shadow) != 1 or not root_shadow[0][1].startswith(("!", "*")):
+        raise DesktopPayloadError("target root account is not locked")
+
+    for line in gshadow_lines:
+        if not line:
+            continue
+        fields = line.split(":")
+        if len(fields) != 4:
+            raise DesktopPayloadError("target has an invalid gshadow entry")
+        if fields[0] == "alarm":
+            raise DesktopPayloadError("target has an alarm gshadow entry")
+
+    for name in ("passwd-", "shadow-", "group-", "gshadow-"):
+        path = target / "etc" / name
+        _reject_symlink_components(path)
+        if os.path.lexists(path):
+            raise DesktopPayloadError(f"target retains the account backup /etc/{name}")
 
 
 def _has_stock_alarm_account(target: Path) -> bool:
@@ -587,6 +752,7 @@ def build_payload(
         record = custom_records.get(archive.name)
         if record is None or record["sha256"] != _sha256(archive):
             raise DesktopPayloadError(f"custom package is not recorded with its expected hash: {archive.name}")
+        _validate_custom_archive_metadata(pacman, archive, record)
     selected_profiles = profiles or ("full-desktop",)
     if "full-desktop" in selected_profiles:
         required_custom = {"hypr-rdp", "ttfx"}
@@ -620,10 +786,12 @@ def build_payload(
         if stock_alarm:
             # The official tarball includes the default alarm login. Remove
             # it from this disposable target before bundling a generic image.
+            _lock_stock_root_password(target)
             _run(["userdel", "--root", os.fspath(target), "--remove", "alarm"])
             groups = (target / "etc/group").read_text(encoding="utf-8").splitlines()
             if any(line.startswith("alarm:") for line in groups):
                 _run(["groupdel", "--root", os.fspath(target), "alarm"])
+            _remove_account_backups(target)
             _validate_generic_root(target)
         if stock_hostname:
             hostname_path.write_text("", encoding="utf-8")
@@ -676,6 +844,7 @@ def build_payload(
             query_command = _pacman_base(pacman, target, dbpath, cache, log, config, gpgdir, hookdir)
             query_command.extend(["--query", "--info"])
             installed = _parse_info(_run(query_command).stdout)
+            _validate_installed_custom_packages(installed, custom, custom_records)
 
         manifest: dict[str, Any] = {
             "schema_version": 1,
@@ -711,6 +880,9 @@ def build_payload(
         if not apply:
             return manifest
 
+        _remove_account_backups(target)
+        _validate_generic_root(target)
+        _validate_generic_accounts(target)
         _validate_tree(target)
         archives = _archive_files(cache, custom)
         destination.mkdir(mode=0o755)
