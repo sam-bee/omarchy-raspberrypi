@@ -97,6 +97,8 @@ def _request(args: argparse.Namespace) -> dict[str, Any]:
         request["repair_confirmation"] = recovery.REPAIR_CONFIRMATION
     if args.command == "reinstall" and not args.confirm_reinstall:
         raise recovery.RecoveryError("reinstall requires --confirm-reinstall")
+    if args.command == "reinstall" and not args.confirm_target:
+        raise recovery.RecoveryError("reinstall requires the exact target confirmation token")
     return request
 
 

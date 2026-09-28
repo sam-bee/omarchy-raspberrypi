@@ -46,6 +46,7 @@ _STABLE_VALUE = re.compile(r"[A-Za-z0-9._:+/-]{1,256}\Z")
 _MAPPER_NAME = re.compile(r"omarchy-pi-recovery-[a-z0-9-]{1,48}\Z")
 _UUID = re.compile(r"(?:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}|[0-9A-Fa-f]{8,64})\Z")
 _SAFE_KERNEL = re.compile(r"(?:kernel8\.img|kernel_2712\.img|Image)\Z")
+_KERNEL_ASSIGNMENT = re.compile(r"^\s*kernel=(\S+)\s*$", re.IGNORECASE)
 _FSTYPE_BOOT = frozenset({"vfat", "fat", "fat16", "fat32", "msdos"})
 _FSTYPE_LUKS = frozenset({"crypto_luks", "luks", "luks2"})
 _FSTYPE_ROOT = frozenset({"ext4"})
@@ -617,11 +618,14 @@ def build_unlock_plan(identity: TargetIdentity | Mapping[str, Any], *, key_file:
     else:
         if not isinstance(passphrase, str) or not passphrase:
             raise _fail("passphrase is empty")
-        stdin = passphrase + "\n"
+        # cryptsetup --key-file=- consumes the supplied bytes exactly.  Do
+        # not append a newline: a newline would be part of the existing key
+        # material and cause an otherwise correct passphrase to fail.
+        stdin = passphrase
         command = ("cryptsetup", "open", "--readonly", "--type", "luks2", "--key-file=-", "--", target.root_device, mapper)
     if not read_only:
         command = tuple(item for item in command if item != "--readonly")
-    return UnlockPlan(command=command, stdin=stdin, luks_uuid_command=("cryptsetup", "luksUUID", "--readonly", "--", target.root_device), read_only=read_only)
+    return UnlockPlan(command=command, stdin=stdin, luks_uuid_command=("cryptsetup", "luksUUID", "--", target.root_device), read_only=read_only)
 
 
 @dataclass(frozen=True, slots=True)
@@ -758,14 +762,18 @@ def mount_target(identity: TargetIdentity | Mapping[str, Any], root_mount: str |
 @dataclass(frozen=True, slots=True)
 class RepairPlan:
     commands: tuple[tuple[str, ...], ...]
+    verification_commands: tuple[tuple[str, ...], ...]
     preserved_paths: tuple[str, ...]
+    kernel_name: str
     missing_kernel: bool
     rebuild_initramfs: bool = True
 
     def public(self) -> dict[str, Any]:
         return {
             "commands": [list(command) for command in self.commands],
+            "verification_commands": [list(command) for command in self.verification_commands],
             "preserved_paths": list(self.preserved_paths),
+            "kernel_name": self.kernel_name,
             "missing_kernel": self.missing_kernel,
             "rebuild_initramfs": self.rebuild_initramfs,
             "scope": "boot and initramfs only",
@@ -793,14 +801,51 @@ def _optional_regular(path: Path, *, description: str) -> bool:
     return True
 
 
-def _kernel_present(boot: Path) -> bool:
-    for name in ("kernel8.img", "kernel_2712.img", "Image"):
-        candidate = boot / name
-        if os.path.lexists(candidate):
-            _regular_file(candidate, description="Pi kernel", nonempty=False)
-            if candidate.stat().st_size > 0:
-                return True
+def _configured_kernel(boot: Path) -> str:
+    config = _regular_file(boot / "config.txt", description="target boot configuration")
+    try:
+        lines = config.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise _fail("target boot configuration is unreadable") from exc
+    names = [match.group(1) for line in lines if (match := _KERNEL_ASSIGNMENT.fullmatch(line))]
+    if len(names) != 1 or not _SAFE_KERNEL.fullmatch(names[0]):
+        raise _fail("target boot configuration has no single supported kernel")
+    return names[0]
+
+
+def _kernel_present(boot: Path, name: str) -> bool:
+    candidate = boot / name
+    if not os.path.lexists(candidate):
+        return False
+    _regular_file(candidate, description="configured Pi kernel", nonempty=False)
+    return candidate.stat().st_size > 0
+
+
+def _module_tree_present(root: Path) -> bool:
+    for base in (root / "usr/lib/modules", root / "lib/modules"):
+        if not base.is_dir() or base.is_symlink():
+            continue
+        if any(item.is_dir() and not item.is_symlink() for item in base.iterdir()):
+            return True
     return False
+
+
+def _nspawn_command(root: Path, boot: Path, command: Sequence[str]) -> tuple[str, ...]:
+    return (
+        "systemd-nspawn",
+        "--quiet",
+        "--register=no",
+        "--private-users=no",
+        "--network-namespace-path=/proc/1/ns/net",
+        "--resolv-conf=replace-host",
+        "--timezone=off",
+        "--pipe",
+        f"--bind={boot}:/boot",
+        "--directory",
+        str(root),
+        "--",
+        *command,
+    )
 
 
 def _pacman_field(path: Path, field: str) -> str | None:
@@ -818,7 +863,25 @@ def _pacman_field(path: Path, field: str) -> str | None:
     return None
 
 
-def _installed_linux_rpi_archive(root: Path) -> Path:
+@dataclass(frozen=True, slots=True)
+class CachedKernelPackage:
+    archive: Path
+    signature: Path
+    version: str
+    architecture: str
+
+
+def _validate_cached_package_file(path: Path, *, description: str) -> None:
+    _regular_file(path, description=description)
+    try:
+        info = path.stat()
+    except OSError as exc:
+        raise _fail(f"{description} cannot be inspected") from exc
+    if os.geteuid() == 0 and (info.st_uid != 0 or info.st_mode & 0o022):
+        raise _fail(f"{description} has unsafe ownership or permissions")
+
+
+def _installed_linux_rpi_archive(root: Path) -> CachedKernelPackage:
     """Find the exact cached archive for the installed linux-rpi package.
 
     Recovery must never ask a live or host repository for a newer kernel.  An
@@ -830,15 +893,19 @@ def _installed_linux_rpi_archive(root: Path) -> Path:
     if not local.is_dir() or local.is_symlink():
         raise _fail("exact installed linux-rpi archive is unavailable; use the separate installer handoff")
     package_versions: list[str] = []
+    package_architectures: list[str] = []
     for directory in sorted(local.iterdir(), key=lambda item: item.name):
         if directory.is_dir() and not directory.is_symlink() and directory.name.startswith("linux-rpi-"):
             name = _pacman_field(directory / "desc", "NAME")
             version = _pacman_field(directory / "desc", "VERSION")
-            if name == "linux-rpi" and version:
+            architecture = _pacman_field(directory / "desc", "ARCH")
+            if name == "linux-rpi" and version and architecture:
                 package_versions.append(version)
+                package_architectures.append(architecture)
     if len(package_versions) != 1:
         raise _fail("exact installed linux-rpi archive is unavailable; use the separate installer handoff")
     version = package_versions[0]
+    architecture = package_architectures[0]
     cache = root / "var/cache/pacman/pkg"
     if not cache.is_dir() or cache.is_symlink():
         raise _fail("exact installed linux-rpi archive is unavailable; use the separate installer handoff")
@@ -849,7 +916,10 @@ def _installed_linux_rpi_archive(root: Path) -> Path:
             candidates.append(archive)
     if len(candidates) != 1:
         raise _fail("exact installed linux-rpi archive is unavailable; use the separate installer handoff")
-    return candidates[0]
+    _validate_cached_package_file(candidates[0], description="linux-rpi package archive")
+    signature = Path(str(candidates[0]) + ".sig")
+    _validate_cached_package_file(signature, description="linux-rpi package signature")
+    return CachedKernelPackage(candidates[0], signature, version, architecture)
 
 
 def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
@@ -864,7 +934,10 @@ def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
     if not _optional_regular(config, description="target boot configuration"):
         raise _fail("target boot configuration is missing")
     _optional_regular(crypttab, description="target encryption configuration")
-    missing_kernel = not _kernel_present(boot_dir)
+    kernel_name = _configured_kernel(boot_dir)
+    missing_kernel = not _kernel_present(boot_dir, kernel_name)
+    if not _module_tree_present(root_dir):
+        raise _fail("target linux-rpi modules are missing")
     preset_dir = root_dir / "etc/mkinitcpio.d"
     if not preset_dir.is_dir():
         raise _fail("target mkinitcpio preset directory is missing")
@@ -872,15 +945,25 @@ def plan_boot_repair(root: str | Path, boot: str | Path) -> RepairPlan:
     if not presets:
         raise _fail("target linux-rpi mkinitcpio preset is missing")
     commands: list[tuple[str, ...]] = []
+    verification_commands: list[tuple[str, ...]] = []
     if missing_kernel:
-        archive = _installed_linux_rpi_archive(root_dir)
-        archive_inside_target = "/" + archive.relative_to(root_dir).as_posix()
-        commands.append(("systemd-nspawn", "--directory", str(root_dir), "--register=no", "--private-network", "--pipe", "/usr/bin/pacman", "--noconfirm", "-U", archive_inside_target))
-    commands.append(("systemd-nspawn", "--directory", str(root_dir), "--register=no", "--private-network", "--pipe", "/usr/bin/mkinitcpio", "-P"))
-    commands.append(("systemd-nspawn", "--directory", str(root_dir), "--register=no", "--private-network", "--pipe", "/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img"))
+        package = _installed_linux_rpi_archive(root_dir)
+        archive_inside_target = "/" + package.archive.relative_to(root_dir).as_posix()
+        signature_inside_target = "/" + package.signature.relative_to(root_dir).as_posix()
+        verification_commands.extend(
+            [
+                _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman-key", "--verify", signature_inside_target, archive_inside_target)),
+                _nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "-Qp", "--print-format", "%n %v %a", "--", archive_inside_target)),
+            ]
+        )
+        commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/pacman", "--noconfirm", "-U", archive_inside_target)))
+    commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/mkinitcpio", "-P")))
+    commands.append(_nspawn_command(root_dir, boot_dir, ("/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img")))
     return RepairPlan(
         commands=tuple(commands),
+        verification_commands=tuple(verification_commands),
         preserved_paths=(str(cmdline), str(config), str(crypttab)) if crypttab.exists() else (str(cmdline), str(config)),
+        kernel_name=kernel_name,
         missing_kernel=missing_kernel,
     )
 
@@ -897,6 +980,19 @@ def _hash_paths(paths: Iterable[str]) -> dict[str, str | None]:
     return result
 
 
+def _verify_cached_kernel_package(root: Path, boot: Path, plan: RepairPlan, runner: Runner) -> None:
+    if not plan.verification_commands:
+        return
+    package = _installed_linux_rpi_archive(root)
+    if len(plan.verification_commands) != 2:
+        raise _fail("kernel package verification plan is invalid")
+    _run(runner, plan.verification_commands[0])
+    metadata = _run(runner, plan.verification_commands[1])
+    fields = _stdout(metadata).strip().split()
+    if fields != ["linux-rpi", package.version, package.architecture]:
+        raise _fail("cached linux-rpi archive does not match the installed package")
+
+
 def repair_target(root: str | Path, boot: str | Path, *, runner: Runner = subprocess.run) -> dict[str, Any]:
     """Execute only the reviewed boot/initramfs repair plan.
 
@@ -907,13 +1003,19 @@ def repair_target(root: str | Path, boot: str | Path, *, runner: Runner = subpro
     """
 
     plan = plan_boot_repair(root, boot)
+    root_dir, boot_dir = _target_root_paths(root, boot)
     before = _hash_paths(plan.preserved_paths)
+    _verify_cached_kernel_package(root_dir, boot_dir, plan, runner)
     for command in plan.commands:
-        _run(runner, command)
+        result = _run(runner, command)
+        if command[-3:] == ("/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img") and not _stdout(result).strip():
+            raise _fail("repaired initramfs validation returned no module listing")
     after = _hash_paths(plan.preserved_paths)
     if before != after:
         raise _fail("boot repair changed preserved configuration")
-    initramfs = Path(root) / "boot/initramfs-linux.img"
+    if not _kernel_present(boot_dir, plan.kernel_name):
+        raise _fail("configured Pi kernel is still missing after repair")
+    initramfs = boot_dir / "initramfs-linux.img"
     _regular_file(initramfs, description="repaired initramfs")
     return {**plan.public(), "preserved_unchanged": True, "initramfs": str(initramfs)}
 

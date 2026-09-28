@@ -92,10 +92,16 @@ class FixtureRunner:
             return subprocess.CompletedProcess(command, 0, "", "")
         if command[:1] == ["systemd-nspawn"]:
             root = Path(command[command.index("--directory") + 1])
+            if "/usr/bin/pacman-key" in command:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            if "/usr/bin/pacman" in command and "-Qp" in command:
+                return subprocess.CompletedProcess(command, 0, "linux-rpi 6.1-1 aarch64\n", "")
             if command[-2:] == ["/usr/bin/mkinitcpio", "-P"]:
                 (root / "boot/initramfs-linux.img").write_bytes(b"repaired-initramfs")
             if command[-4:-1] == ["/usr/bin/pacman", "--noconfirm", "-U"]:
                 (root / "boot/kernel8.img").write_bytes(b"restored-kernel")
+            if command[-3:] == ["/usr/bin/lsinitcpio", "-l", "/boot/initramfs-linux.img"]:
+                return subprocess.CompletedProcess(command, 0, "usr/lib/modules/6.1/kernel/ext4.ko\n", "")
             return subprocess.CompletedProcess(command, 0, "", "")
         raise AssertionError(f"unexpected command: {command}")
 
@@ -110,16 +116,18 @@ class RecoveryTests(unittest.TestCase):
         (self.source / "etc/mkinitcpio.d").mkdir(parents=True)
         (self.source / "usr/lib/omarchy-pi").mkdir(parents=True)
         (self.source / "boot/cmdline.txt").write_text("root=UUID=" + LUKS_UUID + " rw rootwait\n", encoding="utf-8")
-        (self.source / "boot/config.txt").write_text("dtparam=pciex1_gen=2\n", encoding="utf-8")
+        (self.source / "boot/config.txt").write_text("dtparam=pciex1_gen=2\nkernel=kernel8.img\n", encoding="utf-8")
         (self.source / "etc/crypttab").write_text("cryptroot UUID=" + LUKS_UUID + " none\n", encoding="utf-8")
         (self.source / "etc/mkinitcpio.d/linux-rpi.preset").write_text("PRESETS=('default')\n", encoding="utf-8")
         (self.source / "usr/lib/omarchy-pi/installer-provenance.json").write_text(json.dumps({"source_revision": "a" * 40}), encoding="utf-8")
         package_dir = self.source / "var/lib/pacman/local/linux-rpi-6.1-1"
         package_dir.mkdir(parents=True)
-        (package_dir / "desc").write_text("%NAME%\nlinux-rpi\n\n%VERSION%\n6.1-1\n", encoding="utf-8")
+        (package_dir / "desc").write_text("%NAME%\nlinux-rpi\n\n%VERSION%\n6.1-1\n\n%ARCH%\naarch64\n", encoding="utf-8")
         archive = self.source / "var/cache/pacman/pkg/linux-rpi-6.1-1-aarch64.pkg.tar.zst"
         archive.parent.mkdir(parents=True)
         archive.write_bytes(b"signed-fixture-archive")
+        (archive.parent / (archive.name + ".sig")).write_bytes(b"signed-fixture-signature")
+        (self.source / "usr/lib/modules/6.1").mkdir(parents=True)
         self.runner = FixtureRunner(self.source)
 
     def tearDown(self) -> None:
@@ -184,7 +192,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("ro,noload", root_mount)
         self.assertTrue(any(call[:1] == ["cryptsetup"] and call[1] == "close" for call in self.runner.calls))
         self.assertGreaterEqual(sum(call[:1] == ["umount"] for call in self.runner.calls), 2)
-        self.assertIn("fixture passphrase\n", [call for call in self.runner.inputs if call])
+        self.assertIn("fixture passphrase", [call for call in self.runner.inputs if call])
         self.assertTrue(all("fixture passphrase" not in " ".join(call) for call in self.runner.calls))
 
     def test_key_file_unlock_uses_existing_file_and_no_keyslot_operation(self) -> None:
@@ -220,6 +228,9 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(plan.missing_kernel)
         self.assertEqual(plan.commands[0][0], "systemd-nspawn")
         self.assertIn("/usr/bin/pacman", plan.commands[0])
+        self.assertTrue(plan.verification_commands)
+        self.assertIn("--timezone=off", plan.commands[0])
+        self.assertIn("--bind=" + str(self.source / "boot") + ":/boot", plan.commands[0])
         self.assertTrue(any(command[0] == "systemd-nspawn" and "/usr/bin/mkinitcpio" in command for command in plan.commands))
         self.assertNotIn("config.txt", " ".join(" ".join(command) for command in plan.commands))
 
@@ -227,6 +238,28 @@ class RecoveryTests(unittest.TestCase):
         shutil.rmtree(self.source / "var/cache/pacman/pkg")
         with self.assertRaisesRegex(recovery.RecoveryError, "exact installed linux-rpi archive"):
             recovery.plan_boot_repair(self.source, self.source / "boot")
+
+    def test_cleanup_retains_failed_resources_for_a_safe_retry(self) -> None:
+        root_mount = self.base / "root-mount"
+        boot_mount = self.base / "boot-mount"
+        root_mount.mkdir()
+        boot_mount.mkdir()
+        attempts = {str(boot_mount): 0, str(root_mount): 0}
+
+        def cleanup_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if command[0] == "umount":
+                path = command[-1]
+                attempts[path] += 1
+                if path == str(boot_mount) and attempts[path] == 1:
+                    return subprocess.CompletedProcess(command, 1, "", "busy")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        lease = recovery.MountLease(root_mount, boot_mount, cleanup_runner)
+        with self.assertRaisesRegex(recovery.RecoveryError, "cleanup failed"):
+            lease.cleanup()
+        self.assertFalse(lease.cleaned)
+        lease.cleanup()
+        self.assertTrue(lease.cleaned)
 
     def test_standalone_cli_starts_in_isolated_python(self) -> None:
         cli = HERE / "omarchy-pi-recover"
