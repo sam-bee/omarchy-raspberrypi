@@ -6,6 +6,7 @@ source "$(dirname "$0")/base-test.sh"
 require_command git
 require_command realpath
 require_command tar
+require_command stat
 bash -n "$ROOT/install/arm64/provision-desktop-root.sh"
 bash -n "$ROOT/install/arm64/session/ensure-headless-output.sh"
 pass "desktop provisioner and headless helper parse as shell"
@@ -29,6 +30,73 @@ grep -Fq '/etc/pam.d/omarchy-lock-password' <<<"$dry_run_output" || fail "generi
 [[ ! -e $target/etc/skel ]] || fail "generic dry-run does not create skeleton files"
 pass "generic root provisioning dry-run is non-mutating"
 
+assert_mode() {
+  local expected=$1 path=$2 actual
+  actual=$(stat -c '%a' -- "$path")
+  [[ $actual == "$expected" ]] || fail "mode $expected on $path" "actual mode: $actual"
+}
+
+# Apply the generic payload under a restrictive build umask in a disposable
+# user namespace. This checks the generated environment, source readability,
+# and skeleton directory traversal without touching the host filesystem.
+if command -v unshare >/dev/null && unshare --user --map-root-user true 2>/dev/null; then
+  apply_target="$test_tmp/apply-root"
+  mkdir -p "$apply_target/etc" "$apply_target/usr" "$apply_target/var"
+  printf 'root:x:0:0:root:/root:/bin/bash\n' >"$apply_target/etc/passwd"
+  printf 'root:x:0:\n' >"$apply_target/etc/group"
+  apply_output=$(unshare --user --map-root-user env PATH="$PATH" bash -c '
+    umask 077
+    bash "$1" --rootfs "$2" --source-checkout "$3"
+  ' _ "$ROOT/install/arm64/provision-desktop-root.sh" "$apply_target" "$test_checkout" 2>&1) ||
+    fail "generic provisioning applies under umask 077" "$apply_output"
+  env_file="$apply_target/etc/skel/.config/uwsm/env.d/90-omarchy-pi"
+  grep -Fq '$HOME/.local/share/mise/shims' "$env_file" || fail "generic UWSM environment includes mise shims"
+  grep -Fq '$HOME/.local/bin' "$env_file" || fail "generic UWSM environment includes the user bin directory"
+  assert_mode 755 "$apply_target/usr/share/omarchy-pi"
+  assert_mode 755 "$apply_target/usr/share/omarchy-pi/bin"
+  assert_mode 755 "$apply_target/usr/share/omarchy-pi/bin/omarchy-theme-set"
+  assert_mode 755 "$apply_target/etc/skel/.config"
+  assert_mode 755 "$apply_target/etc/skel/.config/uwsm/env.d"
+  pass "generic provisioning keeps public source and skeleton paths traversable under umask 077"
+
+  fake_bin="$test_tmp/fake-bin"
+  mkdir -p "$fake_bin"
+  cat >"$fake_bin/useradd" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+root=$2
+home=$5
+login=${!#}
+mkdir -p -- "$root$home"
+cp -a -- "$root/etc/skel/." "$root$home/"
+printf '%s:x:0:0::%s:/bin/bash\n' "$login" "$home" >>"$root/etc/passwd"
+EOF
+  chmod 755 "$fake_bin/useradd"
+  user_target="$test_tmp/user-apply-root"
+  mkdir -p "$user_target/etc" "$user_target/usr" "$user_target/var"
+  printf 'root:x:0:0:root:/root:/bin/bash\n' >"$user_target/etc/passwd"
+  printf 'root:x:0:\n' >"$user_target/etc/group"
+  user_output=$(unshare --user --map-root-user env PATH="$fake_bin:$PATH" bash -c '
+    umask 077
+    bash "$1" --rootfs "$2" --source-checkout "$3" --user desktop --home /home/desktop
+  ' _ "$ROOT/install/arm64/provision-desktop-root.sh" "$user_target" "$test_checkout" 2>&1) ||
+    fail "target user provisioning applies in a disposable root" "$user_output"
+  for path in \
+    "$user_target/home/desktop/.config" \
+    "$user_target/home/desktop/.config/uwsm/env.d" \
+    "$user_target/home/desktop/.config/systemd/user/graphical-session.target.wants" \
+    "$user_target/home/desktop/.local/share/omarchy-pi" \
+    "$user_target/home/desktop/.local/share/omarchy-pi/releases"; do
+    assert_mode 755 "$path"
+  done
+  grep -Fq '$HOME/.local/bin' \
+    "$user_target/home/desktop/.config/uwsm/env.d/90-omarchy-pi" ||
+    fail "target user UWSM environment includes the user bin directory"
+  pass "target-user fixture keeps managed paths traversable under umask 077"
+else
+  skip "generic umask regression (user namespaces unavailable)"
+fi
+
 user_dry_run_output=$(bash "$ROOT/install/arm64/provision-desktop-root.sh" \
   --rootfs "$target" --source-checkout "$test_checkout" --user desktop --home /home/desktop --dry-run)
 grep -Fq 'create target account desktop' <<<"$user_dry_run_output" || fail "user dry-run plans target account creation"
@@ -37,6 +105,10 @@ grep -Fq 'graphical-session.target.wants/omarchy-pi-hypr-rdp.service' <<<"$user_
   fail "user dry-run plans target-local RDP unit enablement"
 grep -Fq '/etc/systemd/user/omarchy-pi-hypr-rdp.service' <<<"$user_dry_run_output" ||
   fail "user dry-run keeps RDP unit system-owned"
+grep -Fq 'create directory '"$target"'/home/desktop/.config' <<<"$user_dry_run_output" ||
+  fail "user dry-run plans an owned config directory"
+grep -Fq 'create directory '"$target"'/home/desktop/.local/share/omarchy-pi/releases' <<<"$user_dry_run_output" ||
+  fail "user dry-run plans an owned release directory"
 [[ ! -e $target/home ]] || fail "user dry-run does not create a home"
 pass "user provisioning dry-run keeps account creation target-local"
 

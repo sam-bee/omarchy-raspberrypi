@@ -265,6 +265,32 @@ install_symlink() {
   chown -h "$owner_uid:$owner_gid" -- "$destination"
 }
 
+ensure_directory() {
+  local destination=$1 mode=$2 owner_uid=${3:-0} owner_gid=${4:-0}
+  reject_symlink_components "$destination" 0
+  if [[ -e $destination || -L $destination ]]; then
+    [[ -d $destination && ! -L $destination ]] || die "refusing non-directory: $destination"
+  else
+    announce "create directory $destination"
+    (( dry_run )) && return 0
+    mkdir -- "$destination"
+  fi
+  if (( ! dry_run )); then
+    chmod "$mode" -- "$destination"
+    chown "$owner_uid:$owner_gid" -- "$destination"
+  fi
+}
+
+normalize_source_permissions() {
+  local destination=$1
+  announce "normalize source permissions under $destination"
+  (( dry_run )) && return 0
+  # Tar extraction honours the caller's umask unless --same-permissions is
+  # used.  The source is public package data, so make it readable and keep
+  # executable bits on scripts even when the payload was built with umask 077.
+  chmod -R a+rX -- "$destination"
+}
+
 stage_source_tree() {
   local destination
   destination=$(target_path /usr/share/omarchy-pi)
@@ -273,6 +299,7 @@ stage_source_tree() {
     [[ -f $destination/.source-revision ]] || die "existing Omarchy source has no revision marker"
     [[ $(<"$destination/.source-revision") == "$SOURCE_REVISION" ]] ||
       die "existing Omarchy source has a different revision: $destination"
+    normalize_source_permissions "$destination"
     announce "reuse Omarchy source revision $SOURCE_REVISION"
     return 0
   fi
@@ -282,6 +309,7 @@ stage_source_tree() {
   mkdir -p -- "$destination"
   git -C "$source_checkout" archive --format=tar "$SOURCE_REVISION" |
     tar -xf - -C "$destination" --no-same-owner --no-same-permissions
+  normalize_source_permissions "$destination"
   install_text "$destination/.source-revision" 0644 0 0 "$SOURCE_REVISION"$'\n'
 }
 
@@ -295,6 +323,18 @@ stage_system_assets() {
     "$source_root/session/omarchy-lock-password" \
     "$source_root/session/fresh-hyprland-prefix.lua"; do
     require_regular_file "$source" "Pi session helper"
+  done
+  for source in \
+    "$rootfs/usr" \
+    "$rootfs/usr/local" \
+    "$rootfs/usr/local/libexec" \
+    "$rootfs/usr/local/libexec/omarchy-pi" \
+    "$rootfs/etc" \
+    "$rootfs/etc/systemd" \
+    "$rootfs/etc/systemd/system" \
+    "$rootfs/etc/systemd/user" \
+    "$rootfs/etc/pam.d"; do
+    ensure_directory "$source" 0755 0 0
   done
   install_file "$source_root/session/systemd/start-uwsm-session.sh" \
     "$(target_path /usr/local/libexec/omarchy-pi/start-uwsm-session.sh)" 0755
@@ -312,6 +352,16 @@ stage_system_assets() {
 
 stage_user_defaults() {
   local destination="$rootfs/etc/skel/.config/hypr" source content
+  for source in \
+    "$rootfs/etc/skel" \
+    "$rootfs/etc/skel/.config" \
+    "$rootfs/etc/skel/.config/hypr" \
+    "$rootfs/etc/skel/.config/omarchy" \
+    "$rootfs/etc/skel/.config/xdg-desktop-portal" \
+    "$rootfs/etc/skel/.config/uwsm" \
+    "$rootfs/etc/skel/.config/uwsm/env.d"; do
+    ensure_directory "$source" 0755 0 0
+  done
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
     [[ $(basename -- "$source") == hyprland.lua ]] && continue
@@ -336,6 +386,14 @@ export OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current"
 case ":$PATH:" in
   *":$OMARCHY_PATH/bin:"*) ;;
   *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
+esac
+case ":${PATH:-}:" in
+  *":$HOME/.local/share/mise/shims:"*) ;;
+  *) export PATH="${PATH:+$PATH:}$HOME/.local/share/mise/shims" ;;
+esac
+case ":${PATH:-}:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="${PATH:+$PATH:}$HOME/.local/bin" ;;
 esac
 export TERMINAL=xdg-terminal-exec
 EOF
@@ -398,6 +456,22 @@ seed_selected_user() {
     IFS=: read -r _ _ uid gid _ _ _ <<<"$account_line"
   fi
   home_in_target=$(realpath -m -s -- "$rootfs$selected_home") || die "could not normalize target home"
+  for source in \
+    "$home_in_target/.config" \
+    "$home_in_target/.config/hypr" \
+    "$home_in_target/.config/omarchy" \
+    "$home_in_target/.config/xdg-desktop-portal" \
+    "$home_in_target/.config/uwsm" \
+    "$home_in_target/.config/uwsm/env.d" \
+    "$home_in_target/.config/systemd" \
+    "$home_in_target/.config/systemd/user" \
+    "$home_in_target/.config/systemd/user/graphical-session.target.wants" \
+    "$home_in_target/.local" \
+    "$home_in_target/.local/share" \
+    "$home_in_target/.local/share/omarchy-pi" \
+    "$home_in_target/.local/share/omarchy-pi/releases"; do
+    ensure_directory "$source" 0755 "$uid" "$gid"
+  done
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
     [[ $(basename -- "$source") == hyprland.lua ]] && continue
@@ -419,6 +493,14 @@ export OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current"
 case ":$PATH:" in
   *":$OMARCHY_PATH/bin:"*) ;;
   *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
+esac
+case ":${PATH:-}:" in
+  *":$HOME/.local/share/mise/shims:"*) ;;
+  *) export PATH="${PATH:+$PATH:}$HOME/.local/share/mise/shims" ;;
+esac
+case ":${PATH:-}:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="${PATH:+$PATH:}$HOME/.local/bin" ;;
 esac
 export TERMINAL=xdg-terminal-exec
 EOF
