@@ -13,6 +13,7 @@ python3 "$tests" || fail "mounted-target command-runner tests pass"
 
 grep -Fq 'network-namespace-path=/proc/1/ns/net' "$module" || fail "target setup joins the installer network namespace"
 grep -Fq 'resolv-conf=replace-host' "$module" || fail "target setup supplies the installer resolver"
+grep -Fq '"--pipe"' "$module" || fail "target setup keeps nspawn stdin on a pipe"
 grep -Fq 'bind=" + os.fspath(boot) + ":/boot' "$module" || fail "target setup binds mounted boot explicitly"
 if grep -Eq 'systemctl[^\n]*(--now|[[:space:]]start([[:space:]]|$))' "$module"; then
   fail "target provisioning does not start target daemons"

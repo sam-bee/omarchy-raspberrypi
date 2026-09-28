@@ -104,6 +104,7 @@ class FakeRunner:
     def _assert_nspawn_target(self, command: list[str]) -> None:
         assert "--network-namespace-path=/proc/1/ns/net" in command
         assert "--resolv-conf=replace-host" in command
+        assert "--pipe" in command
         assert f"--bind={self.boot}:/boot" in command
         assert command[command.index("--directory") + 1] == str(self.root)
         assert command.index("--") > command.index("--directory")
@@ -146,6 +147,36 @@ class InstalledTargetTests(unittest.TestCase):
         self.assertEqual(before, after)
         with self.assertRaises(installed.TargetProvisionError):
             installed.validate_target_options(root, {**settings, "keymap": "missing"})
+
+    def test_boot_runner_keeps_mkinitcpio_nspawn_on_pipes(self) -> None:
+        temporary, root, boot, payload, settings, storage = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        calls: list[list[str]] = []
+
+        def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        boot_runner = installed._boot_runner(runner, root, boot)
+        boot_runner(
+            [
+                "systemd-nspawn",
+                "-D",
+                str(root),
+                "--register=no",
+                "--private-network",
+                "/usr/bin/mkinitcpio",
+                "-P",
+            ],
+            check=False,
+        )
+        self.assertEqual(len(calls), 1)
+        transformed = calls[0]
+        self.assertIn("--pipe", transformed)
+        self.assertNotIn("--private-network", transformed)
+        self.assertIn("--network-namespace-path=/proc/1/ns/net", transformed)
+        self.assertIn("--resolv-conf=replace-host", transformed)
+        self.assertIn(f"--bind={boot}:/boot", transformed)
 
     def test_storage_accepts_fat_serial_uuid_and_rejects_nonfat_forms(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()

@@ -459,6 +459,10 @@ def _nspawn_prefix(root: Path, boot: Path, user: str | None = None) -> list[str]
         "--private-users=no",
         "--network-namespace-path=/proc/1/ns/net",
         "--resolv-conf=replace-host",
+        # Keep stdin a pipe so commands such as chpasswd receive EOF after
+        # the supplied secret.  Without this, nspawn allocates a pty and the
+        # child can remain blocked waiting for interactive input.
+        "--pipe",
         "--bind=" + os.fspath(boot) + ":/boot",
         "--directory",
         os.fspath(root),
@@ -877,6 +881,7 @@ def _boot_runner(runner: Runner, root: Path, boot: Path) -> Runner:
                 "--private-users=no",
                 "--network-namespace-path=/proc/1/ns/net",
                 "--resolv-conf=replace-host",
+                "--pipe",
                 "--bind=" + os.fspath(boot) + ":/boot",
             ]
         return runner(command_list, **kwargs)
