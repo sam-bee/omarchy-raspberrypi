@@ -348,13 +348,18 @@ def _kernel_versions(root: str | Path) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _kernel_package_files(root: str | Path) -> dict[str, bool]:
+def _kernel_package_files(root: str | Path) -> dict[str, Any]:
     """Record whether installed linux-rpi metadata owns the Pi boot files."""
 
     local = root_path(root, "/var/lib/pacman/local")
     if not local.is_dir() or local.is_symlink():
         return {}
-    result: dict[str, bool] = {"kernel8.img": False, "kernel_2712.img": False}
+    result: dict[str, Any] = {
+        "kernel8.img": False,
+        "kernel_2712.img": False,
+        "kernel8.img.sha256": None,
+        "kernel_2712.img.sha256": None,
+    }
     for record in sorted(local.glob("linux-rpi-*/files")):
         if not record.is_file() or record.is_symlink():
             continue
@@ -373,6 +378,20 @@ def _kernel_package_files(root: str | Path) -> dict[str, bool]:
                 normalized = line.lstrip("/")
                 if normalized in {"boot/kernel8.img", "boot/kernel_2712.img"}:
                     result[Path(normalized).name] = True
+        mtree = record.with_name("mtree")
+        if mtree.is_file() and not mtree.is_symlink():
+            try:
+                mtree_text = mtree.read_text(errors="replace")
+            except OSError as exc:
+                raise UpdateCheckError(f"linux-rpi package mtree is unreadable: {mtree}") from exc
+            for image in ("kernel8.img", "kernel_2712.img"):
+                match = re.search(
+                    rf"(?:^|\s)\.?/?boot/{re.escape(image)}\s+[^\n]*?sha256digest=([0-9a-fA-F]{{64}})",
+                    mtree_text,
+                    re.MULTILINE,
+                )
+                if match:
+                    result[f"{image}.sha256"] = match.group(1).lower()
     return result
 
 
@@ -467,6 +486,12 @@ def verify_kernel_artifacts(state: dict[str, Any], *, root: str | Path = "/") ->
         failures.append("linux-rpi package file ownership metadata is unavailable")
     if live_pi and owned and not owned.get("kernel8.img", False):
         failures.append("/boot/kernel8.img is not owned by the installed linux-rpi package")
+    for image in ("kernel8.img", "kernel_2712.img"):
+        expected_hash = owned.get(f"{image}.sha256")
+        if expected_hash:
+            actual_path = root_path(root, "/boot/" + image)
+            if not actual_path.is_file() or digest(actual_path) != expected_hash:
+                failures.append(f"/boot/{image} failed the installed linux-rpi package mtree digest check")
     for image, listing in sorted(initramfs.items()):
         if listing.get("status") != "ok":
             if live_pi:

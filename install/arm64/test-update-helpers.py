@@ -139,8 +139,17 @@ class UpdateHelperTests(unittest.TestCase):
             "printf '%s\\n' usr/lib/modules/6.18.53-1-rpi/kernel/fs/ext4.ko\n"
         )
         lsinitcpio.chmod(0o755)
+        package_record = self.root / "var/lib/pacman/local/linux-rpi-6.18.53-1"
+        package_record.mkdir(parents=True)
+        (package_record / "files").write_text("%FILES%\nboot/kernel8.img\n")
+        (package_record / "mtree").write_text(
+            "./boot/kernel8.img type=file sha256digest="
+            + hashlib.sha256((self.root / "boot/kernel8.img").read_bytes()).hexdigest()
+            + "\n"
+        )
         state = update_lib.snapshot(root=self.root, home=self.home)
         self.assertEqual(update_lib.verify_kernel_artifacts(state, root=self.root), [])
+        self.assertEqual(state["kernel_artifacts"]["linux_rpi_boot_files"]["kernel8.img"], True)
         (self.root / "etc/mkinitcpio.d/linux-rpi.preset").write_text(
             "ALL_kver='/usr/lib/modules/missing-kernel'\n"
             "default_image='/boot/initramfs-linux.img'\n"
