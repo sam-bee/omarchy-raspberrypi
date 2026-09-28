@@ -393,6 +393,33 @@ def _ensure_parent(path: Path) -> None:
         raise _error("target parent is unsafe")
 
 
+def _ensure_public_directory(path: Path, description: str) -> None:
+    """Create the root-owned public directory used by a target service file."""
+
+    _reject_symlink_components(path)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        try:
+            path.mkdir(mode=0o755, parents=True, exist_ok=False)
+            info = path.lstat()
+        except OSError:
+            raise _error(f"could not create {description}") from None
+    except OSError:
+        raise _error(f"could not inspect {description}") from None
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise _error(f"{description} is not a real directory")
+    if os.geteuid() == 0 and (info.st_uid != 0 or info.st_gid != 0):
+        raise _error(f"{description} has the wrong owner")
+    try:
+        os.chmod(path, 0o755)
+        info = path.lstat()
+    except OSError:
+        raise _error(f"could not set {description} permissions") from None
+    if stat.S_IMODE(info.st_mode) != 0o755 or (os.geteuid() == 0 and (info.st_uid != 0 or info.st_gid != 0)):
+        raise _error(f"{description} has unsafe permissions")
+
+
 def _atomic_write(
     path: Path,
     data: bytes,
@@ -890,6 +917,7 @@ def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any
     if os.path.lexists(profile_root) or os.path.lexists(tls_root) or os.path.lexists(policy_path):
         raise _error("target RDP profile already exists")
     _reject_symlink_components(profile_root.parent)
+    _ensure_public_directory(policy_path.parent, "target RDP profile directory")
     profile_root.mkdir(mode=0o700, parents=True, exist_ok=False)
     os.chown(profile_root, account.uid, account.gid)
     os.chmod(profile_root, 0o700)
@@ -1173,14 +1201,26 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
         config_path = account.home / ".config/omarchy-pi-rdp/config.toml"
         tls_path = account.home / ".config/hypr-rdp"
         policy_path = _target_path(root, "/etc/omarchy-pi/rdp-profile.toml")
+        policy_parent = policy_path.parent
         runtime_validator = _target_path(root, "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py")
         expected_policy = f'username = {json.dumps(account.username)}\nbind = {json.dumps(rdp_bind)}\n'
         config_text = config_path.read_text(encoding="utf-8")
         validator_bytes = runtime_validator.read_bytes() if runtime_validator.is_file() and not runtime_validator.is_symlink() else b""
         expected_validator_sha256 = hashlib.sha256(_runtime_validator_bytes()).hexdigest()
+        try:
+            policy_parent_info = policy_parent.lstat()
+        except OSError:
+            raise _error("target RDP profile parent directory is unavailable") from None
+        policy_parent_valid = (
+            stat.S_ISDIR(policy_parent_info.st_mode)
+            and not stat.S_ISLNK(policy_parent_info.st_mode)
+            and stat.S_IMODE(policy_parent_info.st_mode) == 0o755
+            and (os.geteuid() != 0 or (policy_parent_info.st_uid == 0 and policy_parent_info.st_gid == 0))
+        )
         if (
             rdp_bind not in config_text
             or f'username = {json.dumps(account.username)}' not in config_text
+            or not policy_parent_valid
             or not policy_path.is_file()
             or policy_path.is_symlink()
             or stat.S_IMODE(policy_path.stat().st_mode) != 0o644

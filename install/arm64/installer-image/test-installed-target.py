@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -128,6 +129,37 @@ class FakeRunner:
 
 
 class InstalledTargetTests(unittest.TestCase):
+    def assert_readable_as_uid(self, path: Path, uid: int) -> None:
+        """Exercise the public target path with the selected non-root UID."""
+
+        if os.geteuid() == uid:
+            self.assertTrue(path.read_bytes())
+            return
+        if os.geteuid() != 0:
+            self.skipTest("dropping to the fixture account requires root")
+        read_fd, write_fd = os.pipe()
+        child = os.fork()
+        if child == 0:
+            os.close(read_fd)
+            try:
+                os.setgroups([])
+                os.setgid(uid)
+                os.setuid(uid)
+                os.write(write_fd, b"ok:" + path.read_bytes())
+                status = 0
+            except BaseException as exc:  # pragma: no cover - reported by parent
+                os.write(write_fd, f"error: {exc!r}".encode("utf-8", "replace"))
+                status = 1
+            finally:
+                os.close(write_fd)
+            os._exit(status)
+        os.close(write_fd)
+        result = os.read(read_fd, 64 * 1024)
+        os.close(read_fd)
+        _, status = os.waitpid(child, 0)
+        self.assertEqual(status, 0, result.decode("utf-8", "replace"))
+        self.assertTrue(result.startswith(b"ok:"), result)
+
     def test_validate_settings_rejects_unknown_fields_and_secret_echo(self) -> None:
         settings = {
             "username": "desk",
@@ -362,6 +394,7 @@ class InstalledTargetTests(unittest.TestCase):
                 runner = FakeRunner(root, boot)
                 original = installed._configure_boot
                 installed._configure_boot = lambda *args, **kwargs: None
+                old_umask = os.umask(0o077)
                 try:
                     summary = installed.provision_target(
                         root,
@@ -374,11 +407,21 @@ class InstalledTargetTests(unittest.TestCase):
                     )
                 finally:
                     installed._configure_boot = original
+                    os.umask(old_umask)
                 profile = root / "home/desk/.config/omarchy-pi-rdp/config.toml"
                 self.assertIn(f'bind = "{expected_bind}"', profile.read_text(encoding="utf-8"))
                 self.assertIn('username = "desk"', profile.read_text(encoding="utf-8"))
+                self.assertEqual(stat.S_IMODE(profile.parent.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(profile.stat().st_mode), 0o600)
+                self.assertEqual(stat.S_IMODE((profile.parent / "password").stat().st_mode), 0o600)
+                policy_path = root / "etc/omarchy-pi/rdp-profile.toml"
+                self.assertEqual(stat.S_IMODE(policy_path.parent.stat().st_mode), 0o755)
+                if os.geteuid() == 0:
+                    self.assertEqual(policy_path.parent.stat().st_uid, 0)
+                    self.assertEqual(policy_path.parent.stat().st_gid, 0)
+                self.assert_readable_as_uid(policy_path, 1001)
                 self.assertEqual(
-                    (root / "etc/omarchy-pi/rdp-profile.toml").read_text(encoding="utf-8"),
+                    policy_path.read_text(encoding="utf-8"),
                     f'username = "desk"\nbind = "{expected_bind}"\n',
                 )
                 self.assertFalse((root / "home/desk/.config/hypr-rdp").exists())
@@ -426,13 +469,19 @@ class InstalledTargetTests(unittest.TestCase):
                     rdp_runtime.trusted_package_file = old_trusted
 
                 policy_path = root / "etc/omarchy-pi/rdp-profile.toml"
+                account = installed._account_from_target(root, "desk")
+                validated = installed.validate_settings(settings)
+                checked_storage = installed._validate_storage(storage, validated)
+                policy_path.parent.chmod(0o700)
+                try:
+                    with self.assertRaisesRegex(installed.TargetProvisionError, "RDP profile"):
+                        installed._validate_result(root, account, validated, checked_storage, expected_bind)
+                finally:
+                    policy_path.parent.chmod(0o755)
                 policy_path.write_text(
                     f'username = "desk"\nbind = "{"0.0.0.0:3389" if expected_bind == "127.0.0.1:3389" else "127.0.0.1:3389"}"\n',
                     encoding="utf-8",
                 )
-                account = installed._account_from_target(root, "desk")
-                validated = installed.validate_settings(settings)
-                checked_storage = installed._validate_storage(storage, validated)
                 with self.assertRaisesRegex(installed.TargetProvisionError, "RDP profile"):
                     installed._validate_result(root, account, validated, checked_storage, expected_bind)
                 policy_path.write_text(
