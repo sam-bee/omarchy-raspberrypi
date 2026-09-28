@@ -25,6 +25,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -750,6 +751,12 @@ def _validate_worker_disk(request: Mapping[str, Any]) -> None:
         raise InstallerError("the selected disks are no longer eligible") from exc
 
 
+def _raise_worker_sigterm(_signum: int, _frame: Any) -> None:
+    """Turn service stop into an exception so storage context cleanup runs."""
+
+    raise KeyboardInterrupt
+
+
 def _run_worker() -> int:
     _ensure_directories()
     with _file_lock(RUNTIME_ROOT / WORKER_LOCK_NAME, nonblocking=True) as acquired:
@@ -767,6 +774,7 @@ def _run_worker() -> int:
             return 1
         settings = private_request.get("settings")
         secret_values = tuple(_settings_secret_values(settings)) if isinstance(settings, Mapping) else ()
+        previous_sigterm = signal.signal(signal.SIGTERM, _raise_worker_sigterm)
         try:
             settings = _validate_settings(settings)
             state["status"] = "running"
@@ -877,6 +885,7 @@ def _run_worker() -> int:
             _job_log(job_id, f"installation failed: {message}", secrets_to_hide=secret_values)
             return 1
         finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
             _remove_request(job_id)
 
 

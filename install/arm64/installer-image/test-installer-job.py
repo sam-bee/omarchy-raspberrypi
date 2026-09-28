@@ -7,9 +7,12 @@ import contextlib
 import importlib.util
 import json
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
+import time
 import types
 import unittest
 from unittest import mock
@@ -208,7 +211,9 @@ class InstallerJobTests(unittest.TestCase):
 
     def test_worker_runs_in_background_and_removes_transient_secrets(self) -> None:
         self.submit()
+        original_sigterm = signal.getsignal(signal.SIGTERM)
         self.assertEqual(job._run_worker(), 0)
+        self.assertIs(signal.getsignal(signal.SIGTERM), original_sigterm)
         state = job._load_state()
         self.assertEqual(state["status"], "complete")
         self.assertFalse((job.RUNTIME_ROOT / "request.json").exists())
@@ -256,6 +261,122 @@ class InstallerJobTests(unittest.TestCase):
     def test_worker_lock_is_exclusive(self) -> None:
         with job._file_lock(job.RUNTIME_ROOT / job.WORKER_LOCK_NAME):
             self.assertTrue(job._worker_is_running())
+
+    def test_sigterm_unwinds_storage_context_and_needs_explicit_status(self) -> None:
+        root = Path(self.temporary.name) / "sigterm-worker"
+        root.mkdir()
+        script = textwrap.dedent(
+            f"""
+            import contextlib
+            import importlib.util
+            from pathlib import Path
+            import sys
+            import time
+            import types
+
+            base = Path(sys.argv[1])
+            source = Path({str(HERE / 'installer_job.py')!r})
+            spec = importlib.util.spec_from_file_location("sigterm_worker_job", source)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            module.STATE_ROOT = base / "state"
+            module.RUNTIME_ROOT = base / "run"
+            module.SERVICE_NAME = "omarchy-step4-sigterm-test.service"
+            module._ensure_directories()
+            target_path = "/dev/omarchy-step4-sigterm-target"
+            identity = {{"path": target_path, "size": 4 * 1024 * 1024 * 1024}}
+
+            disk = types.ModuleType("disk_install")
+            disk.BOOT_SIZE_MIB = 1
+            disk.select_disk = lambda path: identity
+            disk.confirm_token = lambda value: "CONFIRM " + value["path"]
+            disk.validate_pair = lambda target, key: (target, key)
+
+            @contextlib.contextmanager
+            def prepare_target(target, mode, passphrase, key):
+                mounted = base / "mounted"
+                (mounted / "root").mkdir(parents=True)
+                (mounted / "boot").mkdir()
+                (base / "entered").write_text("entered")
+                try:
+                    yield {{"root": mounted / "root", "boot": mounted / "boot", "root_uuid": "root", "boot_uuid": "boot", "luks_uuid": None, "key_uuid": None, "key_path": None}}
+                finally:
+                    (base / "cleanup").write_text("cleanup")
+
+            disk.prepare_target = prepare_target
+            payload = types.ModuleType("desktop_payload")
+            payload_root = base / "payload"
+            payload.payload_metadata = lambda: {{"source_revision": "a" * 40, "required_target_bytes": 1, "unpacked_bytes": 1, "sha256": "b" * 64}}
+            def prepare_payload():
+                payload_root.mkdir()
+                return payload_root
+
+            payload.prepare_payload = prepare_payload
+            payload.copy_payload = lambda source, target_root, target_boot: None
+            target = types.ModuleType("installed_target")
+            target.validate_settings = lambda value: dict(value)
+            target.validate_target_options = lambda root, value: True
+
+            def provision_target(root, payload, settings, storage, progress):
+                (base / "provisioning").write_text("entered")
+                while True:
+                    time.sleep(1)
+
+            target.provision_target = provision_target
+            sys.modules.update({{"disk_install": disk, "desktop_payload": payload, "installed_target": target}})
+            settings = {{"username": "pi-user", "hostname": "sigterm-test", "password": "sigterm-secret", "timezone": "Europe/London", "locale": "en_GB.UTF-8", "keymap": "us", "wifi": None, "ssh_enabled": False, "ssh_authorized_key": None, "rdp_mode": "disabled", "rdp_password": None, "encryption": "plain", "recovery_passphrase": None}}
+            job_id = "sigterm-job-12345678"
+            module._write_request({{"job_id": job_id, "settings": settings, "target": target_path, "key": None, "target_identity": identity, "key_identity": None, "target_token": "CONFIRM " + target_path, "key_token": None, "required_target_bytes": 1, "consent_internet": True}})
+            module._save_state({{"status": "queued", "phase": "queued", "job_id": job_id, "target_path": target_path}})
+            module._network_preflight = lambda: None
+            try:
+                module._run_worker()
+            except KeyboardInterrupt:
+                pass
+            """
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-I", "-c", script, str(root)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            entered = root / "provisioning"
+            deadline = time.monotonic() + 10
+            while not entered.exists() and time.monotonic() < deadline:
+                if process.poll() is not None:
+                    break
+                time.sleep(0.05)
+            if not entered.exists():
+                stdout, stderr = process.communicate(timeout=2)
+                self.fail(f"SIGTERM worker did not enter target context: {stdout} {stderr}")
+            state_before = json.loads((root / "state" / "state.json").read_text())
+            self.assertEqual(state_before["status"], "running")
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, stderr)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+        self.assertTrue((root / "cleanup").is_file(), "SIGTERM skipped storage context cleanup")
+        self.assertFalse((root / "run" / "request.json").exists())
+        original_state = job.STATE_ROOT
+        original_runtime = job.RUNTIME_ROOT
+        job.STATE_ROOT = root / "state"
+        job.RUNTIME_ROOT = root / "run"
+        try:
+            with mock.patch.object(job, "_service_is_active", return_value=False):
+                status = job._handle_request({"action": "status"})["state"]
+            self.assertEqual(status["status"], "interrupted")
+            self.assertEqual(job._run_worker(), 0)
+            self.assertEqual((root / "cleanup").read_text(), "cleanup")
+        finally:
+            job.STATE_ROOT = original_state
+            job.RUNTIME_ROOT = original_runtime
 
     def test_network_preflight_uses_only_fixed_url_and_is_bounded(self) -> None:
         calls = []
