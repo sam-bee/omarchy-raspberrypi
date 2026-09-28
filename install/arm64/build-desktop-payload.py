@@ -683,6 +683,16 @@ def _copy_tree_without_cache(source: Path, destination: Path) -> None:
         return set()
 
     shutil.copytree(source, destination, symlinks=True, copy_function=shutil.copy2, ignore=ignore)
+    # copy2 preserves permissions but not ownership. Keep service-owned paths
+    # usable, and restore mode bits if changing an owner cleared setgid/setuid.
+    for root, dirs, files in os.walk(destination, followlinks=False):
+        for copied in (Path(root), *(Path(root) / name for name in files + dirs)):
+            original = source / copied.relative_to(destination)
+            owner = original.lstat()
+            current = copied.lstat()
+            if (current.st_uid, current.st_gid) != (owner.st_uid, owner.st_gid):
+                os.chown(copied, owner.st_uid, owner.st_gid, follow_symlinks=False)
+                shutil.copystat(original, copied, follow_symlinks=False)
 
 
 def _clone_source(source: Path, destination: Path, revision: str) -> None:
