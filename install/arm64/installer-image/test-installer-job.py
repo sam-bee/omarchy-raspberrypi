@@ -282,6 +282,48 @@ class InstallerJobTests(unittest.TestCase):
         self.assertEqual([call["action"] for call in calls], ["recovery-plan"])
         self.assertFalse(job._request_path().exists())
 
+    def test_worker_discards_mismatched_request_without_target_access(self):
+        calls = self.fake_recovery()
+        job_id = "queued-job-12345678"
+        job._save_state({"status": "queued", "phase": "recovery-queued", "job_id": job_id})
+        job._write_request(
+            {
+                "kind": "recovery",
+                "job_id": "other-job-12345678",
+                "recovery": self.recovery_request(),
+            }
+        )
+
+        self.assertEqual(job._run_worker(), 1)
+        state = job._load_state()
+        self.assertEqual(state["status"], "interrupted")
+        self.assertFalse(job._request_path().exists())
+        self.assertEqual(calls, [])
+        self.assertNotIn(SECRET, json.dumps(state))
+        self.assertNotIn(SECRET, job._log_path(job_id).read_text())
+
+    def test_worker_discards_malformed_recovery_without_target_access(self):
+        calls = self.fake_recovery()
+        job_id = "malformed-job-12345678"
+        job._save_state({"status": "queued", "phase": "recovery-queued", "job_id": job_id})
+        job._write_request(
+            {
+                "kind": "recovery",
+                "job_id": job_id,
+                "settings": {"password": SECRET},
+                "recovery": "not-a-mapping",
+            }
+        )
+
+        self.assertEqual(job._run_worker(), 1)
+        state = job._load_state()
+        self.assertEqual(state["status"], "failed")
+        self.assertEqual(state["error"], "queued recovery request is invalid")
+        self.assertFalse(job._request_path().exists())
+        self.assertEqual(calls, [])
+        self.assertNotIn(SECRET, json.dumps(state))
+        self.assertNotIn(SECRET, job._log_path(job_id).read_text())
+
     def test_plan_is_secret_free_and_requires_explicit_confirmation(self) -> None:
         plan = job._handle_request({**self.request(), "action": "plan"})
         encoded = json.dumps(plan)

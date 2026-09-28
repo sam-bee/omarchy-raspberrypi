@@ -889,13 +889,31 @@ def _run_worker() -> int:
         if not isinstance(job_id, str):
             return 1
         private_request = _read_json(_request_path(), missing_ok=True)
-        if private_request is None or private_request.get("job_id") != job_id:
+        if private_request is None:
             _mark_interrupted(state, "the queued request is unavailable; explicit restart is required")
+            return 1
+        if private_request.get("job_id") != job_id:
+            # The worker lock and queued state/job id establish that this is
+            # the request left for this worker.  Discard a mismatched file
+            # here, while retaining _remove_request's cross-job protection.
+            _request_path().unlink(missing_ok=True)
+            _mark_interrupted(state, "the queued request identity did not match; explicit restart is required")
             return 1
         settings = private_request.get("settings")
         secret_values = tuple(_settings_secret_values(settings)) if isinstance(settings, Mapping) else ()
         if private_request.get("kind") == "recovery":
             recovery_request = private_request.get("recovery", {})
+            if not isinstance(recovery_request, Mapping):
+                _request_path().unlink(missing_ok=True)
+                state.update(
+                    status="failed",
+                    phase="worker-start",
+                    error="queued recovery request is invalid",
+                    finished_at=_now(),
+                )
+                _save_state(state)
+                _job_log(job_id, "recovery request rejected before target access")
+                return 1
             secret_values = tuple(value for key, value in recovery_request.items() if key == "passphrase" and isinstance(value, str))
         previous_sigterm = signal.signal(signal.SIGTERM, _raise_worker_sigterm)
         try:
