@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import importlib.util
 import os
 from pathlib import Path
@@ -94,6 +95,20 @@ class StageInstallerServicesTests(unittest.TestCase):
                 "/usr/lib/systemd/system/" + unit
             )
         return target
+
+    def test_provenance_records_exact_runtime_hashes_and_revision(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            target = self.make_target(directory)
+            binary, digest = self.make_binary(directory)
+            result = stage.stage_services(target, binary, digest, require_root=False, source_revision="a" * 40)
+            data = json.loads((target / "usr/lib/omarchy-pi/installer-provenance.json").read_text())
+            self.assertEqual(data["source_revision"], "a" * 40)
+            self.assertEqual(data, result.installer_provenance)
+            for relative, expected in data["files"].items():
+                self.assertEqual(hashlib.sha256((target / relative).read_bytes()).hexdigest(), expected)
+            actual = hashlib.sha256(json.dumps(data["files"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            self.assertEqual(data["runtime_sha256"], actual)
 
     def test_stages_verified_artifacts_and_explicit_enablement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

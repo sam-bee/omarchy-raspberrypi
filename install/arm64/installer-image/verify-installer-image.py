@@ -11,6 +11,7 @@ or live filesystem is never accepted.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from dataclasses import dataclass
 import json
 import os
@@ -89,6 +90,10 @@ EXECUTABLE_PAYLOAD_FILES = (
     "usr/local/libexec/omarchy-pi/start-installer-desktop.sh",
     "usr/bin/hypr-rdp",
 )
+
+PROVENANCE_OWNER_UID = 0
+PROVENANCE_MODULE_FILES = tuple("usr/local/libexec/omarchy-pi/" + name for name in
+    ("settings.py", "disk_install.py", "installer_job.py", "installed_target.py", "desktop_payload.py", "configure-installer-boot.py", "assemble-image.py"))
 
 SYSTEM_UNITS = (
     "omarchy-pi-install.service",
@@ -439,6 +444,47 @@ def _verify_fstab(root: Path, boot_uuid: str, root_uuid: str) -> None:
         raise ImageVerificationError("fstab boot entry does not match the image UUID")
 
 
+def _verify_installer_provenance(root: Path) -> None:
+    path = _root_path(root, "usr/lib/omarchy-pi/installer-provenance.json")
+    info = _regular_file(path, description="installer provenance").stat()
+    if info.st_uid != PROVENANCE_OWNER_UID or stat.S_IMODE(info.st_mode) != 0o644:
+        raise ImageVerificationError("installer provenance owner or mode is incorrect")
+    try:
+        data = json.loads(path.read_text())
+        if set(data) != {"schema_version", "source_revision", "runtime_sha256", "files"} or data["schema_version"] != 1:
+            raise ValueError
+        revision = data["source_revision"]
+        if revision is not None and not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise ValueError
+        files = data["files"]
+        if not isinstance(files, dict) or not files:
+            raise ValueError
+        expected_files = ((set(EXECUTABLE_PAYLOAD_FILES + PROVENANCE_MODULE_FILES) - {"usr/bin/hypr-rdp"})
+                          | {"usr/local/share/omarchy-pi/installer-hyprland.conf"}
+                          | {"etc/systemd/system/" + name for name in SYSTEM_UNITS}
+                          | {"etc/systemd/user/" + name for name in USER_UNITS})
+        # Every runtime entrypoint and module must have a content hash. Other
+        # staged units/configuration are also included in the descriptor.
+        if set(files) != expected_files:
+            raise ValueError
+        for relative, digest in files.items():
+            if not isinstance(relative, str) or relative.startswith("/") or ".." in relative.split("/"):
+                raise ValueError
+            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError
+            payload = _regular_file(_root_path(root, relative), description="installer provenance file")
+            file_info = payload.stat()
+            if file_info.st_uid != PROVENANCE_OWNER_UID or file_info.st_mode & 0o022:
+                raise ValueError
+            if hashlib.sha256(payload.read_bytes()).hexdigest() != digest:
+                raise ValueError
+        actual = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        if data["runtime_sha256"] != actual:
+            raise ValueError
+    except (ValueError, TypeError, KeyError, OSError):
+        raise ImageVerificationError("installer provenance does not match the staged runtime") from None
+
+
 def _verify_identities(root: Path) -> None:
     for relative in ("etc/machine-id", "var/lib/dbus/machine-id", "installer-settings.toml", "boot/installer-settings.toml"):
         if os.path.lexists(_root_path(root, relative)):
@@ -524,6 +570,7 @@ def _verify_root(root: Path, boot_uuid: str, root_uuid: str) -> None:
     _verify_fonts(root)
     _verify_networkd_preset(root)
     _verify_services(root)
+    _verify_installer_provenance(root)
     try:
         metadata = desktop_payload.payload_metadata(
             root / desktop_payload.BUNDLE.relative_to("/"),

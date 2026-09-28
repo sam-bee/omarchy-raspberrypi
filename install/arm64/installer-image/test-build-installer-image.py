@@ -138,7 +138,7 @@ class BuildInstallerImageTests(unittest.TestCase):
 
             class FakeServices:
                 @staticmethod
-                def stage_services(rootfs, binary, expected_sha256):
+                def stage_services(rootfs, binary, expected_sha256, *, source_revision):
                     calls.append("services")
                     return {"binary_sha256": expected_sha256}
 

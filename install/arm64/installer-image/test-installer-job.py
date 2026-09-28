@@ -97,13 +97,24 @@ class FakeTarget(types.ModuleType):
     def __init__(self) -> None:
         super().__init__("installed_target")
         self.received: list[dict[str, object]] = []
+        self.received_provenance: list[dict[str, object] | None] = []
         self.fail = False
 
     def validate_settings(self, value: dict[str, object]) -> dict[str, object]:
         return dict(value)
 
-    def provision_target(self, root: Path, payload: Path, value: dict[str, object], storage: dict[str, object], progress):
+    def provision_target(
+        self,
+        root: Path,
+        payload: Path,
+        value: dict[str, object],
+        storage: dict[str, object],
+        progress,
+        *,
+        provenance: dict[str, object] | None = None,
+    ):
         self.received.append(value)
+        self.received_provenance.append(provenance)
         progress("target settings accepted")
         if self.fail:
             raise RuntimeError("provision failed with password=" + SECRET)
@@ -142,6 +153,23 @@ class InstallerJobTests(unittest.TestCase):
         self.target = FakeTarget()
         self.payload = FakePayload(root / "payload")
         self.modules = {"disk_install": self.disk, "installed_target": self.target, "desktop_payload": self.payload}
+        self.original_provenance_path = job.INSTALLER_PROVENANCE_PATH
+        self.provenance_path = root / "installer-provenance.json"
+        self.provenance_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source_revision": "a" * 40,
+                    "runtime_sha256": "b" * 64,
+                    "files": {"usr/local/libexec/omarchy-pi/installer_job.py": "c" * 64},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.provenance_path.chmod(0o600)
+        job.INSTALLER_PROVENANCE_PATH = self.provenance_path
+        self.addCleanup(self.restore_provenance_path)
         self.previous_modules: dict[str, object] = {}
         for name, module in self.modules.items():
             self.previous_modules[name] = sys.modules.get(name)
@@ -161,6 +189,9 @@ class InstallerJobTests(unittest.TestCase):
                 sys.modules.pop(name, None)
             else:
                 sys.modules[name] = previous
+
+    def restore_provenance_path(self) -> None:
+        job.INSTALLER_PROVENANCE_PATH = self.original_provenance_path
 
     def restore_start(self) -> None:
         job._start_service = self.original_start
@@ -194,6 +225,9 @@ class InstallerJobTests(unittest.TestCase):
         self.assertNotIn(SECRET, encoded)
         self.assertNotIn(WIFI_SECRET, encoded)
         self.assertIn("CONFIRM /dev/nvme0n1", encoded)
+        self.assertEqual(plan["installer"]["source_revision"], "a" * 40)
+        self.assertEqual(plan["installer"]["runtime_sha256"], "b" * 64)
+        self.assertNotIn("files", plan["installer"])
         with self.assertRaises(job.InstallerError):
             job._handle_request({**self.request(), "action": "submit", "target_confirmation": "wrong"})
         self.assertEqual(self.started, 0)
@@ -202,6 +236,8 @@ class InstallerJobTests(unittest.TestCase):
         result = self.submit()
         self.assertEqual(self.started, 1)
         self.assertEqual(result["state"]["status"], "queued")
+        self.assertEqual(result["state"]["installer"]["runtime_sha256"], "b" * 64)
+        self.assertNotIn("files", result["state"]["installer"])
         state_text = (job.STATE_ROOT / "state.json").read_text()
         self.assertNotIn(SECRET, state_text)
         self.assertNotIn(WIFI_SECRET, state_text)
@@ -223,8 +259,71 @@ class InstallerJobTests(unittest.TestCase):
         self.assertEqual(self.disk.prepare_calls[0][1], "plain")
         self.assertEqual(len(self.payload.copy_calls), 1)
         self.assertEqual(self.target.received[0]["password"], SECRET)
+        self.assertEqual(
+            self.target.received_provenance[0],
+            {
+                "installer": {
+                    "source_revision": "a" * 40,
+                    "runtime_sha256": "b" * 64,
+                },
+                "desktop_bundle_sha256": "f" * 64,
+            },
+        )
         self.assertEqual(state["message"], "target settings accepted")
         self.assertNotIn(SECRET, json.dumps(job._safe_state(state)))
+
+    def test_bad_installer_provenance_is_rejected_before_submit(self) -> None:
+        self.provenance_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source_revision": "not-a-revision",
+                    "runtime_sha256": "b" * 64,
+                    "files": {},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(job.InstallerError, "source revision"):
+            job._handle_request({**self.request(), "action": "plan"})
+
+    def test_changed_installer_provenance_fails_before_target_preparation(self) -> None:
+        self.submit()
+        changed = {"source_revision": "d" * 40, "runtime_sha256": "b" * 64}
+        with mock.patch.object(job, "_installer_provenance", return_value=changed):
+            self.assertEqual(job._run_worker(), 1)
+        state = job._load_state()
+        self.assertEqual(state["status"], "failed")
+        self.assertIn("changed since the job was queued", state["error"])
+        self.assertEqual(self.disk.prepare_calls, [])
+
+    def test_absolute_installer_provenance_file_path_is_rejected(self) -> None:
+        self.provenance_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source_revision": "a" * 40,
+                    "runtime_sha256": "b" * 64,
+                    "files": {"/usr/local/libexec/omarchy-pi/installer_job.py": "c" * 64},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(job.InstallerError, "file path"):
+            job._handle_request({**self.request(), "action": "plan"})
+
+    def test_redirected_installer_provenance_is_rejected(self) -> None:
+        redirected = self.provenance_path.with_name("provenance-link")
+        redirected.symlink_to(self.provenance_path)
+        original = job.INSTALLER_PROVENANCE_PATH
+        job.INSTALLER_PROVENANCE_PATH = redirected
+        try:
+            with self.assertRaisesRegex(job.InstallerError, "redirected"):
+                job._installer_provenance()
+        finally:
+            job.INSTALLER_PROVENANCE_PATH = original
 
     def test_worker_error_redacts_secret_and_marks_failed(self) -> None:
         self.submit()
@@ -283,6 +382,10 @@ class InstallerJobTests(unittest.TestCase):
             module.STATE_ROOT = base / "state"
             module.RUNTIME_ROOT = base / "run"
             module.SERVICE_NAME = "omarchy-step4-sigterm-test.service"
+            provenance = base / "installer-provenance.json"
+            provenance.write_text('{{"schema_version":1,"source_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","files":{{"installer_job.py":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}}}}')
+            provenance.chmod(0o600)
+            module.INSTALLER_PROVENANCE_PATH = provenance
             module._ensure_directories()
             target_path = "/dev/omarchy-step4-sigterm-target"
             identity = {{"path": target_path, "size": 4 * 1024 * 1024 * 1024}}
@@ -318,7 +421,7 @@ class InstallerJobTests(unittest.TestCase):
             target.validate_settings = lambda value: dict(value)
             target.validate_target_options = lambda root, value: True
 
-            def provision_target(root, payload, settings, storage, progress):
+            def provision_target(root, payload, settings, storage, progress, *, provenance=None):
                 (base / "provisioning").write_text("entered")
                 while True:
                     time.sleep(1)
@@ -328,7 +431,7 @@ class InstallerJobTests(unittest.TestCase):
             settings = {{"username": "pi-user", "hostname": "sigterm-test", "password": "sigterm-secret", "timezone": "Europe/London", "locale": "en_GB.UTF-8", "keymap": "us", "wifi": None, "ssh_enabled": False, "ssh_authorized_key": None, "rdp_mode": "disabled", "rdp_password": None, "encryption": "plain", "recovery_passphrase": None}}
             job_id = "sigterm-job-12345678"
             module._write_request({{"job_id": job_id, "settings": settings, "target": target_path, "key": None, "target_identity": identity, "key_identity": None, "target_token": "CONFIRM " + target_path, "key_token": None, "required_target_bytes": 1, "consent_internet": True}})
-            module._save_state({{"status": "queued", "phase": "queued", "job_id": job_id, "target_path": target_path}})
+            module._save_state({{"status": "queued", "phase": "queued", "job_id": job_id, "target_path": target_path, "installer": {{"source_revision": "a" * 40, "runtime_sha256": "b" * 64}}}})
             module._network_preflight = lambda: None
             try:
                 module._run_worker()

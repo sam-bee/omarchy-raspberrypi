@@ -33,6 +33,7 @@ python3 build-installer-image.py \
   --archive-sha256 ARCHIVE_SHA256 \
   --hypr-rdp /var/tmp/hypr-rdp \
   --hypr-rdp-sha256 HYPR_RDP_SHA256 \
+  --installer-source-revision FULL_INSTALLER_COMMIT_HASH \
   --desktop-payload /var/tmp/omarchy-pi5-desktop.tar.zst \
   --desktop-payload-sha256 DESKTOP_BUNDLE_SHA256 \
   --workdir /var/tmp/omarchy-installer-build-NEW \
@@ -64,6 +65,8 @@ the mise bootstrap and its managed tools.
 
 
 ## Disk installer
+
+The image records a content digest of its staged installer runtime, independently of the desktop source and bundle. Supply `--installer-source-revision` when building from an exported checkout to record its full commit hash; runtime hashes are always recorded. Confirmed jobs and installed-target receipts retain these identifiers. Full bundle builds also run image verification before reporting success.
 
 The desktop bundle is copied into the installer root and checked before any erasure. The image reserves disk-backed space for its unpacked root/source; package archives remain in the compressed bundle. Omitting the desktop arguments builds a boot-only development image, which is not a complete disk-installer candidate and fails the full image verifier.
 

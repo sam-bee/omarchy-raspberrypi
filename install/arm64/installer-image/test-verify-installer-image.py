@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import hashlib
+import os
+from unittest.mock import patch
 from pathlib import Path
 import shutil
 import subprocess
@@ -88,6 +91,11 @@ class FakeRunner:
 
 
 class VerifyInstallerImageTests(unittest.TestCase):
+    def setUp(self):
+        owner = patch.object(verify, "PROVENANCE_OWNER_UID", os.getuid())
+        owner.start()
+        self.addCleanup(owner.stop)
+
     def make_fixture(self) -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
@@ -180,6 +188,20 @@ class VerifyInstallerImageTests(unittest.TestCase):
         (boot_source / "initramfs-linux.img").write_bytes(b"initramfs")
         (boot_source / "dtbs/broadcom/bcm2712-rpi-5-b.dtb").write_bytes(b"dtb")
         (boot_source / "overlays/vc4-kms-v3d-pi5.dtbo").write_bytes(b"overlay")
+        files = {}
+        for relative in sorted((set(verify.EXECUTABLE_PAYLOAD_FILES) - {"usr/bin/hypr-rdp"}) | set(verify.PROVENANCE_MODULE_FILES) | {"usr/local/share/omarchy-pi/installer-hyprland.conf"} | {"etc/systemd/system/" + name for name in verify.SYSTEM_UNITS} | {"etc/systemd/user/" + name for name in verify.USER_UNITS}):
+            path = root_source / relative
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture")
+                path.chmod(0o644)
+            path.chmod(0o755 if relative in verify.EXECUTABLE_PAYLOAD_FILES else 0o644)
+            files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        descriptor = {"schema_version": 1, "source_revision": "a" * 40,
+                      "runtime_sha256": hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode()).hexdigest(), "files": files}
+        path = root_source / "usr/lib/omarchy-pi/installer-provenance.json"
+        path.write_text(json.dumps(descriptor))
+        path.chmod(0o644)
         return temporary, image, root_source, boot_source
 
     def test_valid_image_is_verified_and_all_mounts_are_read_only_and_cleaned(self) -> None:
@@ -199,6 +221,17 @@ class VerifyInstallerImageTests(unittest.TestCase):
         self.assertEqual(runner.commands[-3][0], "umount")
         self.assertEqual(runner.commands[-2][0], "umount")
         self.assertEqual(runner.commands[-1][:2], ["losetup", "--detach"])
+
+    def test_installer_provenance_detects_modified_runtime_and_missing_descriptor(self):
+        temporary, image, root, boot = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        verify._verify_installer_provenance(root)
+        (root / "usr/local/libexec/omarchy-pi/installer_job.py").write_text("modified runtime")
+        with self.assertRaisesRegex(verify.ImageVerificationError, "does not match"):
+            verify._verify_installer_provenance(root)
+        (root / "usr/lib/omarchy-pi/installer-provenance.json").unlink()
+        with self.assertRaises(verify.ImageVerificationError):
+            verify._verify_installer_provenance(root)
 
     def test_required_font_must_be_present_and_nonempty(self) -> None:
         temporary, image, root_source, boot_source = self.make_fixture()

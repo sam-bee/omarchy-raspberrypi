@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -107,6 +108,7 @@ class StageResult:
     dynamic_dependency_check: str
     installed_files: tuple[str, ...]
     enabled_links: tuple[str, ...]
+    installer_provenance: dict | None = None
 
 
 def _absolute(path: Path) -> Path:
@@ -480,7 +482,10 @@ def stage_services(
     expected_sha256: str,
     *,
     require_root: bool = True,
+    source_revision: str | None = None,
 ) -> StageResult:
+    if source_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", source_revision):
+        raise ServiceStageError("installer source revision must be a full Git commit hash")
     if require_root and os.geteuid() != 0:
         raise ServiceStageError("service staging must run as root")
     target = _target_root(target_root)
@@ -501,6 +506,7 @@ def stage_services(
     _ensure_directory(target / "boot", owner_uid=owner_uid, owner_gid=owner_gid)
 
     installed: list[str] = []
+    provenance_files: dict[str, str] = {}
     for name, source, mode, area in sources:
         if area == "libexec":
             destination = target / "usr/local/libexec/omarchy-pi" / name
@@ -512,6 +518,7 @@ def stage_services(
             destination = target / "etc/systemd/system" / name
         else:
             destination = target / "etc/systemd/user" / name
+        provenance_files[os.fspath(destination.relative_to(target))] = hashlib.sha256(_file_bytes(source)).hexdigest()
         if _install_file(source, destination, mode=mode, owner_uid=owner_uid, owner_gid=owner_gid):
             installed.append(os.fspath(destination.relative_to(target)))
 
@@ -579,7 +586,17 @@ def stage_services(
     if _symlink(user_wants, "../omarchy-installer-rdp.service", owner_uid=owner_uid, owner_gid=owner_gid):
         enabled.append(os.fspath(user_wants.relative_to(target)))
 
-    return StageResult(target, digest, dynamic_check, tuple(installed), tuple(enabled))
+    provenance = {
+        "schema_version": 1,
+        "source_revision": source_revision,
+        "runtime_sha256": hashlib.sha256(json.dumps(provenance_files, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        "files": provenance_files,
+    }
+    provenance_path = target / "usr/lib/omarchy-pi/installer-provenance.json"
+    if _install_payload((json.dumps(provenance, sort_keys=True, indent=2) + "\n").encode(), provenance_path,
+                        mode=0o644, owner_uid=owner_uid, owner_gid=owner_gid):
+        installed.append(os.fspath(provenance_path.relative_to(target)))
+    return StageResult(target, digest, dynamic_check, tuple(installed), tuple(enabled), provenance)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -587,13 +604,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rootfs", "--target-root", dest="target_root", type=Path, required=True)
     parser.add_argument("--hypr-rdp", dest="binary", type=Path, required=True)
     parser.add_argument("--expected-sha256", required=True)
+    parser.add_argument("--installer-source-revision", help="full commit hash; runtime hashes are always recorded")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        result = stage_services(args.target_root, args.binary, args.expected_sha256)
+        result = stage_services(args.target_root, args.binary, args.expected_sha256, source_revision=args.installer_source_revision)
     except (OSError, ServiceStageError) as exc:
         print(f"stage-installer-services: error: {exc}", file=sys.stderr)
         return 2

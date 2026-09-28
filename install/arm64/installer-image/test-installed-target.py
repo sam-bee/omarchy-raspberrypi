@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -260,6 +261,26 @@ class InstalledTargetTests(unittest.TestCase):
     def test_provision_uses_target_context_and_keeps_secrets_out_of_summary(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()
         self.addCleanup(temporary.cleanup)
+        provenance_path = root / "var/lib/omarchy-pi/desktop-user-provision.json"
+        provenance_path.parent.mkdir(parents=True)
+        provenance_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source_revision": "d" * 40,
+                    "target_user": "desk",
+                    "target_home": "/home/desk",
+                    "package_manifest_sha256": "",
+                    "identity_policy": "generate machine and account identities on target installation",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        provenance = {
+            "installer": {"source_revision": "a" * 40, "runtime_sha256": "b" * 64},
+            "desktop_bundle_sha256": "c" * 64,
+        }
         runner = FakeRunner(root, boot)
         original = installed._configure_boot
         installed._configure_boot = lambda *args, **kwargs: None
@@ -274,6 +295,7 @@ class InstalledTargetTests(unittest.TestCase):
             progress.append,
             runner=runner,
             machine="aarch64",
+            provenance=provenance,
         )
 
         self.assertEqual(summary["username"], "desk")
@@ -293,6 +315,31 @@ class InstalledTargetTests(unittest.TestCase):
         self.assertIn("root=UUID=11111111-1111-1111-1111-111111111111", (boot / "cmdline.txt").read_text())
         self.assertEqual((root / "etc/hostname").read_text(), "pi-target\n")
         self.assertTrue((root / "home/desk/.ssh/authorized_keys").exists())
+        receipt = json.loads(provenance_path.read_text(encoding="utf-8"))
+        self.assertEqual(receipt["source_revision"], "d" * 40)
+        self.assertEqual(receipt["installer"], provenance["installer"])
+        self.assertEqual(receipt["desktop_bundle_sha256"], provenance["desktop_bundle_sha256"])
+        self.assertIn("provenance", progress)
+
+    def test_invalid_provenance_fails_before_target_commands(self) -> None:
+        temporary, root, boot, payload, settings, storage = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        runner = FakeRunner(root, boot)
+        with self.assertRaises(installed.TargetProvisionError) as context:
+            installed.provision_target(
+                root,
+                payload,
+                settings,
+                storage,
+                lambda phase: None,
+                runner=runner,
+                provenance={
+                    "installer": {"source_revision": "not-a-revision", "runtime_sha256": "b" * 64},
+                    "desktop_bundle_sha256": "c" * 64,
+                },
+            )
+        self.assertEqual(runner.calls, [])
+        self.assertNotIn("not-a-revision", str(context.exception))
 
     def test_encrypted_cmdline_has_uuid_arguments_without_key_material(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()

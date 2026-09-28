@@ -54,6 +54,7 @@ def _components() -> dict[str, Any]:
         "services": _load_module("stage-installer-services.py", "installer_stage_services"),
         "image": _load_module("assemble-image.py", "installer_assemble_image"),
         "desktop": _load_module("desktop_payload.py", "installer_desktop_payload"),
+        "verify": _load_module("verify-installer-image.py", "installer_verify_image"),
     }
 
 
@@ -195,7 +196,10 @@ def plan(
     repo_server: str,
     desktop_payload: Path | None = None,
     desktop_payload_sha256: str | None = None,
+    installer_source_revision: str | None = None,
 ) -> dict[str, Any]:
+    if installer_source_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", installer_source_revision):
+        raise InstallerBuildError("installer source revision must be a full Git commit hash")
     archive_path = _regular_file(archive, name="rootfs archive")
     signature_path = _regular_file(signature, name="rootfs signature")
     keyring_path = _regular_file(keyring, name="trusted keyring")
@@ -231,6 +235,7 @@ def plan(
             "expected_hypr_rdp_sha256": binary_digest,
             "expected_archive_sha256": expected_archive_digest,
             "desktop_payload": desktop,
+            "installer_source_revision": installer_source_revision,
         },
         "paths": {"workdir": os.fspath(work_path), "output": os.fspath(output_path)},
         "repository": repo_server,
@@ -259,6 +264,7 @@ def build(
     repo_server: str,
     desktop_payload: Path | None = None,
     desktop_payload_sha256: str | None = None,
+    installer_source_revision: str | None = None,
 ) -> dict[str, Any]:
     machine = platform.machine().lower()
     if machine != "aarch64":
@@ -278,6 +284,7 @@ def build(
         repo_server=repo_server,
         desktop_payload=desktop_payload,
         desktop_payload_sha256=desktop_payload_sha256,
+        installer_source_revision=installer_source_revision,
     )
     components = _components()
     work_path = Path(specification["paths"]["workdir"])
@@ -308,6 +315,7 @@ def build(
             rootfs,
             _absolute(hypr_rdp),
             _validate_digest(hypr_rdp_sha256, name="hypr-rdp SHA-256"),
+            source_revision=installer_source_revision,
         )
         desktop_result = None
         image_arguments = {"mkfs_fat": rootfs / "usr/bin/mkfs.fat"}
@@ -315,6 +323,7 @@ def build(
             desktop_result = components["desktop"].stage_bundle(rootfs, desktop_payload, desktop_payload_sha256)
             image_arguments["root_extra_mib"] = (desktop_result["unpacked_bytes"] + 1024 * 1024 - 1) // (1024 * 1024) + 1024
         image_result = components["image"].assemble_image(rootfs, output_path, **image_arguments)
+        verification = components["verify"].verify_image(output_path) if desktop_result is not None else None
         build_manifest = {
             "schema_version": 1,
             "mode": "apply",
@@ -328,6 +337,7 @@ def build(
                 "services": _json_safe(service_result),
                 "desktop": desktop_result,
                 "image": _json_safe(image_result),
+                "verification": _json_safe(verification),
             },
             "artifacts": {
                 "rootfs_manifest_sha256": _sha256(rootfs_manifest),
@@ -359,6 +369,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-server", default="https://mirror.archlinuxarm.org/$arch/$repo")
     parser.add_argument("--desktop-payload", type=Path, help="verified step-3 desktop tar.zst")
     parser.add_argument("--desktop-payload-sha256", help="expected desktop bundle SHA-256")
+    parser.add_argument("--installer-source-revision", help="full installer source commit; runtime hashes are always recorded")
     parser.add_argument("--apply", action="store_true", help="perform the complete mutating build")
     return parser
 
@@ -378,6 +389,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "repo_server": args.repo_server,
         "desktop_payload": args.desktop_payload,
         "desktop_payload_sha256": args.desktop_payload_sha256,
+        "installer_source_revision": args.installer_source_revision,
     }
     try:
         document = build(**arguments) if args.apply else plan(**arguments)

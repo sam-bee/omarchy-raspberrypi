@@ -48,6 +48,8 @@ _TIMEZONE = re.compile(r"[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*\Z")
 _LOCALE = re.compile(r"[A-Za-z0-9_.@+-]{1,80}\Z")
 _KEYMAP = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+/@-]{0,79}\Z")
 _FAT_UUID = re.compile(r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}\Z")
+_SOURCE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _SSH_TYPES = frozenset(
     {
         "ssh-ed25519",
@@ -78,6 +80,8 @@ _ROOT_KEYS = frozenset(
 )
 _WIFI_KEYS = frozenset({"country", "ssid", "password"})
 _STORAGE_KEYS = frozenset({"root", "boot", "root_uuid", "boot_uuid", "luks_uuid", "key_uuid", "key_path"})
+_PROVENANCE_KEYS = frozenset({"installer", "desktop_bundle_sha256"})
+_INSTALLER_PROVENANCE_KEYS = frozenset({"source_revision", "runtime_sha256"})
 _GENERIC_ACCOUNTS = frozenset({"alarm", "installer", "omarchy-installer", "omarchy"})
 _INSTALLER_MARKERS = (
     Path("boot/installer-settings.toml"),
@@ -238,6 +242,36 @@ def validate_settings(settings: dict) -> dict:
         "rdp_password": rdp_password,
         "encryption": encryption,
         "recovery_passphrase": recovery,
+    }
+
+
+def _validate_provenance(provenance: Any) -> dict[str, Any] | None:
+    """Validate the fixed, non-secret installer provenance contract."""
+
+    if provenance is None:
+        return None
+    if not isinstance(provenance, dict) or set(provenance) != _PROVENANCE_KEYS:
+        raise _error("provenance has unknown or missing fields")
+    installer = provenance["installer"]
+    if not isinstance(installer, dict) or set(installer) != _INSTALLER_PROVENANCE_KEYS:
+        raise _error("provenance.installer has unknown or missing fields")
+    source_revision = installer["source_revision"]
+    if source_revision is not None and (
+        not isinstance(source_revision, str) or not _SOURCE_REVISION.fullmatch(source_revision)
+    ):
+        raise _error("provenance.installer.source_revision is invalid")
+    runtime_sha256 = installer["runtime_sha256"]
+    if not isinstance(runtime_sha256, str) or not _SHA256.fullmatch(runtime_sha256):
+        raise _error("provenance.installer.runtime_sha256 is invalid")
+    desktop_bundle_sha256 = provenance["desktop_bundle_sha256"]
+    if not isinstance(desktop_bundle_sha256, str) or not _SHA256.fullmatch(desktop_bundle_sha256):
+        raise _error("provenance.desktop_bundle_sha256 is invalid")
+    return {
+        "installer": {
+            "source_revision": source_revision,
+            "runtime_sha256": runtime_sha256,
+        },
+        "desktop_bundle_sha256": desktop_bundle_sha256,
     }
 
 
@@ -406,6 +440,33 @@ def _atomic_write(
                 temporary.unlink()
             except OSError:
                 pass
+
+
+def _persist_provenance(root: Path, provenance: Mapping[str, Any]) -> None:
+    """Extend the desktop leaf's existing provenance record after validation."""
+
+    path = _target_path(root, "/var/lib/omarchy-pi/desktop-user-provision.json")
+    if not path.is_file() or path.is_symlink():
+        raise _error("desktop provenance record is missing")
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        raise _error("desktop provenance record is unreadable") from None
+    if not isinstance(record, dict):
+        raise _error("desktop provenance record is invalid")
+    source_revision = record.get("source_revision")
+    if not isinstance(source_revision, str) or not _SOURCE_REVISION.fullmatch(source_revision):
+        raise _error("desktop provenance source revision is invalid")
+    record["installer"] = {
+        "source_revision": provenance["installer"]["source_revision"],
+        "runtime_sha256": provenance["installer"]["runtime_sha256"],
+    }
+    record["desktop_bundle_sha256"] = provenance["desktop_bundle_sha256"]
+    try:
+        encoded = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    except (TypeError, ValueError):
+        raise _error("desktop provenance record cannot be serialized") from None
+    _atomic_write(path, encoded, mode=0o644)
 
 
 def _remove_managed(path: Path) -> None:
@@ -1087,9 +1148,11 @@ def provision_target(
     *,
     runner: Runner = subprocess.run,
     machine: str | None = None,
+    provenance: dict | None = None,
 ) -> dict:
     """Provision one mounted target and return a non-secret reconnect summary."""
 
+    validated_provenance = _validate_provenance(provenance)
     validated = validate_settings(settings)
     validated_storage = _validate_storage(storage, validated)
     root = validated_storage["root"]
@@ -1148,6 +1211,9 @@ def provision_target(
 
     progress("target validation")
     fingerprint = _validate_result(root, account, validated, validated_storage, rdp_bind)
+    if validated_provenance is not None:
+        progress("provenance")
+        _persist_provenance(root, validated_provenance)
     summary = {
         "hostname": validated["hostname"],
         "username": validated["username"],

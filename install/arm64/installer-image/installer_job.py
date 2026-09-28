@@ -45,6 +45,7 @@ WORKER_LOCK_NAME = "worker.lock"
 REQUEST_FILE_NAME = "request.json"
 SERVICE_NAME = "omarchy-pi-install.service"
 CONTROL_PATH = "/usr/local/libexec/omarchy-pi/installer-control"
+INSTALLER_PROVENANCE_PATH = Path("/usr/lib/omarchy-pi/installer-provenance.json")
 MAX_INPUT_BYTES = 512 * 1024
 POLL_SECONDS = 2.0
 MIB = 1024 * 1024
@@ -69,6 +70,8 @@ _SENSITIVE_NAME = re.compile(
     r"(?:pass(?:word|phrase)?|secret|authorized.?key|private.?key|credential|token)",
     re.IGNORECASE,
 )
+_SOURCE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class InstallerError(RuntimeError):
@@ -319,6 +322,79 @@ def _safe_summary(value: Any, name: str = "") -> Any:
     return str(value)
 
 
+def _installer_provenance() -> dict[str, Any]:
+    """Read the immutable, image-local installer provenance descriptor.
+
+    The production worker runs as root, so the descriptor must be a root-owned
+    regular file reached without symlink redirection.  Unprivileged contract
+    tests use a private fixture path and therefore require ownership by the
+    test process instead; the production path can never take that branch.
+    Only the two version identifiers are returned to the job protocol.  The
+    per-file map is validated here but is deliberately not copied into the
+    durable state record.
+    """
+
+    path = INSTALLER_PROVENANCE_PATH
+    if not isinstance(path, Path) or not path.is_absolute():
+        raise InstallerError("installer provenance path is invalid")
+    current = Path(path.anchor)
+    parts = path.parts[1:]
+    for index, part in enumerate(parts):
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            raise InstallerError("installer provenance is unavailable") from None
+        except OSError as exc:
+            raise InstallerError("installer provenance is unreadable") from exc
+        if stat.S_ISLNK(info.st_mode):
+            raise InstallerError("installer provenance path is redirected")
+        if index < len(parts) - 1 and not stat.S_ISDIR(info.st_mode):
+            raise InstallerError("installer provenance path is invalid")
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise InstallerError("installer provenance is unreadable") from exc
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise InstallerError("installer provenance must be a regular file")
+    expected_uid = 0 if os.geteuid() == 0 else os.geteuid()
+    if info.st_uid != expected_uid or info.st_mode & 0o022:
+        raise InstallerError("installer provenance has unsafe ownership or permissions")
+    if info.st_size > 128 * 1024:
+        raise InstallerError("installer provenance is too large")
+    try:
+        with path.open(encoding="utf-8") as stream:
+            value = json.load(stream)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise InstallerError("installer provenance is unreadable") from exc
+    if not isinstance(value, dict) or set(value) != {"schema_version", "source_revision", "runtime_sha256", "files"}:
+        raise InstallerError("installer provenance has an invalid schema")
+    if value.get("schema_version") != 1:
+        raise InstallerError("installer provenance schema is unsupported")
+    source_revision = value.get("source_revision")
+    if source_revision is not None and (
+        not isinstance(source_revision, str) or not _SOURCE_REVISION.fullmatch(source_revision)
+    ):
+        raise InstallerError("installer source revision is invalid")
+    runtime_sha256 = value.get("runtime_sha256")
+    if not isinstance(runtime_sha256, str) or not _SHA256.fullmatch(runtime_sha256):
+        raise InstallerError("installer runtime digest is invalid")
+    files = value.get("files")
+    if not isinstance(files, dict):
+        raise InstallerError("installer provenance files are invalid")
+    for filename, digest in files.items():
+        if not isinstance(filename, str) or not filename or "\x00" in filename:
+            raise InstallerError("installer provenance file path is invalid")
+        if Path(filename).is_absolute() or any(part in {"", ".", ".."} for part in Path(filename).parts):
+            raise InstallerError("installer provenance file path is invalid")
+        if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+            raise InstallerError("installer provenance file digest is invalid")
+    return {
+        "source_revision": source_revision,
+        "runtime_sha256": runtime_sha256,
+    }
+
+
 def _safe_state(state: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
         "version",
@@ -334,6 +410,7 @@ def _safe_state(state: Mapping[str, Any]) -> dict[str, Any]:
         "key_path",
         "key_identity",
         "payload",
+        "installer",
         "summary",
         "message",
         "log_file",
@@ -345,7 +422,7 @@ def _safe_state(state: Mapping[str, Any]) -> dict[str, Any]:
             continue
         if key in {"target_identity", "key_identity"}:
             result[key] = _safe_identity(value)
-        elif key in {"payload", "summary"}:
+        elif key in {"payload", "installer", "summary"}:
             result[key] = _safe_summary(value)
         elif key == "message":
             # Worker progress is redacted before it reaches durable state;
@@ -495,6 +572,7 @@ def _plan(request: Mapping[str, Any]) -> dict[str, Any]:
         metadata = payload.payload_metadata()
     except Exception as exc:
         raise InstallerError("the desktop payload could not be inspected") from exc
+    installer = _installer_provenance()
     required_target_bytes = _required_target_bytes(metadata, settings["encryption"] != "plain")
     target_size = _identity_size(target_identity)
     if target_size < required_target_bytes:
@@ -509,6 +587,7 @@ def _plan(request: Mapping[str, Any]) -> dict[str, Any]:
         "target_token": target_token,
         "key_token": key_token,
         "payload": _safe_summary(metadata),
+        "installer": installer,
         "required_target_bytes": required_target_bytes,
         # The raw identities are retained only for the root worker request;
         # all terminal responses use the recursively filtered copies above.
@@ -661,6 +740,7 @@ def _submit(request: Mapping[str, Any], *, restart: bool) -> dict[str, Any]:
         "key_identity": plan["key_identity_raw"],
         "target_token": plan["target_token"],
         "key_token": plan["key_token"],
+        "installer": plan["installer"],
         "required_target_bytes": plan["required_target_bytes"],
         "consent_internet": True,
     }
@@ -683,6 +763,7 @@ def _submit(request: Mapping[str, Any], *, restart: bool) -> dict[str, Any]:
         "key_path": plan["key_path"],
         "key_identity": plan["key_identity"],
         "payload": plan["payload"],
+        "installer": plan["installer"],
         "log_file": str(_log_path(job_id)),
     }
     if previous_job_id:
@@ -812,6 +893,19 @@ def _run_worker() -> int:
             )
             _network_preflight()
             metadata = payload.payload_metadata()
+            installer_provenance = state.get("installer")
+            if not isinstance(installer_provenance, Mapping):
+                raise InstallerError("installer provenance is missing from the queued job")
+            current_installer_provenance = _installer_provenance()
+            if dict(current_installer_provenance) != dict(installer_provenance):
+                raise InstallerError("installer provenance changed since the job was queued")
+            desktop_bundle_sha256 = metadata.get("sha256")
+            if not isinstance(desktop_bundle_sha256, str) or not _SHA256.fullmatch(desktop_bundle_sha256):
+                raise InstallerError("desktop payload provenance is invalid")
+            target_provenance = {
+                "installer": dict(installer_provenance),
+                "desktop_bundle_sha256": desktop_bundle_sha256,
+            }
             private_request["required_target_bytes"] = _required_target_bytes(
                 metadata, settings["encryption"] != "plain"
             )
@@ -858,6 +952,7 @@ def _run_worker() -> int:
                         str(message),
                         secrets_to_hide=secret_values,
                     ),
+                    provenance=target_provenance,
                 )
                 state = _load_state()
                 state["phase"] = "finalizing"
@@ -905,6 +1000,7 @@ def _handle_request(request: Mapping[str, Any]) -> dict[str, Any]:
         return {
             "settings": plan["settings_summary"],
             "payload": plan["payload"],
+            "installer": plan["installer"],
             "target": {"path": plan["target_path"], "identity": plan["target_identity"], "token": plan["target_token"]},
             "key": (
                 {"path": plan["key_path"], "identity": plan["key_identity"], "token": plan["key_token"]}
