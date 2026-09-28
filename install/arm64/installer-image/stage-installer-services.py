@@ -42,6 +42,7 @@ LIBEXEC_FILES = {
     "settings.py": 0o644,
     "disk_install.py": 0o644,
     "installer_job.py": 0o644,
+    "recovery.py": 0o644,
     "installed_target.py": 0o644,
     "desktop_payload.py": 0o644,
     "configure-installer-boot.py": 0o644,
@@ -405,6 +406,7 @@ def _unit_source_names() -> Iterable[tuple[str, Path, int, str]]:
         "libexec",
     )
     yield "omarchy-pi-install", _source_file(root, "omarchy-pi-install"), 0o755, "bin"
+    yield "omarchy-pi-recover", _source_file(root, "omarchy-pi-recover"), 0o755, "bin"
     for name, mode in SHARE_FILES.items():
         yield name, _source_file(root, name), mode, "share"
     for name, mode in SYSTEM_UNITS.items():

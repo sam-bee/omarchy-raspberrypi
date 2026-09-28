@@ -64,7 +64,7 @@ NETWORK_PREFLIGHT_TIMEOUT = 10
 
 _MODULE_DIR = Path(__file__).resolve().parent
 _MODULE_SEARCH_DIRS: list[Path] = []
-_SIBLING_MODULES = frozenset({"disk_install", "desktop_payload", "installed_target"})
+_SIBLING_MODULES = frozenset({"disk_install", "desktop_payload", "installed_target", "recovery"})
 
 _SENSITIVE_NAME = re.compile(
     r"(?:pass(?:word|phrase)?|secret|authorized.?key|private.?key|credential|token)",
@@ -398,6 +398,7 @@ def _installer_provenance() -> dict[str, Any]:
 def _safe_state(state: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
         "version",
+        "kind",
         "status",
         "phase",
         "job_id",
@@ -838,6 +839,44 @@ def _raise_worker_sigterm(_signum: int, _frame: Any) -> None:
     raise KeyboardInterrupt
 
 
+def _submit_recovery(request: Mapping[str, Any]) -> dict[str, Any]:
+    """Queue a boot repair in the same locked PID1 worker as installation."""
+    state = _mark_stale_if_needed(_load_state())
+    if _worker_is_running() or state.get("status") in ACTIVE_STATES:
+        raise InstallerError("an installation or recovery job is already running")
+    recovery = _module("recovery")
+    if request.get("repair_confirmation") != recovery.REPAIR_CONFIRMATION:
+        raise InstallerError("boot repair requires its explicit confirmation")
+    # Plan now, then rediscover and revalidate the exact identity token in the
+    # worker immediately before opening any target. Keep credentials in /run.
+    plan_request = {key: value for key, value in request.items() if key != "repair_confirmation"}
+    plan_request["action"] = "recovery-plan"
+    try:
+        plan = recovery.handle_request(plan_request)
+    except recovery.RecoveryError as exc:
+        raise InstallerError(str(exc)) from exc
+    job_id = _new_job_id()
+    private_request = {"version": 1, "job_id": job_id, "kind": "recovery", "recovery": dict(request)}
+    provenance = _installer_provenance()
+    _write_request(private_request)
+    state = {
+        "version": 1, "kind": "recovery", "job_id": job_id,
+        "status": "queued", "phase": "recovery-queued", "started_at": _now(),
+        "target_path": request["target"], "target_identity": _safe_identity(plan["target"]),
+        "installer": provenance, "log_file": str(_log_path(job_id)),
+    }
+    try:
+        _save_state(state)
+        _job_log(job_id, "boot repair queued after explicit target and repair confirmation")
+        _start_service()
+    except Exception:
+        _remove_request(job_id)
+        state.update(status="failed", phase="worker-start", error="recovery worker could not be started", finished_at=_now())
+        _save_state(state)
+        raise InstallerError("recovery worker could not be started") from None
+    return {"job_id": job_id, "state": _safe_state(state)}
+
+
 def _run_worker() -> int:
     _ensure_directories()
     with _file_lock(RUNTIME_ROOT / WORKER_LOCK_NAME, nonblocking=True) as acquired:
@@ -855,8 +894,22 @@ def _run_worker() -> int:
             return 1
         settings = private_request.get("settings")
         secret_values = tuple(_settings_secret_values(settings)) if isinstance(settings, Mapping) else ()
+        if private_request.get("kind") == "recovery":
+            recovery_request = private_request.get("recovery", {})
+            secret_values = tuple(value for key, value in recovery_request.items() if key == "passphrase" and isinstance(value, str))
         previous_sigterm = signal.signal(signal.SIGTERM, _raise_worker_sigterm)
         try:
+            if private_request.get("kind") == "recovery":
+                if _installer_provenance() != state.get("installer"):
+                    raise InstallerError("installer runtime changed after recovery was queued")
+                state.update(status="running", phase="recovery-repair")
+                _save_state(state)
+                _job_log(job_id, "repairing the selected target boot files")
+                result = _module("recovery").handle_request(recovery_request)
+                state.update(status="complete", phase="recovery-complete", summary=_safe_summary(result), finished_at=_now())
+                _save_state(state)
+                _job_log(job_id, "boot repair and target cleanup complete")
+                return 0
             settings = _validate_settings(settings)
             state["status"] = "running"
             state["phase"] = "payload-validation"
@@ -986,6 +1039,18 @@ def _run_worker() -> int:
 
 def _handle_request(request: Mapping[str, Any]) -> dict[str, Any]:
     action = request.get("action")
+    if action in {"recovery-discover", "recovery-plan", "recovery-inspect", "recovery-repair"}:
+        with _file_lock(RUNTIME_ROOT / CONTROL_LOCK_NAME):
+            if action == "recovery-repair":
+                return _submit_recovery(request)
+            with _file_lock(RUNTIME_ROOT / WORKER_LOCK_NAME, nonblocking=True) as acquired:
+                if not acquired or _mark_stale_if_needed(_load_state()).get("status") in ACTIVE_STATES:
+                    raise InstallerError("an installation or recovery job is already running")
+                recovery = _module("recovery")
+                try:
+                    return recovery.handle_request(request)
+                except recovery.RecoveryError as exc:
+                    raise InstallerError(str(exc)) from exc
     if action == "status":
         with _file_lock(RUNTIME_ROOT / CONTROL_LOCK_NAME):
             state = _mark_stale_if_needed(_load_state())

@@ -80,6 +80,7 @@ PUBLIC_PAYLOAD_DIRECTORIES = (
 )
 EXECUTABLE_PAYLOAD_FILES = (
     "usr/local/bin/omarchy-pi-install",
+    "usr/local/bin/omarchy-pi-recover",
     "usr/local/libexec/omarchy-pi/installer-control",
     "usr/local/libexec/omarchy-pi/provision-access.py",
     "usr/local/libexec/omarchy-pi/provision-network.py",
@@ -94,7 +95,7 @@ EXECUTABLE_PAYLOAD_FILES = (
 
 PROVENANCE_OWNER_UID = 0
 PROVENANCE_MODULE_FILES = tuple("usr/local/libexec/omarchy-pi/" + name for name in
-    ("settings.py", "disk_install.py", "installer_job.py", "installed_target.py", "desktop_payload.py", "configure-installer-boot.py", "assemble-image.py"))
+    ("settings.py", "disk_install.py", "installer_job.py", "recovery.py", "installed_target.py", "desktop_payload.py", "configure-installer-boot.py", "assemble-image.py"))
 
 SYSTEM_UNITS = (
     "omarchy-pi-install.service",

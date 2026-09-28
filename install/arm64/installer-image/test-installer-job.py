@@ -219,6 +219,69 @@ class InstallerJobTests(unittest.TestCase):
     def submit(self, *, encryption: str = "plain") -> dict[str, object]:
         return job._handle_request(self.request(encryption=encryption))
 
+    def fake_recovery(self, *, fail=False):
+        calls = []
+
+        def handle(request):
+            calls.append(dict(request))
+            if fail and request["action"] == "recovery-repair":
+                raise RuntimeError("repair failed with " + SECRET)
+            return {"target": {"path": "/dev/mmcblk0", "serial": "test-card"}, "repaired": request["action"] == "recovery-repair"}
+
+        recovery = types.SimpleNamespace(REPAIR_CONFIRMATION="REPAIR BOOT ONLY", RecoveryError=RuntimeError, handle_request=handle)
+        self.previous_modules["recovery"] = sys.modules.get("recovery")
+        sys.modules["recovery"] = recovery
+        return calls
+
+    def recovery_request(self):
+        return {"action": "recovery-repair", "target": "/dev/mmcblk0", "target_confirmation": "RECOVER test-card", "repair_confirmation": "REPAIR BOOT ONLY", "passphrase": SECRET}
+
+    def test_recovery_queues_private_credentials_and_reuses_worker_without_formatting(self):
+        calls = self.fake_recovery()
+        response = job._handle_request(self.recovery_request())
+        self.assertEqual(self.started, 1)
+        self.assertEqual(response["state"]["kind"], "recovery")
+        self.assertNotIn(SECRET, json.dumps(response))
+        self.assertNotIn(SECRET, job._state_path().read_text())
+        self.assertEqual(calls[0]["action"], "recovery-plan")
+        self.assertEqual(job._run_worker(), 0)
+        self.assertEqual(calls[-1]["action"], "recovery-repair")
+        self.assertEqual(self.disk.prepare_calls, [])
+        self.assertEqual(self.target.received, [])
+        self.assertEqual(job._load_state()["phase"], "recovery-complete")
+        self.assertFalse(job._request_path().exists())
+
+    def test_recovery_requires_confirmation_and_excludes_other_jobs(self):
+        self.fake_recovery()
+        with self.assertRaises(job.InstallerError):
+            job._handle_request({**self.recovery_request(), "repair_confirmation": "yes"})
+        self.submit()
+        with mock.patch.object(job, "_service_is_active", return_value=True):
+            with self.assertRaises(job.InstallerError):
+                job._handle_request(self.recovery_request())
+            with self.assertRaises(job.InstallerError):
+                job._handle_request({"action": "recovery-inspect"})
+
+    def test_recovery_failure_redacts_secret_and_deletes_request(self):
+        self.fake_recovery(fail=True)
+        job._handle_request(self.recovery_request())
+        self.assertEqual(job._run_worker(), 1)
+        state = job._load_state()
+        self.assertEqual(state["status"], "failed")
+        self.assertNotIn(SECRET, job._state_path().read_text())
+        self.assertNotIn(SECRET, job._log_path(state["job_id"]).read_text())
+        self.assertFalse(job._request_path().exists())
+
+    def test_recovery_refuses_changed_runtime_before_target_access(self):
+        calls = self.fake_recovery()
+        job._handle_request(self.recovery_request())
+        record = json.loads(self.provenance_path.read_text())
+        record["runtime_sha256"] = "d" * 64
+        self.provenance_path.write_text(json.dumps(record))
+        self.assertEqual(job._run_worker(), 1)
+        self.assertEqual([call["action"] for call in calls], ["recovery-plan"])
+        self.assertFalse(job._request_path().exists())
+
     def test_plan_is_secret_free_and_requires_explicit_confirmation(self) -> None:
         plan = job._handle_request({**self.request(), "action": "plan"})
         encoded = json.dumps(plan)
