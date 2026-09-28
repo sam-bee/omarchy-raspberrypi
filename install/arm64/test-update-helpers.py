@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 import importlib.util
 import json
 import os
@@ -21,6 +22,10 @@ _migration_spec = importlib.util.spec_from_file_location("update_migrations", HE
 assert _migration_spec is not None and _migration_spec.loader is not None
 update_migrations = importlib.util.module_from_spec(_migration_spec)
 _migration_spec.loader.exec_module(update_migrations)
+_preflight_spec = importlib.util.spec_from_file_location("update_preflight", HERE / "update-preflight.py")
+assert _preflight_spec is not None and _preflight_spec.loader is not None
+update_preflight = importlib.util.module_from_spec(_preflight_spec)
+_preflight_spec.loader.exec_module(update_preflight)
 
 
 class UpdateHelperTests(unittest.TestCase):
@@ -142,11 +147,12 @@ class UpdateHelperTests(unittest.TestCase):
         package_record = self.root / "var/lib/pacman/local/linux-rpi-6.18.53-1"
         package_record.mkdir(parents=True)
         (package_record / "files").write_text("%FILES%\nboot/kernel8.img\n")
-        (package_record / "mtree").write_text(
+        mtree = (
             "./boot/kernel8.img type=file sha256digest="
             + hashlib.sha256((self.root / "boot/kernel8.img").read_bytes()).hexdigest()
             + "\n"
         )
+        (package_record / "mtree").write_bytes(gzip.compress(mtree.encode()))
         state = update_lib.snapshot(root=self.root, home=self.home)
         self.assertEqual(update_lib.verify_kernel_artifacts(state, root=self.root), [])
         self.assertEqual(state["kernel_artifacts"]["linux_rpi_boot_files"]["kernel8.img"], True)
@@ -161,6 +167,20 @@ class UpdateHelperTests(unittest.TestCase):
         os.environ["OMARCHY_PI_PACKAGE_DB"] = str(self.root / "missing.json")
         with self.assertRaises(update_lib.UpdateCheckError):
             update_lib.package_db()
+
+    def test_signature_policy_rejects_spacing_and_unsigned_package_levels(self) -> None:
+        self.assertFalse(
+            update_preflight.pacman_signature_failures(
+                "SigLevel    = Required DatabaseOptional\nLocalFileSigLevel = Optional\n",
+                root=str(self.root),
+            )
+        )
+        self.assertTrue(
+            update_preflight.pacman_signature_failures("SigLevel\t=\tNever\n", root=str(self.root))
+        )
+        self.assertTrue(
+            update_preflight.pacman_signature_failures("[core]\nSigLevel = PackageOptional\n", root=str(self.root))
+        )
 
     def test_migration_policy_requires_exact_hash_and_reason(self) -> None:
         old_migrations = self.source_old / "migrations"

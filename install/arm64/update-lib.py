@@ -10,6 +10,7 @@ configuration.
 from __future__ import annotations
 
 import hashlib
+import gzip
 import json
 import os
 import platform
@@ -381,8 +382,11 @@ def _kernel_package_files(root: str | Path) -> dict[str, Any]:
         mtree = record.with_name("mtree")
         if mtree.is_file() and not mtree.is_symlink():
             try:
-                mtree_text = mtree.read_text(errors="replace")
-            except OSError as exc:
+                raw_mtree = mtree.read_bytes()
+                if raw_mtree.startswith(b"\x1f\x8b"):
+                    raw_mtree = gzip.decompress(raw_mtree)
+                mtree_text = raw_mtree.decode(errors="replace")
+            except (OSError, EOFError, gzip.BadGzipFile, UnicodeError) as exc:
                 raise UpdateCheckError(f"linux-rpi package mtree is unreadable: {mtree}") from exc
             for image in ("kernel8.img", "kernel_2712.img"):
                 match = re.search(
@@ -393,6 +397,19 @@ def _kernel_package_files(root: str | Path) -> dict[str, Any]:
                 if match:
                     result[f"{image}.sha256"] = match.group(1).lower()
     return result
+
+
+def _selected_kernel(root: str | Path) -> str:
+    config = root_path(root, "/boot/config.txt")
+    try:
+        text = config.read_text(errors="replace")
+    except OSError:
+        return "kernel8.img"
+    for line in text.splitlines():
+        match = re.match(r"^\s*kernel\s*=\s*([^\s#]+)", line, re.IGNORECASE)
+        if match:
+            return Path(match.group(1)).name
+    return "kernel8.img"
 
 
 def _initramfs_listing(root: str | Path, image: str) -> dict[str, Any]:
@@ -449,6 +466,7 @@ def kernel_artifacts(root: str | Path, mkinitcpio: dict[str, Any]) -> dict[str, 
     return {
         "kernel8": path_record(root_path(root, "/boot/kernel8.img")),
         "kernel_2712": path_record(root_path(root, "/boot/kernel_2712.img")),
+        "selected_kernel": _selected_kernel(root),
         "module_versions": module_versions,
         "preset_kvers": preset_kvers,
         "preset_kernel_images": preset_kernel_images,
@@ -482,16 +500,18 @@ def verify_kernel_artifacts(state: dict[str, Any], *, root: str | Path = "/") ->
         elif live_pi and modules[version].get("pkgbase") != "linux-rpi":
             failures.append(f"mkinitcpio preset selects modules not identified as linux-rpi: {version}")
     owned = artifacts.get("linux_rpi_boot_files", {})
+    selected_kernel = artifacts.get("selected_kernel", "kernel8.img")
     if live_pi and state.get("packages", {}).get("linux-rpi") and not owned:
         failures.append("linux-rpi package file ownership metadata is unavailable")
-    if live_pi and owned and not owned.get("kernel8.img", False):
-        failures.append("/boot/kernel8.img is not owned by the installed linux-rpi package")
-    for image in ("kernel8.img", "kernel_2712.img"):
-        expected_hash = owned.get(f"{image}.sha256")
-        if expected_hash:
-            actual_path = root_path(root, "/boot/" + image)
-            if not actual_path.is_file() or digest(actual_path) != expected_hash:
-                failures.append(f"/boot/{image} failed the installed linux-rpi package mtree digest check")
+    if live_pi and owned and not owned.get(selected_kernel, False):
+        failures.append(f"/boot/{selected_kernel} is not owned by the installed linux-rpi package")
+    if live_pi and owned:
+        expected_hash = owned.get(f"{selected_kernel}.sha256")
+        actual_path = root_path(root, "/boot/" + selected_kernel)
+        if not expected_hash:
+            failures.append(f"installed linux-rpi package mtree has no digest for selected kernel: {selected_kernel}")
+        elif not actual_path.is_file() or digest(actual_path) != expected_hash:
+            failures.append(f"/boot/{selected_kernel} failed the installed linux-rpi package mtree digest check")
     for image, listing in sorted(initramfs.items()):
         if listing.get("status") != "ok":
             if live_pi:

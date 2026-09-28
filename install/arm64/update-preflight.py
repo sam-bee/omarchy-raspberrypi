@@ -7,10 +7,12 @@ import argparse
 import json
 import os
 import platform
+import re
+import shutil
 import sys
 from pathlib import Path
 
-from update_lib import UpdateCheckError, active_source_dir, atomic_json, compare_recipe_hashes, snapshot, state_path, verify_boot_state
+from update_lib import UpdateCheckError, active_source_dir, atomic_json, command_output, compare_recipe_hashes, snapshot, state_path, verify_boot_state
 
 
 def parser() -> argparse.ArgumentParser:
@@ -34,6 +36,41 @@ def fail(message: str, *, as_json: bool) -> int:
     return 1
 
 
+def pacman_signature_failures(config: str, *, root: str) -> list[str]:
+    """Reject unsigned package policy, including effective per-repository settings."""
+
+    failures: list[str] = []
+    for line in config.splitlines():
+        match = re.match(r"^\s*SigLevel\s*=\s*(.*?)\s*(?:#.*)?$", line, re.IGNORECASE)
+        if not match:
+            continue
+        tokens = {token.lower() for token in match.group(1).split()}
+        if {"never", "optional", "packageoptional", "trustall", "packagetrustall"} & tokens:
+            failures.append("pacman.conf contains an unsigned or untrusted SigLevel")
+    if root != "/" or os.environ.get("OMARCHY_PI_TESTING") == "1":
+        return failures
+    pacman_conf = shutil.which("pacman-conf")
+    if pacman_conf is None:
+        return failures + ["pacman-conf is unavailable; effective repository signature policy cannot be verified"]
+    status, output = command_output([pacman_conf, "--repo-list"])
+    if status != 0:
+        return failures + ["pacman-conf could not enumerate repositories"]
+    repositories = [line.strip() for line in output.splitlines() if line.strip()]
+    if not repositories:
+        return failures + ["pacman-conf returned no repositories"]
+    for repository in repositories:
+        status, output = command_output([pacman_conf, "--repo-name", repository, "SigLevel"])
+        if status != 0:
+            failures.append(f"pacman-conf could not read effective SigLevel for {repository}")
+            continue
+        tokens = {token.lower() for token in re.split(r"[\s=]+", output) if token}
+        if {"never", "optional", "packageoptional", "trustall", "packagetrustall"} & tokens:
+            failures.append(f"repository {repository} does not require trusted package signatures")
+        if not {"required", "packagerequired"} & tokens:
+            failures.append(f"repository {repository} lacks PackageRequired signature policy")
+    return failures
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     architecture = os.environ.get("OMARCHY_PI_ARCH", platform.machine())
@@ -45,8 +82,9 @@ def main(argv: list[str] | None = None) -> int:
     if not pacman_conf.is_file():
         return fail("/etc/pacman.conf is missing; this does not look like an Arch Linux ARM install", as_json=args.json)
     config = pacman_conf.read_text(errors="replace")
-    if "siglevel = never" in config.lower() or "localsiglevel = never" in config.lower():
-        return fail("pacman signature verification is disabled in pacman.conf", as_json=args.json)
+    signature_failures = pacman_signature_failures(config, root=args.root)
+    if signature_failures:
+        return fail("; ".join(signature_failures), as_json=args.json)
     if args.root == "/" and os.environ.get("OMARCHY_PI_TESTING") != "1":
         pacman = os.environ.get("OMARCHY_PI_PACMAN", "pacman")
         if not any(Path(directory, pacman).is_file() for directory in ("/usr/bin", "/bin")) and not Path(pacman).is_absolute():
