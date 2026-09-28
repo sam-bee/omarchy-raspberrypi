@@ -174,6 +174,29 @@ class StageInstallerServicesTests(unittest.TestCase):
             self.assertEqual(second.installed_files, ())
             self.assertEqual(second.enabled_links, ())
 
+    def test_public_payload_directories_are_traversable_under_restrictive_umask(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = self.make_target(root)
+            binary, digest = self.make_binary(root)
+            preexisting_public = target / "usr/local"
+            preexisting_public.mkdir(parents=True)
+            preexisting_public.chmod(0o700)
+            previous_umask = os.umask(0o077)
+            try:
+                stage.stage_services(target, binary, digest, require_root=False)
+            finally:
+                os.umask(previous_umask)
+
+            for relative in stage.PUBLIC_PAYLOAD_DIRECTORIES:
+                path = target / relative
+                self.assertTrue(path.is_dir(), relative)
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o755, relative)
+            for relative, mode in stage.LIBEXEC_FILES.items():
+                path = target / "usr/local/libexec/omarchy-pi" / relative
+                self.assertTrue(path.is_file(), relative)
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), mode, relative)
+
     def test_hash_mismatch_and_private_settings_fail_before_staging(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

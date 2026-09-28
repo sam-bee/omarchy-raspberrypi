@@ -119,6 +119,15 @@ class VerifyInstallerImageTests(unittest.TestCase):
             path = root_source / "etc/systemd/user" / unit
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("[Unit]\n", encoding="utf-8")
+        for relative in verify.PUBLIC_PAYLOAD_DIRECTORIES:
+            path = root_source / relative
+            path.mkdir(parents=True, exist_ok=True)
+            path.chmod(0o755)
+        for relative in verify.EXECUTABLE_PAYLOAD_FILES:
+            path = root_source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"#!/bin/bash\n")
+            path.chmod(0o755)
         firstboot_mask = root_source / "etc/systemd/system/systemd-firstboot.service"
         firstboot_mask.parent.mkdir(parents=True, exist_ok=True)
         firstboot_mask.symlink_to("/dev/null")
@@ -190,6 +199,24 @@ class VerifyInstallerImageTests(unittest.TestCase):
         font.write_bytes(b"")
         runner = FakeRunner(root_source, boot_source)
         with self.assertRaisesRegex(verify.ImageVerificationError, "DejaVu Sans Mono font is empty"):
+            verify.verify_image(image, runner=runner)
+
+    def test_installer_payload_directory_mode_is_required(self) -> None:
+        temporary, image, root_source, boot_source = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        (root_source / "usr/local/libexec").chmod(0o700)
+        runner = FakeRunner(root_source, boot_source)
+
+        with self.assertRaisesRegex(verify.ImageVerificationError, "mode 0755"):
+            verify.verify_image(image, runner=runner)
+
+    def test_installer_payload_script_mode_is_required(self) -> None:
+        temporary, image, root_source, boot_source = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        (root_source / "usr/local/libexec/omarchy-pi/start-installer-session.sh").chmod(0o644)
+        runner = FakeRunner(root_source, boot_source)
+
+        with self.assertRaisesRegex(verify.ImageVerificationError, "mode 0755"):
             verify.verify_image(image, runner=runner)
 
     def test_networkd_preset_must_disable_networkd(self) -> None:

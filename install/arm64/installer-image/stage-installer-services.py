@@ -51,6 +51,34 @@ SYSTEM_UNITS = {
     "omarchy-installer-session@.service": 0o644,
 }
 USER_UNITS = {"omarchy-installer-rdp.service": 0o644}
+# These are the public directory components traversed by the staged payload.
+# Keep the list explicit: the build runs under umask 077, and using mkdir's
+# parents=True alone would leave newly-created ancestors inaccessible to the
+# non-root installer session. Private directories outside this payload remain
+# untouched.
+PUBLIC_PAYLOAD_DIRECTORIES = (
+    "usr",
+    "usr/local",
+    "usr/local/libexec",
+    "usr/local/libexec/omarchy-pi",
+    "usr/local/share",
+    "usr/local/share/omarchy-pi",
+    "usr/lib",
+    "usr/lib/omarchy-pi",
+    "usr/bin",
+    "usr/share",
+    "usr/share/omarchy-pi",
+    "etc",
+    "etc/systemd",
+    "etc/systemd/system",
+    "etc/systemd/system-preset",
+    "etc/systemd/user",
+    "etc/systemd/system/multi-user.target.wants",
+    "etc/systemd/system/network-pre.target.requires",
+    "etc/systemd/system/sshd.service.requires",
+    "etc/systemd/system/NetworkManager.service.requires",
+    "etc/systemd/user/graphical-session.target.wants",
+)
 
 
 class ServiceStageError(RuntimeError):
@@ -142,6 +170,11 @@ def _ensure_directory(path: Path, *, owner_uid: int, owner_gid: int, mode: int =
             raise ServiceStageError(f"target path is not a real directory: {path}")
         if info.st_uid != owner_uid or info.st_mode & 0o022:
             raise ServiceStageError(f"target directory has unsafe owner or mode: {path}")
+        if stat.S_IMODE(info.st_mode) != mode:
+            try:
+                os.chmod(path, mode)
+            except OSError as exc:
+                raise ServiceStageError(f"cannot normalize target directory mode: {path}") from exc
         return
     try:
         path.mkdir(mode=mode, parents=True, exist_ok=False)
@@ -449,17 +482,9 @@ def stage_services(
     if os.path.lexists(private_settings):
         raise ServiceStageError("target contains private installer-settings.toml")
 
-    for directory in (
-        target / "usr/local/libexec/omarchy-pi",
-        target / "usr/local/share/omarchy-pi",
-        target / "usr/lib/omarchy-pi",
-        target / "usr/share/omarchy-pi",
-        target / "etc/systemd/system",
-        target / "etc/systemd/system-preset",
-        target / "etc/systemd/user",
-        target / "boot",
-    ):
-        _ensure_directory(directory, owner_uid=owner_uid, owner_gid=owner_gid)
+    for relative in PUBLIC_PAYLOAD_DIRECTORIES:
+        _ensure_directory(target / relative, owner_uid=owner_uid, owner_gid=owner_gid)
+    _ensure_directory(target / "boot", owner_uid=owner_uid, owner_gid=owner_gid)
 
     installed: list[str] = []
     for name, source, mode, area in sources:

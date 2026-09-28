@@ -44,6 +44,43 @@ SETTINGS_FILE = "installer-settings.toml"
 NETWORKD_PRESET = "etc/systemd/system-preset/00-omarchy-installer-networkd.preset"
 NETWORKD_PRESET_CONTENT = b"disable systemd-networkd*\n"
 REQUIRED_FONT = "usr/share/fonts/TTF/DejaVuSansMono.ttf"
+# The service launcher runs as the installer user. Verify every directory in
+# its staged path is traversable even when the image was assembled under a
+# restrictive umask; this is deliberately an explicit payload list rather
+# than a recursive permission rewrite.
+PUBLIC_PAYLOAD_DIRECTORIES = (
+    "usr",
+    "usr/local",
+    "usr/local/libexec",
+    "usr/local/libexec/omarchy-pi",
+    "usr/local/share",
+    "usr/local/share/omarchy-pi",
+    "usr/lib",
+    "usr/lib/omarchy-pi",
+    "usr/bin",
+    "usr/share",
+    "usr/share/omarchy-pi",
+    "etc",
+    "etc/systemd",
+    "etc/systemd/system",
+    "etc/systemd/system-preset",
+    "etc/systemd/user",
+    "etc/systemd/system/multi-user.target.wants",
+    "etc/systemd/system/network-pre.target.requires",
+    "etc/systemd/system/sshd.service.requires",
+    "etc/systemd/system/NetworkManager.service.requires",
+    "etc/systemd/user/graphical-session.target.wants",
+)
+EXECUTABLE_PAYLOAD_FILES = (
+    "usr/local/libexec/omarchy-pi/provision-access.py",
+    "usr/local/libexec/omarchy-pi/provision-network.py",
+    "usr/local/libexec/omarchy-pi/provision-rdp.py",
+    "usr/local/libexec/omarchy-pi/verify-installer-rdp-runtime.py",
+    "usr/local/libexec/omarchy-pi/launch-installer-session.py",
+    "usr/local/libexec/omarchy-pi/start-installer-session.sh",
+    "usr/local/libexec/omarchy-pi/start-installer-desktop.sh",
+    "usr/bin/hypr-rdp",
+)
 
 SYSTEM_UNITS = (
     "omarchy-pi-provision-access.service",
@@ -407,6 +444,20 @@ def _verify_identities(root: Path) -> None:
 
 
 def _verify_services(root: Path) -> None:
+    for relative in PUBLIC_PAYLOAD_DIRECTORIES:
+        directory = _require_directory(
+            _root_path(root, relative),
+            description=f"installer payload directory {relative}",
+        )
+        if stat.S_IMODE(directory.lstat().st_mode) != 0o755:
+            raise ImageVerificationError(f"installer payload directory is not mode 0755: {relative}")
+    for relative in EXECUTABLE_PAYLOAD_FILES:
+        executable = _regular_file(
+            _root_path(root, relative),
+            description=f"installer executable {relative}",
+        )
+        if stat.S_IMODE(executable.lstat().st_mode) != 0o755:
+            raise ImageVerificationError(f"installer executable is not mode 0755: {relative}")
     marker = _root_path(root, os.fspath(BUILDER_MARKER))
     _regular_file(marker, description="installer image marker")
     if marker.read_bytes() != BUILDER_MARKER_CONTENT:
