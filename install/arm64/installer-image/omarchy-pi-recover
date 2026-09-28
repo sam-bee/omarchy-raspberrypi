@@ -1,0 +1,135 @@
+#!/usr/bin/python3 -I
+"""Submit bounded Pi recovery requests to the fixed installer controller."""
+
+from __future__ import annotations
+
+import argparse
+import getpass
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import time
+from typing import Any
+
+
+def _load_recovery() -> Any:
+    # Production installs place the module beside the fixed root controller;
+    # the checkout fallback only supports running this uninstalled fixture.
+    installed = Path("/usr/local/libexec/omarchy-pi/recovery.py")
+    module_path = installed if installed.is_file() else Path(__file__).resolve().with_name("recovery.py")
+    spec = importlib.util.spec_from_file_location("recovery", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("recovery module is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+recovery = _load_recovery()
+
+
+def _common(parser: argparse.ArgumentParser, *, target_required: bool = True) -> None:
+    parser.add_argument("--target", required=target_required, help="explicit whole-disk device, for example /dev/mmcblk0")
+    parser.add_argument("--confirm-target", help="the exact RECOVER token printed by recovery discover")
+
+
+def _credential(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--key-file", help="existing unlock key file; it is read by the privileged controller")
+    group.add_argument("--passphrase", action="store_true", help="prompt for the existing LUKS passphrase without putting it in argv")
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="inspect or repair an existing Omarchy Pi installation")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    discover = commands.add_parser("discover", help="read-only disk inventory and recovery tokens")
+    discover.set_defaults(action="recovery-discover")
+
+    status = commands.add_parser("status", help="show the queued or completed recovery job")
+    status.add_argument("--watch", action="store_true", help="poll until the current installer or recovery job finishes")
+    status.set_defaults(action="status")
+
+    inspect = commands.add_parser("inspect", help="read-only inspection of one explicitly selected target")
+    _common(inspect)
+    _credential(inspect)
+    inspect.set_defaults(action="recovery-inspect")
+
+    plan = commands.add_parser("plan", help="read-only unlock and bounded repair plan")
+    _common(plan)
+    _credential(plan)
+    plan.set_defaults(action="recovery-plan")
+
+    unlock = commands.add_parser("unlock", help="validate and briefly open an existing LUKS target read-only")
+    _common(unlock)
+    _credential(unlock)
+    unlock.set_defaults(action="recovery-inspect")
+
+    repair = commands.add_parser("repair", help="repair the installed kernel/initramfs after explicit confirmation")
+    _common(repair)
+    _credential(repair)
+    repair.add_argument("--confirm-repair", action="store_true", help="confirm the exact bounded boot repair")
+    repair.set_defaults(action="recovery-repair")
+
+    reinstall = commands.add_parser("reinstall", help="hand off to the existing destructive installer flow")
+    _common(reinstall)
+    reinstall.add_argument("--confirm-reinstall", action="store_true", help="confirm the separate installer handoff")
+    reinstall.set_defaults(action="reinstall")
+    return parser
+
+
+def _request(args: argparse.Namespace) -> dict[str, Any]:
+    request: dict[str, Any] = {"action": args.action}
+    if args.command not in {"discover", "status"}:
+        request["target"] = args.target
+        if args.confirm_target:
+            request["target_confirmation"] = args.confirm_target
+    if args.command in {"plan", "inspect", "unlock", "repair"}:
+        if args.key_file:
+            request["key_file"] = args.key_file
+        elif args.passphrase:
+            request["passphrase"] = getpass.getpass("Existing LUKS passphrase: ")
+    if args.command == "repair":
+        if not args.confirm_repair:
+            raise recovery.RecoveryError("repair requires --confirm-repair")
+        request["repair_confirmation"] = recovery.REPAIR_CONFIRMATION
+    if args.command == "reinstall" and not args.confirm_reinstall:
+        raise recovery.RecoveryError("reinstall requires --confirm-reinstall")
+    return request
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        request = _request(args)
+        if args.command == "status":
+            while True:
+                response = recovery._controller_call(request)
+                print(json.dumps({key: value for key, value in response.items() if key != "ok"}, indent=2, sort_keys=True))
+                if not args.watch:
+                    return 0
+                state = response.get("state", {})
+                if isinstance(state, dict) and state.get("status") in {"complete", "failed", "interrupted", "idle"}:
+                    return 0
+                time.sleep(2)
+        if args.command == "reinstall":
+            print(json.dumps({
+                "handoff": "installer-submit",
+                "target": args.target,
+                "target_confirmation": args.confirm_target,
+                "message": "Run omarchy-pi-install separately and confirm the target in its installer flow. No storage operation was performed.",
+                "destructive": True,
+            }, indent=2, sort_keys=True))
+            return 0
+        response = recovery._controller_call(request)
+    except recovery.RecoveryError as exc:
+        print(f"omarchy-pi-recover: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({key: value for key, value in response.items() if key != "ok"}, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""File-backed contract tests for the bounded USB recovery helper."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+HERE = Path(__file__).resolve().parent
+SPEC = importlib.util.spec_from_file_location("recovery", HERE / "recovery.py")
+assert SPEC and SPEC.loader
+recovery = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = recovery
+SPEC.loader.exec_module(recovery)
+
+
+LUKS_UUID = "12345678-1234-1234-1234-123456789abc"
+BOOT_UUID = "ABCD-1234"
+
+
+class FixtureRunner:
+    def __init__(self, source_root: Path) -> None:
+        self.source_root = source_root
+        self.calls: list[list[str]] = []
+        self.inputs: list[str | None] = []
+        self.inventory = {
+            "blockdevices": [
+                {
+                    "path": "/dev/sda",
+                    "kname": "sda",
+                    "type": "disk",
+                    "size": 64 * 1024 * 1024 * 1024,
+                    "serial": "fixture-target-1",
+                    "tran": "usb",
+                    "children": [
+                        {"path": "/dev/sda1", "kname": "sda1", "type": "part", "fstype": "vfat", "label": "PI-BOOT", "uuid": BOOT_UUID},
+                        {"path": "/dev/sda2", "kname": "sda2", "type": "part", "fstype": "crypto_LUKS", "label": "OMARCHY-ROOT", "uuid": LUKS_UUID},
+                    ],
+                },
+                {
+                    "path": "/dev/sdb",
+                    "kname": "sdb",
+                    "type": "disk",
+                    "size": 16 * 1024 * 1024 * 1024,
+                    "serial": "fixture-installer-1",
+                    "tran": "usb",
+                    "label": "OMARCHY-INSTALLER",
+                    "children": [
+                        {"path": "/dev/sdb1", "kname": "sdb1", "type": "part", "fstype": "vfat", "label": "OMARCHY-INSTALLER", "uuid": "AAAA-BBBB"},
+                    ],
+                },
+            ]
+        }
+
+    def __call__(self, command: list[str], *, input: str | None, text: bool, capture_output: bool, check: bool) -> subprocess.CompletedProcess[str]:
+        self.calls.append(command)
+        self.inputs.append(input)
+        if command[:2] == ["lsblk", "--json"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps(self.inventory), "")
+        if command[:1] == ["findmnt"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"filesystems": []}), "")
+        if command[:2] == ["cat", "/proc/swaps"]:
+            return subprocess.CompletedProcess(command, 0, "Filename\tType\tSize\tUsed\tPriority\n", "")
+        if command[:1] == ["udevadm"]:
+            return subprocess.CompletedProcess(command, 1, "", "")
+        if command[:2] == ["cryptsetup", "luksUUID"]:
+            return subprocess.CompletedProcess(command, 0, LUKS_UUID + "\n", "")
+        if command[:2] == ["cryptsetup", "open"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[:2] == ["cryptsetup", "close"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[:1] == ["mount"]:
+            mountpoint = Path(command[-1])
+            if command[-2] == "/dev/mapper/omarchy-pi-recovery-cryptroot":
+                shutil.copytree(self.source_root, mountpoint, dirs_exist_ok=True)
+            elif command[-2] == "/dev/sda1":
+                destination = mountpoint
+                destination.mkdir(parents=True, exist_ok=True)
+                for item in (self.source_root / "boot").iterdir():
+                    target = destination / item.name
+                    if item.is_file():
+                        shutil.copy2(item, target)
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[:1] == ["umount"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[:1] == ["systemd-nspawn"]:
+            root = Path(command[command.index("--directory") + 1])
+            if command[-2:] == ["/usr/bin/mkinitcpio", "-P"]:
+                (root / "boot/initramfs-linux.img").write_bytes(b"repaired-initramfs")
+            if command[-4:-1] == ["/usr/bin/pacman", "--noconfirm", "-U"]:
+                (root / "boot/kernel8.img").write_bytes(b"restored-kernel")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise AssertionError(f"unexpected command: {command}")
+
+
+class RecoveryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary.name)
+        self.source = self.base / "source"
+        (self.source / "boot").mkdir(parents=True)
+        (self.source / "etc").mkdir()
+        (self.source / "etc/mkinitcpio.d").mkdir(parents=True)
+        (self.source / "usr/lib/omarchy-pi").mkdir(parents=True)
+        (self.source / "boot/cmdline.txt").write_text("root=UUID=" + LUKS_UUID + " rw rootwait\n", encoding="utf-8")
+        (self.source / "boot/config.txt").write_text("dtparam=pciex1_gen=2\n", encoding="utf-8")
+        (self.source / "etc/crypttab").write_text("cryptroot UUID=" + LUKS_UUID + " none\n", encoding="utf-8")
+        (self.source / "etc/mkinitcpio.d/linux-rpi.preset").write_text("PRESETS=('default')\n", encoding="utf-8")
+        (self.source / "usr/lib/omarchy-pi/installer-provenance.json").write_text(json.dumps({"source_revision": "a" * 40}), encoding="utf-8")
+        package_dir = self.source / "var/lib/pacman/local/linux-rpi-6.1-1"
+        package_dir.mkdir(parents=True)
+        (package_dir / "desc").write_text("%NAME%\nlinux-rpi\n\n%VERSION%\n6.1-1\n", encoding="utf-8")
+        archive = self.source / "var/cache/pacman/pkg/linux-rpi-6.1-1-aarch64.pkg.tar.zst"
+        archive.parent.mkdir(parents=True)
+        archive.write_bytes(b"signed-fixture-archive")
+        self.runner = FixtureRunner(self.source)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def target(self) -> recovery.TargetIdentity:
+        return recovery.discover_targets(runner=self.runner)[0]
+
+    def test_discover_refuses_installer_media_and_returns_stable_token(self) -> None:
+        response = recovery.handle_request({"action": "recovery-discover"}, runner=self.runner)
+        self.assertEqual(response["targets"][0]["stable_id"], "serial:fixture-target-1")
+        self.assertIn("RECOVER /dev/sda serial:fixture-target-1", response["targets"][0]["token"])
+        installer = response["targets"][1]
+        self.assertFalse(installer["eligible"])
+        self.assertIn("installer media", installer["reasons"])
+
+    def test_wrong_target_and_missing_confirmation_are_rejected(self) -> None:
+        target = self.target()
+        with self.assertRaisesRegex(recovery.RecoveryError, "confirmation"):
+            recovery.handle_request({"action": "recovery-inspect", "target": target.path}, runner=self.runner)
+        installer_token = next(item for item in recovery.discover_targets(runner=self.runner) if item.path == "/dev/sdb").token
+        with self.assertRaisesRegex(recovery.RecoveryError, "refused"):
+            recovery.handle_request(
+                {"action": "recovery-inspect", "target": "/dev/sdb", "target_confirmation": installer_token},
+                runner=self.runner,
+            )
+
+    def test_mounted_target_is_refused_before_unlock(self) -> None:
+        self.runner.inventory["blockdevices"][0]["children"][1]["mountpoints"] = ["/"]
+        target = self.target()
+        self.assertIn("mounted filesystem or descendant", target.reasons)
+        with self.assertRaisesRegex(recovery.RecoveryError, "refused"):
+            recovery.handle_request(
+                {"action": "recovery-plan", "target": target.path, "target_confirmation": target.token, "passphrase": "fixture passphrase"},
+                runner=self.runner,
+            )
+        self.assertFalse(any(call[:2] == ["cryptsetup", "open"] for call in self.runner.calls))
+
+    def test_plan_is_read_only_and_keeps_passphrase_out_of_argv(self) -> None:
+        target = self.target()
+        result = recovery.handle_request(
+            {"action": "recovery-plan", "target": target.path, "target_confirmation": target.token, "passphrase": "fixture passphrase"},
+            runner=self.runner,
+        )
+        self.assertTrue(result["read_only"])
+        self.assertTrue(result["unlock_plan"]["read_only"])
+        self.assertNotIn("fixture passphrase", result["unlock_plan"]["command"])
+        self.assertNotIn("mount", [call[0] for call in self.runner.calls])
+
+    def test_inspect_opens_read_only_mounts_and_cleans_everything(self) -> None:
+        target = self.target()
+        response = recovery.handle_request(
+            {"action": "recovery-inspect", "target": target.path, "target_confirmation": target.token, "passphrase": "fixture passphrase"},
+            runner=self.runner,
+            mount_root=self.base / "mounts",
+        )
+        self.assertEqual(response["inspection"]["source_revision"], "a" * 40)
+        self.assertTrue(response["inspection"]["crypttab_present"])
+        open_call = next(call for call in self.runner.calls if call[:2] == ["cryptsetup", "open"])
+        self.assertIn("--readonly", open_call)
+        root_mount = next(call for call in self.runner.calls if call[:1] == ["mount"] and "noload" in call[2])
+        self.assertIn("ro,noload", root_mount)
+        self.assertTrue(any(call[:1] == ["cryptsetup"] and call[1] == "close" for call in self.runner.calls))
+        self.assertGreaterEqual(sum(call[:1] == ["umount"] for call in self.runner.calls), 2)
+        self.assertIn("fixture passphrase\n", [call for call in self.runner.inputs if call])
+        self.assertTrue(all("fixture passphrase" not in " ".join(call) for call in self.runner.calls))
+
+    def test_key_file_unlock_uses_existing_file_and_no_keyslot_operation(self) -> None:
+        key = self.base / "existing.key"
+        key.write_bytes(b"existing-key")
+        key.chmod(0o600)
+        target = self.target()
+        mapper = recovery.unlock_target(target, key_file=key, runner=self.runner)
+        self.assertIsNotNone(mapper)
+        open_call = next(call for call in self.runner.calls if call[:2] == ["cryptsetup", "open"])
+        self.assertIn(str(key), open_call)
+        self.assertNotIn("luksAddKey", " ".join(call for call in self.runner.calls for call in call))
+        mapper.close()  # type: ignore[union-attr]
+
+    def test_repair_requires_confirmation_reopens_writable_and_preserves_config(self) -> None:
+        target = self.target()
+        request = {"action": "recovery-repair", "target": target.path, "target_confirmation": target.token, "passphrase": "fixture passphrase"}
+        with self.assertRaisesRegex(recovery.RecoveryError, "explicit confirmation"):
+            recovery.handle_request(request, runner=self.runner, mount_root=self.base / "mounts")
+        before_cmdline = (self.source / "boot/cmdline.txt").read_bytes()
+        before_config = (self.source / "boot/config.txt").read_bytes()
+        response = recovery.handle_request({**request, "repair_confirmation": recovery.REPAIR_CONFIRMATION}, runner=self.runner, mount_root=self.base / "mounts")
+        self.assertTrue(response["preserved_unchanged"])
+        self.assertTrue(response["missing_kernel"])
+        open_call = next(call for call in self.runner.calls if call[:2] == ["cryptsetup", "open"] and "--readonly" not in call)
+        self.assertNotIn("--readonly", open_call)
+        self.assertTrue(any(call[:1] == ["systemd-nspawn"] and "/usr/bin/pacman" in call and "linux-rpi" in " ".join(call) for call in self.runner.calls))
+        self.assertEqual((self.source / "boot/cmdline.txt").read_bytes(), before_cmdline)
+        self.assertEqual((self.source / "boot/config.txt").read_bytes(), before_config)
+
+    def test_repair_plan_does_not_rewrite_boot_config(self) -> None:
+        plan = recovery.plan_boot_repair(self.source, self.source / "boot")
+        self.assertTrue(plan.missing_kernel)
+        self.assertEqual(plan.commands[0][0], "systemd-nspawn")
+        self.assertIn("/usr/bin/pacman", plan.commands[0])
+        self.assertTrue(any(command[0] == "systemd-nspawn" and "/usr/bin/mkinitcpio" in command for command in plan.commands))
+        self.assertNotIn("config.txt", " ".join(" ".join(command) for command in plan.commands))
+
+    def test_missing_exact_kernel_archive_refuses_instead_of_using_a_repository(self) -> None:
+        shutil.rmtree(self.source / "var/cache/pacman/pkg")
+        with self.assertRaisesRegex(recovery.RecoveryError, "exact installed linux-rpi archive"):
+            recovery.plan_boot_repair(self.source, self.source / "boot")
+
+    def test_standalone_cli_starts_in_isolated_python(self) -> None:
+        cli = HERE / "omarchy-pi-recover"
+        result = subprocess.run([str(cli), "--help"], env={"PATH": "/usr/bin:/bin"}, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("recovery", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()
