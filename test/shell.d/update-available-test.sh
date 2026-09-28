@@ -211,3 +211,90 @@ grep -Fx 'omarchy-dev-checkout 1 new commit on origin/quattro' "$stdout" >/dev/n
   fail "update checker reports cached dev commits after a fetch failure" "$(cat "$stdout")"
 [[ ! -s $stderr ]] || fail "update checker keeps dev fetch failures quiet" "$(cat "$stderr")"
 pass "update checker uses cached dev state when fetching is unavailable"
+
+pi_checkout="$test_tmp/pi-checkout"
+mkdir -p "$pi_checkout/install/arm64"
+touch "$pi_checkout/.omarchy-pi-source-commit"
+cat >"$pi_checkout/install/arm64/update-source.py" <<'SH'
+#!/bin/bash
+printf '%s\n' "${TEST_PI_SOURCE_OUTPUT:-up-to-date 0000000000000000000000000000000000000000}"
+exit "${TEST_PI_SOURCE_STATUS:-0}"
+SH
+chmod +x "$pi_checkout/install/arm64/update-source.py"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_CHECKUPDATES=none \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$pi_checkout" \
+  TEST_GIT_BEHIND=0 \
+  TEST_PI_SOURCE_OUTPUT="update-available 1111111111111111111111111111111111111111 (current 0000000000000000000000000000000000000000)"; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker reports a Pi source update"
+grep -Fx 'omarchy-pi-source 1111111111111111111111111111111111111111 available' "$stdout" >/dev/null ||
+  fail "update checker prints the Pi source revision" "$(cat "$stdout")"
+pass "update checker detects an available Pi source release"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_CHECKUPDATES=none \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$pi_checkout" \
+  TEST_GIT_BEHIND=0 \
+  TEST_PI_SOURCE_OUTPUT="up-to-date 0000000000000000000000000000000000000000"; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 1 ]] || fail "update checker reports a current Pi source release as no update"
+grep -Fx 'Omarchy is up to date' "$stdout" >/dev/null || fail "update checker reports current Pi source state"
+pass "update checker accepts a successful Pi source no-change check"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_CHECKUPDATES=updates \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$pi_checkout" \
+  TEST_GIT_BEHIND=0 \
+  TEST_PI_SOURCE_OUTPUT="up-to-date 0000000000000000000000000000000000000000"; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker reports ALARM package updates"
+grep -Fx 'linux 6.1-1 -> 6.1-2' "$stdout" >/dev/null ||
+  fail "update checker prints ALARM package updates" "$(cat "$stdout")"
+pass "update checker checks ALARM packages on Pi source installs"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_CHECKUPDATES=none \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$pi_checkout" \
+  TEST_GIT_BEHIND=0 \
+  TEST_PI_SOURCE_STATUS=2 \
+  TEST_PI_SOURCE_OUTPUT="source update unavailable"; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker does not hide a failed Pi source check as up-to-date"
+grep -Fx 'omarchy-pi-source update check failed' "$stdout" >/dev/null ||
+  fail "update checker surfaces a failed Pi source check" "$(cat "$stdout")"
+! grep -Fx 'Omarchy is up to date' "$stdout" >/dev/null || fail "failed Pi source check is not reported as up-to-date"
+pass "update checker surfaces Pi source resolution failures"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_CHECKUPDATES=fail \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$pi_checkout" \
+  TEST_GIT_BEHIND=0 \
+  TEST_PI_SOURCE_OUTPUT="up-to-date 0000000000000000000000000000000000000000"; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker surfaces an ALARM package check failure"
+grep -Fx 'ALARM package update check failed' "$stdout" >/dev/null ||
+  fail "update checker reports an ALARM package check failure" "$(cat "$stdout")"
+! grep -Fx 'Omarchy is up to date' "$stdout" >/dev/null || fail "failed ALARM package check is not reported as up-to-date"
+pass "update checker surfaces ALARM package resolution failures"

@@ -5,6 +5,52 @@
 set -euo pipefail
 
 updates=()
+pi_source_mode=0
+
+# Pi source releases are user-owned and intentionally independent of the
+# package-backed Omarchy channel.  The helper performs a fresh HTTPS
+# resolution; an unavailable check is surfaced as actionable state instead of
+# being mistaken for an up-to-date source.
+if [[ -f "$OMARCHY_PATH/.omarchy-pi-source-commit" && -x "$OMARCHY_PATH/install/arm64/update-source.py" ]]; then
+  pi_source_mode=1
+  pi_source_output=""
+  pi_source_status=0
+  set +e
+  pi_source_output=$(HOME="${HOME:-}" "$OMARCHY_PATH/install/arm64/update-source.py" check 2>/dev/null)
+  pi_source_status=$?
+  set -e
+  if (( pi_source_status == 0 )); then
+    read -r pi_source_state pi_source_revision _ <<< "$pi_source_output"
+    if [[ $pi_source_state == "update-available" && $pi_source_revision =~ ^[0-9a-f]{40}$ ]]; then
+      updates+=("omarchy-pi-source $pi_source_revision available")
+    elif [[ $pi_source_state != "up-to-date" || ! $pi_source_revision =~ ^[0-9a-f]{40}$ ]]; then
+      updates+=("omarchy-pi-source update check returned an invalid result")
+    fi
+  else
+    updates+=("omarchy-pi-source update check failed")
+  fi
+fi
+
+if (( pi_source_mode == 1 )); then
+  # Pi installs are source-staged and do not necessarily have an `omarchy` or
+  # `omarchy-dev` package to key the normal package check on.  ALARM's
+  # checkupdates uses status 2 for the ordinary no-updates case; all other
+  # failures remain visible so a broken package check cannot become a false
+  # up-to-date result.
+  pi_package_output=""
+  pi_package_status=0
+  set +e
+  pi_package_output=$(checkupdates --nocolor 2>/dev/null)
+  pi_package_status=$?
+  set -e
+  if (( pi_package_status == 0 || pi_package_status == 2 )) && [[ -n $pi_package_output ]]; then
+    while IFS= read -r pi_package_line; do
+      [[ -n $pi_package_line ]] && updates+=("$pi_package_line")
+    done <<< "$pi_package_output"
+  elif (( pi_package_status != 2 )); then
+    updates+=("ALARM package update check failed")
+  fi
+fi
 
 if [[ $OMARCHY_PATH != "/usr/share/omarchy" ]]; then
   upstream=$(git -C "$OMARCHY_PATH" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
