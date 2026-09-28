@@ -44,6 +44,45 @@ if command -v unshare >/dev/null && unshare --user --map-root-user true 2>/dev/n
   mkdir -p "$apply_target/etc" "$apply_target/usr" "$apply_target/var"
   printf 'root:x:0:0:root:/root:/bin/bash\n' >"$apply_target/etc/passwd"
   printf 'root:x:0:\n' >"$apply_target/etc/group"
+  mkdir -p "$apply_target/usr/bin" "$apply_target/usr/share/omarchy-pi" "$apply_target/usr/lib/systemd/system"
+  printf 'hypr-rdp fixture\n' >"$apply_target/usr/bin/hypr-rdp"
+  sha256sum "$apply_target/usr/bin/hypr-rdp" | cut -d' ' -f1 >"$apply_target/usr/share/omarchy-pi/hypr-rdp.sha256"
+  cat >"$apply_target/usr/lib/systemd/system/NetworkManager.service" <<'EOF'
+[Unit]
+Description=NetworkManager fixture
+
+[Install]
+WantedBy=multi-user.target
+Also=NetworkManager-dispatcher.service NetworkManager-wait-online.service
+EOF
+  for unit in NetworkManager-dispatcher.service NetworkManager-wait-online.service; do
+    printf '[Unit]\nDescription=%s fixture\n' "$unit" >"$apply_target/usr/lib/systemd/system/$unit"
+  done
+  cat >"$apply_target/usr/lib/systemd/system/bluetooth.service" <<'EOF'
+[Unit]
+Description=Bluetooth fixture
+
+[Install]
+WantedBy=bluetooth.target
+Alias=dbus-org.bluez.service
+EOF
+  networkd_links=(
+    etc/systemd/system/multi-user.target.wants/systemd-networkd.service
+    etc/systemd/system/sockets.target.wants/systemd-networkd.socket
+    etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service
+    etc/systemd/system/network.target.wants/systemd-networkd.service
+    etc/systemd/system/dbus-org.freedesktop.network1.service
+    etc/systemd/system/sockets.target.wants/systemd-networkd-resolve-hook.socket
+    etc/systemd/system/sockets.target.wants/systemd-networkd-varlink-metrics.socket
+    etc/systemd/system/sockets.target.wants/systemd-networkd-varlink.socket
+  )
+  for relative in "${networkd_links[@]}"; do
+    mkdir -p "$(dirname "$apply_target/$relative")"
+    ln -s /usr/lib/systemd/system/systemd-networkd.service "$apply_target/$relative"
+  done
+  mkdir -p "$apply_target/etc/systemd/system/multi-user.target.wants"
+  ln -s /usr/lib/systemd/system/systemd-resolved.service \
+    "$apply_target/etc/systemd/system/multi-user.target.wants/systemd-resolved.service"
   apply_output=$(unshare --user --map-root-user env PATH="$PATH" bash -c '
     umask 077
     bash "$1" --rootfs "$2" --source-checkout "$3"
@@ -57,6 +96,21 @@ if command -v unshare >/dev/null && unshare --user --map-root-user true 2>/dev/n
   assert_mode 755 "$apply_target/usr/share/omarchy-pi/bin/omarchy-theme-set"
   assert_mode 755 "$apply_target/etc/skel/.config"
   assert_mode 755 "$apply_target/etc/skel/.config/uwsm/env.d"
+  [[ -f "$apply_target/usr/share/omarchy-pi/.source-revision" ]] || fail "source revision is added beside the package digest"
+  [[ $(<"$apply_target/usr/share/omarchy-pi/hypr-rdp.sha256") == "$(sha256sum "$apply_target/usr/bin/hypr-rdp" | cut -d' ' -f1)" ]] ||
+    fail "package RDP digest is preserved and remains valid"
+  for relative in "${networkd_links[@]}"; do
+    [[ ! -e "$apply_target/$relative" && ! -L "$apply_target/$relative" ]] ||
+      fail "networkd enablement is removed: $relative"
+  done
+  [[ -L "$apply_target/etc/systemd/system/multi-user.target.wants/systemd-resolved.service" ]] ||
+    fail "systemd-resolved enablement is retained"
+  [[ -L "$apply_target/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]] ||
+    fail "NetworkManager is enabled in the target root"
+  [[ -L "$apply_target/etc/systemd/system/bluetooth.target.wants/bluetooth.service" ]] ||
+    fail "Bluetooth is enabled in the target root"
+  [[ $(<"$apply_target/etc/systemd/system-preset/00-omarchy-pi-networkd.preset") == 'disable systemd-networkd*' ]] ||
+    fail "target root carries the networkd-disable preset"
   pass "generic provisioning keeps public source and skeleton paths traversable under umask 077"
 
   fake_bin="$test_tmp/fake-bin"

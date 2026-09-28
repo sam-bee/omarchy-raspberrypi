@@ -8,6 +8,8 @@
 # With --user it creates one new target-local account and seeds that account.
 set -euo pipefail
 
+NETWORKD_PRESET_CONTENT=$'disable systemd-networkd*\n'
+
 usage() {
   cat >&2 <<'USAGE'
 Usage: provision-desktop-root.sh --rootfs ROOT --source-checkout DIR
@@ -286,9 +288,29 @@ normalize_source_permissions() {
   announce "normalize source permissions under $destination"
   (( dry_run )) && return 0
   # Tar extraction honours the caller's umask unless --same-permissions is
-  # used.  The source is public package data, so make it readable and keep
-  # executable bits on scripts even when the payload was built with umask 077.
-  chmod -R a+rX -- "$destination"
+  # used. The source is public package data, so normalize directories and
+  # files to stable package modes while retaining executable bits on scripts.
+  find "$destination" -type d -exec chmod 0755 -- {} +
+  find "$destination" -type f -perm /111 -exec chmod 0755 -- {} +
+  find "$destination" -type f ! -perm /111 -exec chmod 0644 -- {} +
+}
+
+validate_package_source_directory() {
+  local destination=$1 marker binary child expected actual
+  marker="$destination/hypr-rdp.sha256"
+  binary=$(target_path /usr/bin/hypr-rdp)
+  require_regular_file "$marker" "package RDP digest"
+  require_regular_file "$binary" "package RDP executable"
+  while IFS= read -r -d '' child; do
+    [[ $child == "$marker" ]] ||
+      die "refusing unmarked Omarchy source content: $child"
+  done < <(find "$destination" -mindepth 1 -maxdepth 1 -print0)
+  expected=$(<"$marker")
+  [[ $expected =~ ^[0-9a-f]{64}$ ]] ||
+    die "package RDP digest is not a SHA-256 value: $marker"
+  actual=$(sha256sum -- "$binary" | awk '{print $1}')
+  [[ $expected == "$actual" ]] ||
+    die "package RDP digest does not match $binary"
 }
 
 stage_source_tree() {
@@ -296,17 +318,22 @@ stage_source_tree() {
   destination=$(target_path /usr/share/omarchy-pi)
   if [[ -e $destination || -L $destination ]]; then
     [[ -d $destination && ! -L $destination ]] || die "Omarchy source destination is not a directory"
-    [[ -f $destination/.source-revision ]] || die "existing Omarchy source has no revision marker"
-    [[ $(<"$destination/.source-revision") == "$SOURCE_REVISION" ]] ||
-      die "existing Omarchy source has a different revision: $destination"
-    normalize_source_permissions "$destination"
-    announce "reuse Omarchy source revision $SOURCE_REVISION"
-    return 0
+    if [[ -f $destination/.source-revision ]]; then
+      [[ $(<"$destination/.source-revision") == "$SOURCE_REVISION" ]] ||
+        die "existing Omarchy source has a different revision: $destination"
+      normalize_source_permissions "$destination"
+      announce "reuse Omarchy source revision $SOURCE_REVISION"
+      return 0
+    fi
+    validate_package_source_directory "$destination"
+    announce "preserve package RDP digest while adding Omarchy source revision $SOURCE_REVISION"
+  else
+    announce "extract clean Omarchy source revision $SOURCE_REVISION into $destination"
+    (( dry_run )) && return 0
+    reject_symlink_components "$destination" 0
+    mkdir -p -- "$destination"
   fi
-  announce "extract clean Omarchy source revision $SOURCE_REVISION into $destination"
   (( dry_run )) && return 0
-  reject_symlink_components "$destination" 0
-  mkdir -p -- "$destination"
   git -C "$source_checkout" archive --format=tar "$SOURCE_REVISION" |
     tar -xf - -C "$destination" --no-same-owner --no-same-permissions
   normalize_source_permissions "$destination"
@@ -348,6 +375,57 @@ stage_system_assets() {
     "$(target_path /etc/systemd/user/omarchy-pi-hypr-rdp.service)" 0644
   install_file "$source_root/session/omarchy-lock-password" \
     "$(target_path /etc/pam.d/omarchy-lock-password)" 0644
+}
+
+disable_networkd_enablement() {
+  local destination=$1 target
+  if [[ ! -e $destination && ! -L $destination ]]; then
+    return 0
+  fi
+  [[ -L $destination ]] || die "refusing to remove non-symlink networkd enablement: $destination"
+  target=$(readlink -- "$destination")
+  case "$(basename -- "$target")" in
+    systemd-networkd.service|systemd-networkd.socket|systemd-networkd-wait-online.service|\
+      systemd-networkd-resolve-hook.socket|systemd-networkd-varlink-metrics.socket|\
+      systemd-networkd-varlink.socket)
+      ;;
+    *) die "refusing unexpected networkd enablement: $destination -> $target" ;;
+  esac
+  announce "disable networkd link $destination"
+  (( dry_run )) || rm -f -- "$destination"
+}
+
+stage_target_services() {
+  local relative destination unit unit_path
+  for relative in \
+    /etc/systemd/system/multi-user.target.wants/systemd-networkd.service \
+    /etc/systemd/system/sockets.target.wants/systemd-networkd.socket \
+    /etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service \
+    /etc/systemd/system/network.target.wants/systemd-networkd.service \
+    /etc/systemd/system/dbus-org.freedesktop.network1.service \
+    /etc/systemd/system/sockets.target.wants/systemd-networkd-resolve-hook.socket \
+    /etc/systemd/system/sockets.target.wants/systemd-networkd-varlink-metrics.socket \
+    /etc/systemd/system/sockets.target.wants/systemd-networkd-varlink.socket; do
+    destination=$(target_path "$relative")
+    disable_networkd_enablement "$destination"
+  done
+
+  destination=$(target_path /etc/systemd/system-preset)
+  ensure_directory "$destination" 0755 0 0
+  install_text "$destination/00-omarchy-pi-networkd.preset" 0644 0 0 "$NETWORKD_PRESET_CONTENT"
+
+  for unit in NetworkManager.service bluetooth.service; do
+    unit_path=$(target_path "/usr/lib/systemd/system/$unit")
+    if [[ -e $unit_path || -L $unit_path ]]; then
+      require_regular_file "$unit_path" "target system unit"
+      announce "enable target service $unit"
+      if (( ! dry_run )); then
+        command -v systemctl >/dev/null 2>&1 || die "systemctl is required to enable target service $unit"
+        systemctl --root="$rootfs" enable "$unit" >/dev/null ||
+          die "could not enable target service $unit"
+      fi
+    fi
+  done
 }
 
 stage_user_defaults() {
@@ -576,6 +654,7 @@ require_source_checkout
 require_payload
 stage_source_tree
 stage_system_assets
+stage_target_services
 stage_user_defaults
 create_target_user
 seed_selected_user
