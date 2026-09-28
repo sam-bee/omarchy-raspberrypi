@@ -44,6 +44,8 @@ through the documented first-boot path.
 
 ## Prepare the desktop user
 
+The generic desktop payload excludes the build's pacman GPG home, including its generated private master key. After copying the root, the disk installer must initialize a fresh target keyring with `pacman-key --init` and `pacman-key --populate archlinux archlinuxarm` in the target before package operations.
+
 After the target user has been created, the release has been staged at
 `~/.local/share/omarchy-pi/current`, and the desktop packages are installed,
 run this as that user:

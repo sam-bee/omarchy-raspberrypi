@@ -676,6 +676,10 @@ def _copy_tree_without_cache(source: Path, destination: Path) -> None:
     def ignore(path: str, names: list[str]) -> set[str]:
         if Path(path) == source / "var/cache/pacman":
             return {"pkg"}
+        if Path(path) == source / "etc/pacman.d":
+            # Signed staging generates a target-local private master key.
+            # Each installed machine must initialize its own pacman keyring.
+            return {"gnupg"}
         return set()
 
     shutil.copytree(source, destination, symlinks=True, copy_function=shutil.copy2, ignore=ignore)
@@ -868,6 +872,7 @@ def build_payload(
                 "packages": "packages",
                 "manifest": "desktop-manifest.json",
                 "source": "source",
+                "excluded_build_state": ["var/cache/pacman/pkg", "etc/pacman.d/gnupg"],
                 "offline_archives": [],
             },
             "policy": {"baseline": plan_document["baseline"], "plan_schema_version": plan_document["schema_version"]},
