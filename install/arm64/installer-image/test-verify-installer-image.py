@@ -111,6 +111,10 @@ class VerifyInstallerImageTests(unittest.TestCase):
         marker = root_source / verify.BUILDER_MARKER
         marker.parent.mkdir(parents=True)
         marker.write_bytes(verify.BUILDER_MARKER_CONTENT)
+        for module in ("disk_install.py", "installer_job.py", "installed_target.py", "desktop_payload.py", "configure-installer-boot.py", "assemble-image.py"):
+            path = root_source / "usr/local/libexec/omarchy-pi" / module
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# fixture\n")
         for unit in verify.SYSTEM_UNITS:
             path = root_source / "etc/systemd/system" / unit
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,6 +132,10 @@ class VerifyInstallerImageTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"#!/bin/bash\n")
             path.chmod(0o755)
+        for tool in verify.REQUIRED_INSTALLER_TOOLS:
+            path = root_source / "usr/bin" / tool
+            path.write_text("#!/bin/sh\n")
+            path.chmod(0o755)
         firstboot_mask = root_source / "etc/systemd/system/systemd-firstboot.service"
         firstboot_mask.parent.mkdir(parents=True, exist_ok=True)
         firstboot_mask.symlink_to("/dev/null")
@@ -141,6 +149,12 @@ class VerifyInstallerImageTests(unittest.TestCase):
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(destination)
 
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("payload_fixture", HERE / "test-desktop-payload.py")
+        fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture)
+        bundle, digest = fixture.PayloadTests().bundle(root)
+        verify.desktop_payload.stage_bundle(root_source, bundle, digest)
         boot_source.mkdir()
         (boot_source / "dtbs/broadcom").mkdir(parents=True)
         (boot_source / "overlays").mkdir()

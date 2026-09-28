@@ -66,6 +66,14 @@ class BuildInstallerImageTests(unittest.TestCase):
             self.assertFalse(workdir.exists())
             self.assertFalse(output.exists())
 
+    def test_desktop_input_pair_is_validated_before_build(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = self.make_inputs(root)
+            with self.assertRaisesRegex(MODULE.InstallerBuildError, "supplied together"):
+                MODULE.plan(**inputs, workdir=root / "work", output=root / "image", desktop_payload=root / "missing")
+            self.assertFalse((root / "work").exists())
+
     def test_plan_rejects_mismatched_hashes_before_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

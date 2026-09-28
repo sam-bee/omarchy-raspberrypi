@@ -42,7 +42,7 @@ fi
 
 for attempt in {1..25}; do
   if count=$(installer_monitor_count) && (( count > 0 )); then
-    exec /usr/bin/foot --app-id=omarchy-installer --title='Omarchy Installer'
+    exec /usr/bin/foot --app-id=omarchy-installer --title='Omarchy Installer' /usr/local/bin/omarchy-pi-install
   fi
   sleep 0.2
 done

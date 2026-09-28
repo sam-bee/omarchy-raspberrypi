@@ -34,6 +34,13 @@ PT_INTERP = 3
 
 LIBEXEC_FILES = {
     "settings.py": 0o644,
+    "disk_install.py": 0o644,
+    "installer_job.py": 0o644,
+    "installed_target.py": 0o644,
+    "desktop_payload.py": 0o644,
+    "configure-installer-boot.py": 0o644,
+    "assemble-image.py": 0o644,
+    "installer-control": 0o755,
     "provision-access.py": 0o755,
     "provision-network.py": 0o755,
     "provision-rdp.py": 0o755,
@@ -44,6 +51,7 @@ LIBEXEC_FILES = {
 }
 SHARE_FILES = {"installer-hyprland.conf": 0o644}
 SYSTEM_UNITS = {
+    "omarchy-pi-install.service": 0o644,
     "omarchy-pi-provision-access.service": 0o644,
     "omarchy-pi-provision-network.service": 0o644,
     "omarchy-pi-provision-rdp.service": 0o644,
@@ -51,6 +59,12 @@ SYSTEM_UNITS = {
     "omarchy-installer-session@.service": 0o644,
 }
 USER_UNITS = {"omarchy-installer-rdp.service": 0o644}
+BOOT_ENABLED_UNITS = (
+    "omarchy-pi-provision-access.service",
+    "omarchy-pi-provision-network.service",
+    "omarchy-pi-provision-rdp.service",
+    "omarchy-installer-launch.service",
+)
 # These are the public directory components traversed by the staged payload.
 # Keep the list explicit: the build runs under umask 077, and using mkdir's
 # parents=True alone would leave newly-created ancestors inaccessible to the
@@ -59,6 +73,7 @@ USER_UNITS = {"omarchy-installer-rdp.service": 0o644}
 PUBLIC_PAYLOAD_DIRECTORIES = (
     "usr",
     "usr/local",
+    "usr/local/bin",
     "usr/local/libexec",
     "usr/local/libexec/omarchy-pi",
     "usr/local/share",
@@ -363,6 +378,7 @@ def _unit_source_names() -> Iterable[tuple[str, Path, int, str]]:
     root = Path(__file__).resolve().parent
     for name, mode in LIBEXEC_FILES.items():
         yield name, _source_file(root, name), mode, "libexec"
+    yield "omarchy-pi-install", _source_file(root, "omarchy-pi-install"), 0o755, "bin"
     for name, mode in SHARE_FILES.items():
         yield name, _source_file(root, name), mode, "share"
     for name, mode in SYSTEM_UNITS.items():
@@ -442,9 +458,7 @@ def _enablement_links(target: Path, *, owner_uid: int, owner_gid: int) -> list[t
     wants = target / "etc/systemd/system/multi-user.target.wants"
     for unit in ("NetworkManager.service", "sshd.service"):
         links.append((os.fspath(wants / unit), f"/usr/lib/systemd/system/{unit}"))
-    for unit in SYSTEM_UNITS:
-        if unit.endswith("@.service"):
-            continue
+    for unit in BOOT_ENABLED_UNITS:
         links.append((os.fspath(wants / unit), f"/etc/systemd/system/{unit}"))
     for unit, requirements in {
         "omarchy-pi-provision-access.service": ("network-pre.target", "sshd.service"),
@@ -490,6 +504,8 @@ def stage_services(
     for name, source, mode, area in sources:
         if area == "libexec":
             destination = target / "usr/local/libexec/omarchy-pi" / name
+        elif area == "bin":
+            destination = target / "usr/local/bin" / name
         elif area == "share":
             destination = target / "usr/local/share/omarchy-pi" / name
         elif area == "system":

@@ -19,9 +19,13 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from typing import Any, Callable, Sequence
 
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import desktop_payload
 
 FIRST_PARTITION_SECTOR = 2048
 BOOT_TYPE = "c"
@@ -43,6 +47,7 @@ SETTINGS_EXAMPLE = "installer-settings.example.toml"
 SETTINGS_FILE = "installer-settings.toml"
 NETWORKD_PRESET = "etc/systemd/system-preset/00-omarchy-installer-networkd.preset"
 NETWORKD_PRESET_CONTENT = b"disable systemd-networkd*\n"
+REQUIRED_INSTALLER_TOOLS = ("sfdisk", "lsblk", "findmnt", "mkfs.ext4", "mkfs.fat", "cryptsetup", "tar", "zstd", "mkinitcpio", "lsinitcpio", "systemd-nspawn", "python3", "git", "visudo", "sudo", "partprobe", "vcgencmd", "debugfs", "wipefs", "udevadm")
 REQUIRED_FONT = "usr/share/fonts/TTF/DejaVuSansMono.ttf"
 # The service launcher runs as the installer user. Verify every directory in
 # its staged path is traversable even when the image was assembled under a
@@ -51,6 +56,7 @@ REQUIRED_FONT = "usr/share/fonts/TTF/DejaVuSansMono.ttf"
 PUBLIC_PAYLOAD_DIRECTORIES = (
     "usr",
     "usr/local",
+    "usr/local/bin",
     "usr/local/libexec",
     "usr/local/libexec/omarchy-pi",
     "usr/local/share",
@@ -72,6 +78,8 @@ PUBLIC_PAYLOAD_DIRECTORIES = (
     "etc/systemd/user/graphical-session.target.wants",
 )
 EXECUTABLE_PAYLOAD_FILES = (
+    "usr/local/bin/omarchy-pi-install",
+    "usr/local/libexec/omarchy-pi/installer-control",
     "usr/local/libexec/omarchy-pi/provision-access.py",
     "usr/local/libexec/omarchy-pi/provision-network.py",
     "usr/local/libexec/omarchy-pi/provision-rdp.py",
@@ -83,6 +91,7 @@ EXECUTABLE_PAYLOAD_FILES = (
 )
 
 SYSTEM_UNITS = (
+    "omarchy-pi-install.service",
     "omarchy-pi-provision-access.service",
     "omarchy-pi-provision-network.service",
     "omarchy-pi-provision-rdp.service",
@@ -458,10 +467,20 @@ def _verify_services(root: Path) -> None:
         )
         if stat.S_IMODE(executable.lstat().st_mode) != 0o755:
             raise ImageVerificationError(f"installer executable is not mode 0755: {relative}")
+    for tool in REQUIRED_INSTALLER_TOOLS:
+        path = _root_path(root, "usr/bin/" + tool, allow_leaf_symlink=True)
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(root.resolve()) or not resolved.is_file() or not os.access(resolved, os.X_OK):
+            raise ImageVerificationError("installer utility is missing or escapes target: " + tool)
     marker = _root_path(root, os.fspath(BUILDER_MARKER))
     _regular_file(marker, description="installer image marker")
     if marker.read_bytes() != BUILDER_MARKER_CONTENT:
         raise ImageVerificationError("installer image marker is invalid")
+    for module in ("disk_install.py", "installer_job.py", "installed_target.py", "desktop_payload.py", "configure-installer-boot.py", "assemble-image.py"):
+        _regular_file(_root_path(root, "usr/local/libexec/omarchy-pi/" + module), description="installer runtime module")
+    worker_wants = _root_path(root, "etc/systemd/system/multi-user.target.wants/omarchy-pi-install.service", allow_leaf_symlink=True)
+    if os.path.lexists(worker_wants):
+        raise ImageVerificationError("destructive install worker must not start at boot")
     for unit in SYSTEM_UNITS:
         _regular_file(_root_path(root, f"etc/systemd/system/{unit}"), description=f"system unit {unit}")
     for unit in USER_UNITS:
@@ -505,6 +524,16 @@ def _verify_root(root: Path, boot_uuid: str, root_uuid: str) -> None:
     _verify_fonts(root)
     _verify_networkd_preset(root)
     _verify_services(root)
+    try:
+        metadata = desktop_payload.payload_metadata(
+            root / desktop_payload.BUNDLE.relative_to("/"),
+            root / desktop_payload.DESCRIPTOR.relative_to("/"),
+        )
+    except (OSError, ValueError, desktop_payload.PayloadError) as exc:
+        raise ImageVerificationError("desktop bundle is absent or invalid") from exc
+    filesystem = os.statvfs(root)
+    if filesystem.f_bavail * filesystem.f_frsize < metadata["unpacked_bytes"] + 256 * 1024 * 1024:
+        raise ImageVerificationError("installer root has no desktop unpacking allowance")
 
 
 class _MountedImage:

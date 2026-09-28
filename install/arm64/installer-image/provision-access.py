@@ -283,6 +283,29 @@ def _lock_accounts(runner: Runner, *, alarm_present: bool) -> None:
         _run(runner, ["usermod", "--lock", "--expiredate", "1", "alarm"], operation="default alarm account lock")
 
 
+def _installer_authorization(root: Path, account: Account, runner: Runner, *, owner_uid: int, owner_gid: int) -> None:
+    # This applies only while creating a new installer-image account. A
+    # key-only SSH login must also be able to submit the fixed install job.
+    wrapper = _rooted(root, Path("/usr/local/libexec/omarchy-pi/installer-control"))
+    _validate_regular_file(wrapper, description="installer control wrapper", owner_uid=owner_uid, max_bytes=65536)
+    directory = _rooted(root, Path("/etc/sudoers.d"))
+    _ensure_directory(directory, description="installer sudoers directory", owner_uid=owner_uid, owner_gid=owner_gid, mode=0o750)
+    destination = directory / "omarchy-installer"
+    if os.path.lexists(destination):
+        raise ProvisionError("installer authorization already exists")
+    policy = f'{account.name} ALL=(root) NOPASSWD: /usr/local/libexec/omarchy-pi/installer-control ""\n'.encode("ascii")
+    fd, name = tempfile.mkstemp(prefix=".installer-authorization.", dir=directory)
+    temporary = Path(name)
+    try:
+        os.fchmod(fd, 0o440)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(policy)
+        _run(runner, ["visudo", "--check", "--file", str(temporary)], operation="installer authorization validation")
+        _atomic_write(destination, policy, mode=0o440, owner_uid=owner_uid, owner_gid=owner_gid, description="installer authorization")
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def provision(
     root: Path = Path("/"),
     *,
@@ -345,6 +368,7 @@ def provision(
     _ensure_hostname(root, settings.hostname, owner_uid=owner_uid, owner_gid=owner_gid)
     _ensure_machine_id(root, owner_uid=owner_uid, owner_gid=owner_gid)
     _ensure_host_keys(root, runner, owner_uid=owner_uid)
+    _installer_authorization(root, selected_account, runner, owner_uid=owner_uid, owner_gid=owner_gid)
 
     completion.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write(

@@ -51,6 +51,15 @@ RUNTIME_ROOTS = (
     "qt6-wayland",
     "xdg-terminal-exec",
     "dosfstools",
+    "util-linux",
+    "e2fsprogs",
+    "cryptsetup",
+    "tar",
+    "zstd",
+    "mkinitcpio",
+    "git",
+    "parted",
+    "raspberrypi-utils",
     # The later hypr-rdp step links against libpipewire-0.3; keep the
     # provider in this signed runtime transaction even though Hyprland does
     # not pull it in by itself.

@@ -91,6 +91,10 @@ class ProvisionAccessTests(unittest.TestCase):
         marker = root / provision_access.BUILDER_MARKER.relative_to("/")
         marker.write_bytes(provision_access.BUILDER_MARKER_CONTENT)
         marker.chmod(0o644)
+        control = root / "usr/local/libexec/omarchy-pi/installer-control"
+        control.parent.mkdir(parents=True)
+        control.write_text("#!/usr/bin/python3 -I\n")
+        control.chmod(0o755)
         (root / "boot").mkdir()
         (root / "boot/installer-settings.toml").write_text(settings_text(password=password, key=key), encoding="utf-8")
         (root / "etc/ssh").mkdir(parents=True)
@@ -106,6 +110,14 @@ class ProvisionAccessTests(unittest.TestCase):
             owner_uid=__import__("os").getuid(),
             owner_gid=__import__("os").getgid(),
         )
+
+    def test_key_only_account_gets_only_fixed_argument_free_authorization(self) -> None:
+        root, runner = self.make_root()
+        self.provision(root, runner)
+        policy = (root / "etc/sudoers.d/omarchy-installer").read_text()
+        self.assertEqual(policy, 'installer ALL=(root) NOPASSWD: /usr/local/libexec/omarchy-pi/installer-control ""\n')
+        self.assertTrue(any(command[0] == "visudo" for command in runner.commands))
+        self.assertFalse(any(command[0] == "chpasswd" for command in runner.commands))
 
     def test_first_run_creates_user_without_password_in_argv(self) -> None:
         root, runner = self.make_root(password="login-secret")

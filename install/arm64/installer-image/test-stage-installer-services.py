@@ -109,6 +109,8 @@ class StageInstallerServicesTests(unittest.TestCase):
             self.assertFalse((target / "boot/installer-settings.toml").exists())
             self.assertEqual((target / "usr/share/omarchy-pi/hypr-rdp.sha256").read_text(), digest + "\n")
             self.assertTrue((target / "usr/bin/hypr-rdp").is_file())
+            self.assertTrue((target / "etc/systemd/system/omarchy-pi-install.service").is_file())
+            self.assertFalse(os.path.lexists(target / "etc/systemd/system/multi-user.target.wants/omarchy-pi-install.service"))
             preset = target / stage.NETWORKD_PRESET
             self.assertEqual(preset.read_bytes(), stage.NETWORKD_PRESET_CONTENT)
             self.assertEqual(stat.S_IMODE(preset.stat().st_mode), 0o644)

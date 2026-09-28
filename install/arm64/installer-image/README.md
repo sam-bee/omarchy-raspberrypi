@@ -33,6 +33,8 @@ python3 build-installer-image.py \
   --archive-sha256 ARCHIVE_SHA256 \
   --hypr-rdp /var/tmp/hypr-rdp \
   --hypr-rdp-sha256 HYPR_RDP_SHA256 \
+  --desktop-payload /var/tmp/omarchy-pi5-desktop.tar.zst \
+  --desktop-payload-sha256 DESKTOP_BUNDLE_SHA256 \
   --workdir /var/tmp/omarchy-installer-build-NEW \
   --output /var/tmp/omarchy-installer-NEW.img
 ```
@@ -59,3 +61,16 @@ release, user-bin and mise-shim paths, then runs the existing theme, image,
 mise and user-agent setup leaves in order. It performs no host or sudo work
 and leaves the default agent unset. The first run needs network access for
 the mise bootstrap and its managed tools.
+
+
+## Disk installer
+
+The desktop bundle is copied into the installer root and checked before any erasure. The image reserves disk-backed space for its unpacked root/source; package archives remain in the compressed bundle. Omitting the desktop arguments builds a boot-only development image, which is not a complete disk-installer candidate and fails the full image verifier.
+
+`omarchy-pi-install` opens automatically in the installer Foot terminal and is also available over SSH or locally. A confirmed job runs as one system service. Closing the terminal detaches its progress viewer; reopening the command observes the same job. Durable state and redacted logs live on the installer USB under `/var/lib/omarchy-pi/installer`. Power-loss or failed jobs require a fresh confirmation to restart from the beginning.
+
+The installer account can invoke only the fixed argument-free installer control helper through its image-local sudo rule; authorized-key-only SSH therefore works without adding a general sudo grant. Target configuration and encryption secrets are transient input and are not written to job records.
+
+Installation offers a whole-disk FAT32/ext4 layout, with optional LUKS2 and a recovery passphrase. Automatic encrypted boot requires a separate blank key stick, individually identified and confirmed, which becomes non-bootable ext4 media. Existing key media, mounted disks and the running installer are refused as targets. The installer never changes EEPROM boot order. Keep the installer bootable for recovery and remove it when booting the new target.
+
+The fresh user's mise/Node setup needs internet access. The installer uses its existing network for setup and writes chosen network/access preferences only into the new target. Completion gives hostname/user, access methods and SSH fingerprint; use router/DHCP discovery if the target gets a different address. Shut down separately, remove the installer and leave the key stick attached when using automatic unlock.

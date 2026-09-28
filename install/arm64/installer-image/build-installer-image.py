@@ -53,6 +53,7 @@ def _components() -> dict[str, Any]:
         "boot": _load_module("configure-installer-boot.py", "installer_configure_boot"),
         "services": _load_module("stage-installer-services.py", "installer_stage_services"),
         "image": _load_module("assemble-image.py", "installer_assemble_image"),
+        "desktop": _load_module("desktop_payload.py", "installer_desktop_payload"),
     }
 
 
@@ -192,6 +193,8 @@ def plan(
     output: Path,
     archive_sha256: str | None,
     repo_server: str,
+    desktop_payload: Path | None = None,
+    desktop_payload_sha256: str | None = None,
 ) -> dict[str, Any]:
     archive_path = _regular_file(archive, name="rootfs archive")
     signature_path = _regular_file(signature, name="rootfs signature")
@@ -209,6 +212,12 @@ def plan(
     binary_digest_actual = _sha256(binary_path)
     if binary_digest_actual != binary_digest:
         raise InstallerBuildError("hypr-rdp binary SHA-256 differs from the expected hash")
+    desktop = None
+    if (desktop_payload is None) != (desktop_payload_sha256 is None):
+        raise InstallerBuildError("desktop payload and expected SHA-256 must be supplied together")
+    if desktop_payload is not None:
+        desktop = _load_module("desktop_payload.py", "installer_desktop_payload").inspect_bundle(desktop_payload, desktop_payload_sha256)
+        desktop["path"] = os.fspath(_absolute(desktop_payload))
     return {
         "schema_version": 1,
         "mode": "plan",
@@ -221,6 +230,7 @@ def plan(
             "hypr_rdp": {"path": os.fspath(binary_path), "sha256": binary_digest_actual},
             "expected_hypr_rdp_sha256": binary_digest,
             "expected_archive_sha256": expected_archive_digest,
+            "desktop_payload": desktop,
         },
         "paths": {"workdir": os.fspath(work_path), "output": os.fspath(output_path)},
         "repository": repo_server,
@@ -247,6 +257,8 @@ def build(
     output: Path,
     archive_sha256: str | None,
     repo_server: str,
+    desktop_payload: Path | None = None,
+    desktop_payload_sha256: str | None = None,
 ) -> dict[str, Any]:
     machine = platform.machine().lower()
     if machine != "aarch64":
@@ -264,6 +276,8 @@ def build(
         output=output,
         archive_sha256=archive_sha256,
         repo_server=repo_server,
+        desktop_payload=desktop_payload,
+        desktop_payload_sha256=desktop_payload_sha256,
     )
     components = _components()
     work_path = Path(specification["paths"]["workdir"])
@@ -295,11 +309,12 @@ def build(
             _absolute(hypr_rdp),
             _validate_digest(hypr_rdp_sha256, name="hypr-rdp SHA-256"),
         )
-        image_result = components["image"].assemble_image(
-            rootfs,
-            output_path,
-            mkfs_fat=rootfs / "usr/bin/mkfs.fat",
-        )
+        desktop_result = None
+        image_arguments = {"mkfs_fat": rootfs / "usr/bin/mkfs.fat"}
+        if desktop_payload is not None:
+            desktop_result = components["desktop"].stage_bundle(rootfs, desktop_payload, desktop_payload_sha256)
+            image_arguments["root_extra_mib"] = (desktop_result["unpacked_bytes"] + 1024 * 1024 - 1) // (1024 * 1024) + 1024
+        image_result = components["image"].assemble_image(rootfs, output_path, **image_arguments)
         build_manifest = {
             "schema_version": 1,
             "mode": "apply",
@@ -311,6 +326,7 @@ def build(
                 "packages": _json_safe(package_manifest_document),
                 "boot": _json_safe(boot_result),
                 "services": _json_safe(service_result),
+                "desktop": desktop_result,
                 "image": _json_safe(image_result),
             },
             "artifacts": {
@@ -341,6 +357,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workdir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repo-server", default="https://mirror.archlinuxarm.org/$arch/$repo")
+    parser.add_argument("--desktop-payload", type=Path, help="verified step-3 desktop tar.zst")
+    parser.add_argument("--desktop-payload-sha256", help="expected desktop bundle SHA-256")
     parser.add_argument("--apply", action="store_true", help="perform the complete mutating build")
     return parser
 
@@ -358,6 +376,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "output": args.output,
         "archive_sha256": args.archive_sha256,
         "repo_server": args.repo_server,
+        "desktop_payload": args.desktop_payload,
+        "desktop_payload_sha256": args.desktop_payload_sha256,
     }
     try:
         document = build(**arguments) if args.apply else plan(**arguments)
