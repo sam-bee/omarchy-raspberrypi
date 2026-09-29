@@ -9,6 +9,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 import desktop_payload as payload
@@ -20,6 +21,12 @@ class PayloadTests(unittest.TestCase):
         manifest = {'schema_version': 1, 'source': {'revision': 'a' * 40},
                     'target': {'architecture': 'aarch64', 'profile': 'rpi5'}}
         with tarfile.open(archive, 'w') as stream:
+            for name in ('bundle', 'bundle/rootfs', 'bundle/rootfs/etc', 'bundle/source', 'bundle/source/.git'):
+                entry = tarfile.TarInfo(name)
+                entry.type = tarfile.DIRTYPE
+                entry.mode = 0o755
+                entry.uid, entry.gid = os.getuid(), os.getgid()
+                stream.addfile(entry)
             files = {'bundle/desktop-manifest.json': json.dumps(manifest).encode(),
                      'bundle/rootfs/etc/passwd': b'root:x:0:0:root:/root:/bin/bash\n',
                      'bundle/source/.git/HEAD': b'fake-source'}
@@ -34,6 +41,7 @@ class PayloadTests(unittest.TestCase):
             for name, data in files.items():
                 entry = tarfile.TarInfo(name)
                 entry.size = len(data)
+                entry.uid, entry.gid = os.getuid(), os.getgid()
                 stream.addfile(entry, io.BytesIO(data))
         bundle = archive.with_suffix('.tar.zst')
         subprocess.run(['zstd', '-q', '-o', str(bundle), str(archive)], check=True)
@@ -72,6 +80,23 @@ class PayloadTests(unittest.TestCase):
             descriptor.write_text(json.dumps(info))
             with self.assertRaises(payload.PayloadError):
                 payload.payload_metadata(bundle, descriptor)
+
+    def test_preparation_returns_verified_metadata_and_recheck_detects_changed_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, digest = self.bundle(directory)
+            descriptor = Path(directory) / 'bundle.json'
+            descriptor.write_text(json.dumps(payload.inspect_bundle(bundle, digest)))
+            work = Path(directory) / 'prepared'
+            with mock.patch.object(payload, 'validate_generic'), mock.patch.object(payload, 'inspect_bundle', wraps=payload.inspect_bundle) as inspect:
+                prepared, metadata = payload.prepare_payload(bundle, descriptor, work)
+                self.assertEqual(prepared, work)
+                self.assertTrue((prepared / 'rootfs/etc/passwd').is_file())
+                payload.verify_prepared_bundle(metadata, bundle)
+                self.assertEqual(inspect.call_count, 1)
+                with bundle.open('ab') as stream:
+                    stream.write(b'changed')
+                with self.assertRaises(payload.PayloadError):
+                    payload.verify_prepared_bundle(metadata, bundle)
 
     def test_copy_preserves_metadata_and_separates_boot_tree(self):
         with tempfile.TemporaryDirectory() as directory:

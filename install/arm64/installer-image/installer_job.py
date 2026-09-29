@@ -903,7 +903,7 @@ def _run_worker() -> int:
                 "verifying the desktop payload",
                 secrets_to_hide=secret_values,
             )
-            prepared_payload = payload.prepare_payload()
+            prepared_payload, metadata = payload.prepare_payload()
             if not isinstance(prepared_payload, (str, Path)):
                 raise InstallerError("desktop payload preparation returned an invalid path")
             prepared_payload = Path(prepared_payload)
@@ -925,7 +925,7 @@ def _run_worker() -> int:
                 secrets_to_hide=secret_values,
             )
             _network_preflight()
-            metadata = payload.payload_metadata()
+            payload.verify_prepared_bundle(metadata)
             installer_provenance = state.get("installer")
             if not isinstance(installer_provenance, Mapping):
                 raise InstallerError("installer provenance is missing from the queued job")

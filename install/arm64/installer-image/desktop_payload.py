@@ -178,7 +178,8 @@ def validate_generic(payload: Path, metadata: dict) -> None:
         raise PayloadError('desktop source checkout is modified')
 
 
-def prepare_payload(bundle: Path = BUNDLE, descriptor: Path = DESCRIPTOR, work: Path = WORK_DIRECTORY) -> Path:
+def prepare_payload(bundle: Path = BUNDLE, descriptor: Path = DESCRIPTOR, work: Path = WORK_DIRECTORY) -> tuple[Path, dict]:
+    """Inspect once, prepare the root, and retain the verified bundle facts."""
     metadata = payload_metadata(bundle, descriptor)
     work = Path(work)
     if work.is_symlink() or work.resolve() == Path('/'):
@@ -186,7 +187,7 @@ def prepare_payload(bundle: Path = BUNDLE, descriptor: Path = DESCRIPTOR, work: 
     complete = work / '.bundle-sha256'
     if complete.is_file() and not complete.is_symlink() and complete.read_text().strip() == metadata['sha256']:
         validate_generic(work, metadata)
-        return work
+        return work, metadata
     if os.path.lexists(work):
         raise PayloadError('incomplete payload work directory; retain it and choose a fresh installer image')
     work.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -210,7 +211,13 @@ def prepare_payload(bundle: Path = BUNDLE, descriptor: Path = DESCRIPTOR, work: 
     complete.write_text(metadata['sha256'] + '\n')
     complete.chmod(0o600)
     (work / '.extracting').unlink()
-    return work
+    return work, metadata
+
+
+def verify_prepared_bundle(metadata: dict, bundle: Path = BUNDLE) -> None:
+    """Before erasure, check the inspected bytes still match without re-expanding the archive."""
+    if digest_file(bundle) != metadata['sha256']:
+        raise PayloadError('desktop bundle changed after preparation')
 
 
 def reset_incomplete_payload() -> None:

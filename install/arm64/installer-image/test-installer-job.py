@@ -130,9 +130,12 @@ class FakePayload(types.ModuleType):
     def payload_metadata(self) -> dict[str, object]:
         return {"source_revision": "abc123", "required_target_bytes": 42, "unpacked_bytes": 84, "sha256": "f" * 64}
 
-    def prepare_payload(self) -> Path:
+    def prepare_payload(self) -> tuple[Path, dict]:
         self.root.mkdir(exist_ok=True)
-        return self.root
+        return self.root, self.payload_metadata()
+
+    def verify_prepared_bundle(self, metadata) -> None:
+        return None
 
     def reset_incomplete_payload(self) -> None:
         return None
@@ -396,6 +399,14 @@ class InstallerJobTests(unittest.TestCase):
         self.assertEqual(state["message"], "target settings accepted")
         self.assertNotIn(SECRET, json.dumps(job._safe_state(state)))
 
+    def test_changed_bundle_is_rejected_before_target_preparation(self) -> None:
+        self.submit()
+        with mock.patch.object(self.payload, "verify_prepared_bundle", side_effect=RuntimeError("changed bundle")):
+            self.assertEqual(job._run_worker(), 1)
+        self.assertEqual(self.disk.prepare_calls, [])
+        self.assertEqual(job._load_state()["status"], "failed")
+        self.assertFalse(job._request_path().exists())
+
     def test_bad_installer_provenance_is_rejected_before_submit(self) -> None:
         self.provenance_path.write_text(
             json.dumps(
@@ -537,9 +548,10 @@ class InstallerJobTests(unittest.TestCase):
             payload.payload_metadata = lambda: {{"source_revision": "a" * 40, "required_target_bytes": 1, "unpacked_bytes": 1, "sha256": "b" * 64}}
             def prepare_payload():
                 payload_root.mkdir()
-                return payload_root
+                return payload_root, payload.payload_metadata()
 
             payload.prepare_payload = prepare_payload
+            payload.verify_prepared_bundle = lambda metadata: None
             payload.copy_payload = lambda source, target_root, target_boot: None
             target = types.ModuleType("installed_target")
             target.validate_settings = lambda value: dict(value)
