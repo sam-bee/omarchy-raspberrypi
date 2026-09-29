@@ -46,6 +46,8 @@ SYSFS_ROOT = Path("/sys/class/block")
 _STABLE_VALUE = re.compile(r"[A-Za-z0-9._:+/-]{1,256}\Z")
 _MAPPER_NAME = re.compile(r"omarchy-pi-recovery-[a-z0-9-]{1,48}\Z")
 _UUID = re.compile(r"(?:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}|[0-9A-Fa-f]{8,64})\Z")
+_SOURCE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _SAFE_KERNEL = re.compile(r"(?:kernel8\.img|kernel_2712\.img|Image)\Z")
 _KERNEL_ASSIGNMENT = re.compile(r"^\s*kernel=(\S+)\s*$", re.IGNORECASE)
 _FSTYPE_BOOT = frozenset({"vfat", "fat", "fat16", "fat32", "msdos"})
@@ -1675,7 +1677,10 @@ def _inspect_mounted_target(root: Path, boot: Path) -> dict[str, Any]:
     cmdline = root / "boot/cmdline.txt"
     config = root / "boot/config.txt"
     crypttab = root / "etc/crypttab"
-    provenance = root / "usr/lib/omarchy-pi/installer-provenance.json"
+    # The installer image's /usr/lib descriptor is not copied into a target.
+    # Installed targets retain the desktop receipt, which the installer
+    # extends with the installer runtime provenance after provisioning.
+    provenance = root / "var/lib/omarchy-pi/desktop-user-provision.json"
     boot_files: list[str] = []
     for entry in sorted(boot.iterdir(), key=lambda item: item.name):
         if entry.is_file() and not entry.is_symlink():
@@ -1688,15 +1693,46 @@ def _inspect_mounted_target(root: Path, boot: Path) -> dict[str, Any]:
         "provenance_present": False,
         "read_only": True,
     }
-    if provenance.exists():
-        _regular_file(provenance, description="target installer provenance")
+    if os.path.lexists(provenance):
+        _regular_file(provenance, description="target desktop provenance")
         try:
             document = json.loads(provenance.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise _fail("target installer provenance is unreadable") from exc
-        if isinstance(document, Mapping) and isinstance(document.get("source_revision"), str):
-            facts["source_revision"] = document["source_revision"]
-            facts["provenance_present"] = True
+            raise _fail("target desktop provenance is unreadable") from exc
+        if not isinstance(document, Mapping):
+            raise _fail("target desktop provenance is invalid")
+        desktop_source_revision = document.get("source_revision")
+        if not isinstance(desktop_source_revision, str) or not _SOURCE_REVISION.fullmatch(desktop_source_revision):
+            raise _fail("target desktop provenance is invalid")
+
+        # Older target receipts contain only the desktop revision.  Preserve
+        # their useful inspection result while using the installer revision as
+        # the compatibility ``source_revision`` alias when it is available.
+        facts["desktop_source_revision"] = desktop_source_revision
+        facts["source_revision"] = desktop_source_revision
+        installer = document.get("installer")
+        if installer is not None:
+            if not isinstance(installer, Mapping) or set(installer) != {"source_revision", "runtime_sha256"}:
+                raise _fail("target desktop provenance is invalid")
+            installer_source_revision = installer.get("source_revision")
+            if installer_source_revision is not None and (
+                not isinstance(installer_source_revision, str)
+                or not _SOURCE_REVISION.fullmatch(installer_source_revision)
+            ):
+                raise _fail("target desktop provenance is invalid")
+            runtime_sha256 = installer.get("runtime_sha256")
+            if not isinstance(runtime_sha256, str) or not _SHA256.fullmatch(runtime_sha256):
+                raise _fail("target desktop provenance is invalid")
+            facts["installer_source_revision"] = installer_source_revision
+            facts["installer_runtime_sha256"] = runtime_sha256
+            if installer_source_revision is not None:
+                facts["source_revision"] = installer_source_revision
+        desktop_bundle_sha256 = document.get("desktop_bundle_sha256")
+        if desktop_bundle_sha256 is not None and (
+            not isinstance(desktop_bundle_sha256, str) or not _SHA256.fullmatch(desktop_bundle_sha256)
+        ):
+            raise _fail("target desktop provenance is invalid")
+        facts["provenance_present"] = True
     return facts
 
 

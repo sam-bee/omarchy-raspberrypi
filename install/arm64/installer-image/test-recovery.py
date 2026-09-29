@@ -25,6 +25,10 @@ SPEC.loader.exec_module(recovery)
 LUKS_UUID = "12345678-1234-1234-1234-123456789abc"
 BOOT_UUID = "ABCD-1234"
 KEY_UUID = "98765432-4321-4321-4321-987654321abc"
+DESKTOP_SOURCE_REVISION = "d" * 40
+INSTALLER_SOURCE_REVISION = "a" * 40
+INSTALLER_RUNTIME_SHA256 = "b" * 64
+DESKTOP_BUNDLE_SHA256 = "c" * 64
 
 
 class FixtureRunner:
@@ -166,7 +170,26 @@ class RecoveryTests(unittest.TestCase):
         (self.source / "boot/config.txt").write_text("dtparam=pciex1_gen=2\nkernel=kernel8.img\n", encoding="utf-8")
         (self.source / "etc/crypttab").write_text("cryptroot UUID=" + LUKS_UUID + " none\n", encoding="utf-8")
         (self.source / "etc/mkinitcpio.d/linux-rpi.preset").write_text("ALL_kver='/usr/lib/modules/6.1-rpi'\nPRESETS=('default')\n", encoding="utf-8")
-        (self.source / "usr/lib/omarchy-pi/installer-provenance.json").write_text(json.dumps({"source_revision": "a" * 40}), encoding="utf-8")
+        desktop_provenance = self.source / "var/lib/omarchy-pi/desktop-user-provision.json"
+        desktop_provenance.parent.mkdir(parents=True)
+        desktop_provenance.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source_revision": DESKTOP_SOURCE_REVISION,
+                    "target_user": "desk",
+                    "target_home": "/home/desk",
+                    "package_manifest_sha256": "",
+                    "identity_policy": "generate machine and account identities on target installation",
+                    "installer": {
+                        "source_revision": INSTALLER_SOURCE_REVISION,
+                        "runtime_sha256": INSTALLER_RUNTIME_SHA256,
+                    },
+                    "desktop_bundle_sha256": DESKTOP_BUNDLE_SHA256,
+                }
+            ),
+            encoding="utf-8",
+        )
         package_dir = self.source / "var/lib/pacman/local/linux-rpi-6.1-1"
         package_dir.mkdir(parents=True)
         (package_dir / "desc").write_text("%NAME%\nlinux-rpi\n\n%VERSION%\n6.1-1\n\n%ARCH%\naarch64\n", encoding="utf-8")
@@ -253,7 +276,10 @@ class RecoveryTests(unittest.TestCase):
             runner=self.runner,
             mount_root=self.base / "mounts",
         )
-        self.assertEqual(response["inspection"]["source_revision"], "a" * 40)
+        self.assertEqual(response["inspection"]["source_revision"], INSTALLER_SOURCE_REVISION)
+        self.assertEqual(response["inspection"]["installer_source_revision"], INSTALLER_SOURCE_REVISION)
+        self.assertEqual(response["inspection"]["desktop_source_revision"], DESKTOP_SOURCE_REVISION)
+        self.assertTrue(response["inspection"]["provenance_present"])
         key_mount = next(call for call in self.runner.calls if call[:1] == ["mount"] and call[-2] == "/dev/sdc1")
         self.assertEqual(key_mount[1:3], ["-t", "ext4"])
         self.assertEqual(key_mount[4], "ro,noload,nodev,nosuid,noexec")
@@ -356,7 +382,9 @@ class RecoveryTests(unittest.TestCase):
             runner=self.runner,
             mount_root=self.base / "mounts",
         )
-        self.assertEqual(response["inspection"]["source_revision"], "a" * 40)
+        self.assertEqual(response["inspection"]["source_revision"], INSTALLER_SOURCE_REVISION)
+        self.assertEqual(response["inspection"]["installer_source_revision"], INSTALLER_SOURCE_REVISION)
+        self.assertEqual(response["inspection"]["desktop_source_revision"], DESKTOP_SOURCE_REVISION)
         self.assertTrue(response["inspection"]["crypttab_present"])
         open_call = next(call for call in self.runner.calls if call[:2] == ["cryptsetup", "open"])
         self.assertIn("--readonly", open_call)
@@ -366,6 +394,38 @@ class RecoveryTests(unittest.TestCase):
         self.assertGreaterEqual(sum(call[:1] == ["umount"] for call in self.runner.calls), 2)
         self.assertIn("fixture passphrase", [call for call in self.runner.inputs if call])
         self.assertTrue(all("fixture passphrase" not in " ".join(call) for call in self.runner.calls))
+
+    def test_inspect_reports_legacy_desktop_receipt_without_installer_leaf(self) -> None:
+        provenance = self.source / "var/lib/omarchy-pi/desktop-user-provision.json"
+        document = json.loads(provenance.read_text(encoding="utf-8"))
+        document.pop("installer")
+        document.pop("desktop_bundle_sha256")
+        provenance.write_text(json.dumps(document), encoding="utf-8")
+
+        target = self.target()
+        response = recovery.handle_request(
+            {"action": "recovery-inspect", "target": target.path, "target_confirmation": target.token, "passphrase": "fixture passphrase"},
+            runner=self.runner,
+            mount_root=self.base / "mounts",
+        )
+        self.assertTrue(response["inspection"]["provenance_present"])
+        self.assertEqual(response["inspection"]["source_revision"], DESKTOP_SOURCE_REVISION)
+        self.assertEqual(response["inspection"]["desktop_source_revision"], DESKTOP_SOURCE_REVISION)
+        self.assertNotIn("installer_source_revision", response["inspection"])
+
+    def test_inspect_rejects_malformed_nested_installer_provenance(self) -> None:
+        provenance = self.source / "var/lib/omarchy-pi/desktop-user-provision.json"
+        document = json.loads(provenance.read_text(encoding="utf-8"))
+        document["installer"] = {"source_revision": "not-a-revision", "runtime_sha256": INSTALLER_RUNTIME_SHA256}
+        provenance.write_text(json.dumps(document), encoding="utf-8")
+
+        target = self.target()
+        with self.assertRaisesRegex(recovery.RecoveryError, "target desktop provenance is invalid"):
+            recovery.handle_request(
+                {"action": "recovery-inspect", "target": target.path, "target_confirmation": target.token, "passphrase": "fixture passphrase"},
+                runner=self.runner,
+                mount_root=self.base / "mounts",
+            )
 
     def test_key_file_unlock_uses_existing_file_and_no_keyslot_operation(self) -> None:
         key = self.base / "existing.key"
