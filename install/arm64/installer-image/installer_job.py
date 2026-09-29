@@ -465,61 +465,15 @@ def _module(name: str) -> Any:
 def _validate_settings(settings: Any) -> dict[str, Any]:
     if not isinstance(settings, Mapping):
         raise InstallerError("settings are not an object")
-    expected = {
-        "username",
-        "hostname",
-        "password",
-        "timezone",
-        "locale",
-        "keymap",
-        "wifi",
-        "ssh_enabled",
-        "ssh_authorized_key",
-        "rdp_mode",
-        "rdp_password",
-        "encryption",
-        "recovery_passphrase",
-    }
-    if set(settings) != expected:
-        raise InstallerError("settings do not match the installer contract")
-    for name in ("username", "hostname", "timezone", "locale", "keymap"):
-        if not isinstance(settings[name], str) or not settings[name].strip():
-            raise InstallerError("a required text setting is invalid")
-    if not isinstance(settings["password"], str) or not settings["password"]:
-        raise InstallerError("the target password is required")
-    if not isinstance(settings["ssh_enabled"], bool):
-        raise InstallerError("SSH selection is invalid")
-    if settings["ssh_authorized_key"] is not None and not isinstance(settings["ssh_authorized_key"], str):
-        raise InstallerError("the SSH key is invalid")
-    if settings["rdp_mode"] not in {"disabled", "loopback", "lan"}:
-        raise InstallerError("RDP selection is invalid")
-    if settings["rdp_password"] is not None and not isinstance(settings["rdp_password"], str):
-        raise InstallerError("the RDP password is invalid")
-    if settings["wifi"] is not None:
-        wifi = settings["wifi"]
-        if not isinstance(wifi, Mapping) or set(wifi) != {"country", "ssid", "password"}:
-            raise InstallerError("Wi-Fi settings are invalid")
-        if any(not isinstance(wifi[name], str) for name in ("country", "ssid", "password")):
-            raise InstallerError("Wi-Fi settings are invalid")
-    if settings["encryption"] not in {"plain", "passphrase", "key"}:
-        raise InstallerError("encryption selection is invalid")
-    if settings["encryption"] == "plain":
-        if settings["recovery_passphrase"] not in (None, ""):
-            raise InstallerError("plain installation cannot have an unlock passphrase")
-    elif not isinstance(settings["recovery_passphrase"], str) or not settings["recovery_passphrase"]:
-        raise InstallerError("encrypted installation needs a recovery passphrase")
-    validator = getattr(_module("installed_target"), "validate_settings", None)
-    if validator is None:
-        raise InstallerError("target settings validator is unavailable")
+    target = _module("installed_target")
     try:
-        validated = validator(dict(settings))
-    except InstallerError:
-        raise
+        return target.validate_settings(dict(settings))
     except Exception as exc:
+        # The canonical validator reports only field names and fixed reasons.
+        # Unexpected exceptions remain private; they could contain input data.
+        if isinstance(exc, getattr(target, "TargetProvisionError", ())):
+            raise InstallerError(str(exc)) from exc
         raise InstallerError("target settings were rejected") from exc
-    if not isinstance(validated, Mapping):
-        raise InstallerError("target settings validator returned an invalid result")
-    return dict(validated)
 
 
 def _target_and_key(request: Mapping[str, Any]) -> tuple[str, str | None]:

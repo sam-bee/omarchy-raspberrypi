@@ -181,6 +181,9 @@ class InstalledTargetTests(unittest.TestCase):
         with self.assertRaises(installed.TargetProvisionError) as context:
             installed.validate_settings({**settings, "unexpected": "target-login-secret"})
         self.assertNotIn("target-login-secret", str(context.exception))
+        for field in settings:
+            with self.subTest(missing=field), self.assertRaises(installed.TargetProvisionError):
+                installed.validate_settings({key: value for key, value in settings.items() if key != field})
 
     def test_validate_target_options_is_read_only_and_checks_target_sources(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()

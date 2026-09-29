@@ -174,6 +174,8 @@ def validate_settings(settings: dict) -> dict:
     unknown = set(settings) - _ROOT_KEYS
     if unknown:
         raise _error("settings contains an unknown field")
+    if set(settings) != _ROOT_KEYS:
+        raise _error("settings is missing a required field")
 
     username = _text(settings.get("username"), "username", maximum=32)
     if not _USERNAME.fullmatch(username) or username in {"root", "nobody", *_GENERIC_ACCOUNTS}:
