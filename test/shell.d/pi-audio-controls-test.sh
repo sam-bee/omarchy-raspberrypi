@@ -77,4 +77,4 @@ assert payload["value"] == "75"
 assert payload["progressText"] == "75%"
 assert payload["duration"] == "800"
 PY
-pass "OSD payload remains valid without jq"
+pass "OSD payload remains valid"
