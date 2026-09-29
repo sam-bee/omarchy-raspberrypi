@@ -219,20 +219,47 @@ def _worker_is_running() -> bool:
         return not acquired
 
 
-def _service_is_active() -> bool:
-    """Treat systemd's activating state as live during the submit race."""
+def _service_is_active() -> bool | None:
+    """Return service liveness, or ``None`` when systemd could not be queried.
+
+    ``systemctl is-active --quiet`` returns nonzero for ``activating`` even
+    though the start job is live.  Read the unit properties instead so the
+    status observer cannot mark a just-queued request interrupted during that
+    race.  A failed or incomplete query is deliberately fail-closed: callers
+    must leave the durable queued state alone until liveness is knowable.
+    """
 
     try:
         result = subprocess.run(
-            ["/usr/bin/systemctl", "is-active", "--quiet", SERVICE_NAME],
+            ["/usr/bin/systemctl", "show", "--property=ActiveState,SubState,Job", SERVICE_NAME],
             check=False,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
     except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    properties: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            properties[key.strip()] = value.strip()
+    active_state = properties.get("ActiveState")
+    job = properties.get("Job")
+    if active_state is None or job is None:
+        return None
+    if active_state in {"active", "activating", "reloading", "deactivating"}:
+        return True
+    if active_state not in {"inactive", "failed"}:
+        return None
+    if job in {"", "0"}:
         return False
-    return result.returncode == 0
+    if not re.fullmatch(r"[0-9]+(?:/.*)?", job):
+        return None
+    return int(job.split("/", 1)[0]) > 0
 
 
 def _job_log(job_id: str, message: str, *, secrets_to_hide: Iterable[str] = ()) -> None:
@@ -615,7 +642,9 @@ def _mark_interrupted(state: dict[str, Any], reason: str) -> dict[str, Any]:
 
 
 def _mark_stale_if_needed(state: dict[str, Any]) -> dict[str, Any]:
-    if state.get("status") in ACTIVE_STATES and not _worker_is_running() and not _service_is_active():
+    if state.get("status") not in ACTIVE_STATES or _worker_is_running():
+        return state
+    if _service_is_active() is False:
         return _mark_interrupted(state, "the previous installer worker stopped before completion")
     return state
 

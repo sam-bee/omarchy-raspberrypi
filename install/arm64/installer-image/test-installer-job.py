@@ -278,6 +278,44 @@ class InstallerJobTests(unittest.TestCase):
             with self.assertRaises(job.InstallerError):
                 job._handle_request({"action": "recovery-inspect"})
 
+    def test_service_liveness_uses_systemd_show_for_start_race_states(self) -> None:
+        responses = (
+            ("ActiveState=activating\nSubState=start\nJob=732\n", True),
+            ("ActiveState=reloading\nSubState=reload\nJob=0\n", True),
+            ("ActiveState=active\nSubState=running\nJob=0\n", True),
+            ("ActiveState=deactivating\nSubState=stop\nJob=0\n", True),
+            ("ActiveState=inactive\nSubState=dead\nJob=733\n", True),
+            ("ActiveState=inactive\nSubState=dead\nJob=0\n", False),
+            ("ActiveState=failed\nSubState=failed\nJob=\n", False),
+            ("ActiveState=unknown\nSubState=dead\nJob=0\n", None),
+            ("SubState=dead\nJob=0\n", None),
+            ("ActiveState=inactive\nSubState=dead\n", None),
+            ("ActiveState=inactive\nSubState=dead\nJob=not-a-job\n", None),
+        )
+        for output, expected in responses:
+            completed = subprocess.CompletedProcess([], 0, output, "")
+            with mock.patch.object(job.subprocess, "run", return_value=completed) as run:
+                actual = job._service_is_active()
+            self.assertIs(actual, expected)
+            command = run.call_args.args[0]
+            self.assertEqual(command[:3], ["/usr/bin/systemctl", "show", "--property=ActiveState,SubState,Job"])
+            self.assertNotIn("is-active", command)
+
+    def test_service_liveness_query_failure_is_unknown(self) -> None:
+        completed = subprocess.CompletedProcess([], 1, "", "systemd query failed")
+        with mock.patch.object(job.subprocess, "run", return_value=completed):
+            self.assertIsNone(job._service_is_active())
+
+    def test_status_preserves_queued_request_when_service_liveness_is_unknown(self) -> None:
+        self.submit()
+        request = job._request_path()
+        self.assertTrue(request.exists())
+        completed = subprocess.CompletedProcess([], 1, "", "systemd query failed")
+        with mock.patch.object(job.subprocess, "run", return_value=completed):
+            state = job._handle_request({"action": "status"})["state"]
+        self.assertEqual(state["status"], "queued")
+        self.assertTrue(request.exists())
+
     def test_recovery_failure_redacts_secret_and_deletes_request(self):
         self.fake_recovery(fail=True)
         job._handle_request(self.recovery_request())
@@ -488,7 +526,8 @@ class InstallerJobTests(unittest.TestCase):
         state["status"] = "running"
         state["phase"] = "desktop-provisioning"
         job._save_state(state)
-        status = job._handle_request({"action": "status"})["state"]
+        with mock.patch.object(job, "_service_is_active", return_value=False):
+            status = job._handle_request({"action": "status"})["state"]
         self.assertEqual(status["status"], "interrupted")
         self.assertEqual(job._run_worker(), 0)
         self.assertEqual(job._load_state()["status"], "interrupted")
@@ -498,10 +537,11 @@ class InstallerJobTests(unittest.TestCase):
         state = job._load_state()
         state["status"] = "running"
         job._save_state(state)
-        job._handle_request({"action": "status"})
-        with self.assertRaises(job.InstallerError):
-            job._handle_request({**self.request(action="restart"), "restart_confirmation": "yes"})
-        result = job._handle_request(self.request(action="restart"))
+        with mock.patch.object(job, "_service_is_active", return_value=False):
+            job._handle_request({"action": "status"})
+            with self.assertRaises(job.InstallerError):
+                job._handle_request({**self.request(action="restart"), "restart_confirmation": "yes"})
+            result = job._handle_request(self.request(action="restart"))
         self.assertNotEqual(result["job_id"], state["job_id"])
         self.assertEqual(job._load_state()["previous_job_id"], state["job_id"])
 
