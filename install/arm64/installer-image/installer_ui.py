@@ -744,6 +744,62 @@ class InstallerUi:
         return available[selected]
 
     @staticmethod
+    def _recovery_key_label(key: Mapping[str, Any]) -> str:
+        path = _text(key.get("path") or key.get("name") or "unknown key partition")
+        size = _human_size(key.get("size"))
+        model = _text(key.get("model") or "unlock-key USB")
+        stable_id = _text(key.get("stable_id"))
+        uuid = _text(key.get("uuid"))
+        identity: list[str] = []
+        if stable_id:
+            identity.append("parent=" + stable_id)
+        if uuid:
+            identity.append("UUID=" + uuid)
+        fields = [path] + identity + [size, model]
+        return "  ".join(field for field in fields if field)
+
+    @classmethod
+    def _recovery_key_details(cls, key: Mapping[str, Any]) -> list[str]:
+        details = [
+            "Partition: " + _text(key.get("path") or key.get("name") or "unknown"),
+            "Parent stable ID: " + _text(key.get("stable_id") or "unknown"),
+            "Filesystem UUID: " + _text(key.get("uuid") or "unknown"),
+            "Size: " + _human_size(key.get("size")),
+            "Model: " + _text(key.get("model") or "unknown"),
+        ]
+        if key.get("transport"):
+            details.append("Transport: " + _text(key.get("transport")))
+        return details
+
+    def _select_recovery_key(self, keys: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | object:
+        available = [key for key in keys if key.get("eligible") is True]
+        unavailable: list[str] = []
+        for key in keys:
+            if key.get("eligible") is True:
+                continue
+            reasons = key.get("reasons")
+            if not isinstance(reasons, Sequence) or isinstance(reasons, (str, bytes)):
+                reasons = ["not eligible for this role"]
+            unavailable.append(self._recovery_key_label(key) + " — unavailable: " + ", ".join(_text(item) for item in reasons))
+        if not available:
+            self.ui.message("No eligible unlock-key USB", unavailable or ["The installer found no eligible attached unlock-key USB."])
+            return _CANCEL
+        selected = self.ui.choose(
+            "Select attached unlock-key USB",
+            [self._recovery_key_label(key) for key in available],
+            detail=[
+                "Select the key partition whose parent USB and filesystem UUID match the key you intend to use.",
+                "The installer controller mounts the selected key temporarily read-only; it does not format it.",
+            ] + unavailable,
+        )
+        if selected in (_BACK, _CANCEL) or not isinstance(selected, int):
+            return _BACK
+        key = available[selected]
+        if not self.ui.message_with_review("Selected attached unlock-key USB", self._recovery_key_details(key)):
+            return _CANCEL
+        return key
+
+    @staticmethod
     def _token(plan: Mapping[str, Any], name: str) -> str:
         direct = plan.get(name + "_token")
         if direct is not None:
@@ -860,7 +916,9 @@ class InstallerUi:
         secrets: list[str] = []
         submission_started = False
         try:
-            targets = self._call({"action": "recovery-discover"}).get("targets", [])
+            discovered = self._call({"action": "recovery-discover"})
+            targets = discovered.get("targets", [])
+            keys = discovered.get("keys", [])
             target = self._select_disk(targets, title="Select target to repair")
             if target in (_BACK, _CANCEL):
                 return None
@@ -872,10 +930,16 @@ class InstallerUi:
             encrypted = bool(target.get("luks_uuid"))
             request: dict[str, Any] = {"action": "recovery-plan", "target": target.get("path"), "target_confirmation": confirmation}
             if encrypted:
+                credential_options = ["Use recovery passphrase"]
+                if isinstance(keys, Sequence) and not isinstance(keys, (str, bytes)) and any(
+                    isinstance(key, Mapping) and key.get("eligible") is True for key in keys
+                ):
+                    credential_options.append("Use attached unlock-key USB")
+                credential_options.append("Use existing recovery key FILE")
                 credential = self.ui.choose(
                     "Unlock encrypted target for inspection",
-                    ["Use recovery passphrase", "Use existing recovery key FILE"],
-                    detail=["The passphrase or existing key file is sent only to the installer service and stays masked."] ,
+                    credential_options,
+                    detail=["The selected credential is sent only to the installer service and stays masked."] ,
                 )
                 if credential in (_BACK, _CANCEL):
                     return None
@@ -885,6 +949,20 @@ class InstallerUi:
                         return None
                     secrets.append(passphrase)
                     request["passphrase"] = passphrase
+                elif credential == 1 and len(credential_options) == 3:
+                    key = self._select_recovery_key(keys)
+                    if key in (_BACK, _CANCEL):
+                        return None
+                    key_token = _text(key.get("token"))
+                    if not key_token:
+                        self.ui.message("Unlock-key confirmation unavailable", ["The selected key has no confirmation token. No target was changed."])
+                        return None
+                    key_confirmation = self.ui.text("Type this unlock-key token exactly: " + key_token, required=True)
+                    if key_confirmation != key_token:
+                        self.ui.message("Unlock-key confirmation failed", ["No target was changed."])
+                        return None
+                    request["key_device"] = key.get("path")
+                    request["key_confirmation"] = key_confirmation
                 else:
                     key_file = self.ui.text("Existing recovery key FILE path", required=True)
                     if key_file in (_BACK, _CANCEL):

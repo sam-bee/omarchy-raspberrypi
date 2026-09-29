@@ -259,6 +259,83 @@ class InstallerUiTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual([request["action"] for request in requests], ["status", "recovery-discover", "recovery-plan", "recovery-inspect", "recovery-repair"])
 
+    def test_encrypted_recovery_wires_attached_key_device_through_every_phase(self) -> None:
+        requests: list[dict[str, Any]] = []
+
+        def call(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            request = dict(request)
+            requests.append(request)
+            action = request["action"]
+            if action == "status":
+                return {"state": {"status": "idle"}}
+            if action == "recovery-discover":
+                return {
+                    "targets": [{
+                        "path": "/dev/sda",
+                        "size": 100,
+                        "transport": "usb",
+                        "eligible": True,
+                        "root_kind": "luks",
+                        "luks_uuid": "TARGET-LUKS-UUID",
+                        "token": "RECOVER TARGET",
+                    }],
+                    "keys": [{
+                        "path": "/dev/sdb1",
+                        "stable_id": "serial:unlock-usb",
+                        "uuid": "KEY-FS-UUID",
+                        "size": 256,
+                        "model": "unlock USB",
+                        "token": "RECOVER KEY",
+                        "eligible": True,
+                    }],
+                }
+            if action in {"recovery-plan", "recovery-inspect", "recovery-repair"}:
+                self.assertEqual(request.get("key_device"), "/dev/sdb1")
+                self.assertEqual(request.get("key_confirmation"), "RECOVER KEY")
+                self.assertNotIn("key_file", request)
+                self.assertNotIn("passphrase", request)
+                if action == "recovery-plan":
+                    return {"scope": "boot and initramfs only", "limitations": ["read-only plan"]}
+                if action == "recovery-inspect":
+                    return {"inspection": {"read_only": True, "boot_files": ["cmdline.txt"]}}
+                self.assertEqual(request["repair_confirmation"], installer_ui.REPAIR_CONFIRMATION)
+                return {"repaired": True}
+            raise AssertionError(action)
+
+        # Home, target, credential, attached-key partition.
+        ui = FakeInteraction(choices=[1, 0, 1, 0], texts=["RECOVER TARGET", "RECOVER KEY"], confirms=[True])
+        result = installer_ui.run(call, _valid_settings, interaction=ui)
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [request["action"] for request in requests],
+            ["status", "recovery-discover", "recovery-plan", "recovery-inspect", "recovery-repair"],
+        )
+        self.assertIn(("Select attached unlock-key USB", 0), ui.choose_calls)
+        selected_review = next(lines for title, lines in ui.reviews if title == "Selected attached unlock-key USB")
+        self.assertIn("serial:unlock-usb", "\n".join(selected_review))
+        self.assertIn("KEY-FS-UUID", "\n".join(selected_review))
+
+    def test_attached_key_confirmation_failure_cancels_before_planning(self) -> None:
+        requests: list[dict[str, Any]] = []
+
+        def call(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            request = dict(request)
+            requests.append(request)
+            if request["action"] == "status":
+                return {"state": {"status": "idle"}}
+            if request["action"] == "recovery-discover":
+                return {
+                    "targets": [{"path": "/dev/sda", "size": 100, "eligible": True, "luks_uuid": "TARGET", "token": "RECOVER TARGET"}],
+                    "keys": [{"path": "/dev/sdb1", "stable_id": "serial:key", "uuid": "KEY", "size": 256, "token": "RECOVER KEY", "eligible": True}],
+                }
+            raise AssertionError(request)
+
+        ui = FakeInteraction(choices=[1, 0, 1, 0, 3], texts=["RECOVER TARGET", "WRONG KEY"])
+        result = installer_ui.run(call, _valid_settings, interaction=ui)
+        self.assertEqual(result, 0)
+        self.assertEqual([request["action"] for request in requests], ["status", "recovery-discover"])
+        self.assertIn("Unlock-key confirmation failed", {title for title, _lines in ui.messages})
+
     def test_completed_latest_job_uses_completion_card(self) -> None:
         def call(request: Mapping[str, Any]) -> Mapping[str, Any]:
             if request["action"] == "status":

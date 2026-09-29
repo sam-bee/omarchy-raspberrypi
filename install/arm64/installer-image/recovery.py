@@ -51,6 +51,9 @@ _KERNEL_ASSIGNMENT = re.compile(r"^\s*kernel=(\S+)\s*$", re.IGNORECASE)
 _FSTYPE_BOOT = frozenset({"vfat", "fat", "fat16", "fat32", "msdos"})
 _FSTYPE_LUKS = frozenset({"crypto_luks", "luks", "luks2"})
 _FSTYPE_ROOT = frozenset({"ext4"})
+_KEY_LABEL = "OMARCHYKEY"
+_KEY_MOUNT_OPTIONS = "ro,noload,nodev,nosuid,noexec"
+_KEY_SIZE = 64
 
 
 def _fail(message: str) -> RecoveryError:
@@ -172,6 +175,15 @@ def _children(node: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return result
 
 
+def _direct_children(node: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Return the immediate lsblk children without trusting their shape."""
+
+    raw = node.get("children", []) or []
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, Mapping)]
+
+
 def _path(node: Mapping[str, Any]) -> str | None:
     value = _clean(node.get("path"))
     if value:
@@ -200,6 +212,13 @@ def _parse_lsblk(result: Any) -> list[dict[str, Any]]:
 def _safe_stable(value: Any) -> str | None:
     text = _clean(value)
     return text if text and _STABLE_VALUE.fullmatch(text) else None
+
+
+def _safe_model(value: Any) -> str | None:
+    text = _clean(value)
+    if not text or len(text) > 256 or any(ord(char) < 0x20 for char in text):
+        return None
+    return text
 
 
 def _safe_uuid(value: Any) -> str | None:
@@ -377,6 +396,48 @@ class TargetIdentity:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class KeyIdentity:
+    """Non-secret identity and eligibility facts for one key partition."""
+
+    path: str
+    stable_id: str | None
+    uuid: str | None
+    size: int
+    model: str | None
+    transport: str | None
+    fstype: str | None
+    label: str | None
+    mounted: bool
+    reasons: tuple[str, ...] = ()
+
+    @property
+    def eligible(self) -> bool:
+        return not self.reasons
+
+    @property
+    def token(self) -> str:
+        stable = self.stable_id or "<missing>"
+        key_uuid = self.uuid or "<missing>"
+        return f"KEY {stable} {key_uuid} {self.size}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "stable_id": self.stable_id,
+            "uuid": self.uuid,
+            "size": self.size,
+            "model": self.model,
+            "transport": self.transport,
+            "fstype": self.fstype,
+            "label": self.label,
+            "mounted": self.mounted,
+            "eligible": self.eligible,
+            "reasons": list(self.reasons),
+            "token": self.token,
+        }
+
+
 def _identity_for(
     node: Mapping[str, Any],
     *,
@@ -505,6 +566,121 @@ def discover_targets(*, runner: Runner = subprocess.run, inventory: Mapping[str,
     ]
 
 
+def _key_identity_for(
+    disk: Mapping[str, Any],
+    partition: Mapping[str, Any],
+    *,
+    runner: Runner,
+    mounted_sources: set[str],
+    mounted_numbers: set[str],
+) -> KeyIdentity:
+    path = _path(partition)
+    if not path:
+        raise _fail("key inventory contains a partition without a path")
+    disk_path = _path(disk)
+    udev = _read_udev(disk_path, runner) if disk_path else {}
+    stable_id = _stable_id(disk, udev=udev, sysfs_cid=_sysfs_cid(disk_path) if disk_path else None)
+    fstype = (_clean(partition.get("fstype")) or "").lower() or None
+    label = _clean(partition.get("label"))
+    mounted = _device_is_mounted(partition, mounted_sources, mounted_numbers)
+    partitions = [item for item in _direct_children(disk) if _clean(item.get("type")) == "part"]
+    reasons: list[str] = []
+    if _clean(disk.get("type")) != "disk" or _clean(partition.get("type")) != "part":
+        reasons.append("key device is not a disk partition")
+    if (_clean(disk.get("tran")) or "").lower() != "usb":
+        reasons.append("key device is not on USB")
+    if not stable_id:
+        reasons.append("no stable parent serial, WWN, or SD CID identity")
+    if len(partitions) != 1:
+        reasons.append("key disk has multiple or ambiguous partitions")
+    if fstype != "ext4":
+        reasons.append("key filesystem is not ext4")
+    if label != _KEY_LABEL:
+        reasons.append("key filesystem label is not OMARCHYKEY")
+    key_uuid = _safe_uuid(partition.get("uuid"))
+    if not key_uuid:
+        reasons.append("key filesystem UUID is unavailable")
+    if _int(partition.get("size")) <= 0:
+        reasons.append("unknown key partition size")
+    if mounted:
+        reasons.append("key filesystem is already mounted")
+    if _marker(disk, installer=True) or any(_marker(item, installer=True) for item in _direct_children(disk)):
+        reasons.append("installer media")
+    return KeyIdentity(
+        path=path,
+        stable_id=stable_id,
+        uuid=key_uuid,
+        size=_int(partition.get("size")),
+        model=_safe_model(disk.get("model")),
+        transport=_clean(disk.get("tran")),
+        fstype=fstype,
+        label=label,
+        mounted=mounted,
+        reasons=tuple(dict.fromkeys(reasons)),
+    )
+
+
+def discover_keys(*, runner: Runner = subprocess.run, inventory: Mapping[str, Any] | None = None) -> list[KeyIdentity]:
+    """Return labelled USB key partitions and their non-secret eligibility facts."""
+
+    if inventory is None:
+        result = _run(
+            runner,
+            [
+                "lsblk",
+                "--json",
+                "--tree",
+                "--paths",
+                "--bytes",
+                "--output",
+                "PATH,KNAME,TYPE,SIZE,SERIAL,WWN,MODEL,TRAN,FSTYPE,LABEL,UUID,PKNAME,RO,MOUNTPOINTS,MAJ:MIN,PTTYPE",
+            ],
+        )
+        nodes = _parse_lsblk(result)
+        mounted_sources, mounted_numbers = _findmnt_sources(runner)
+    else:
+        raw_nodes = inventory.get("blockdevices") if isinstance(inventory, Mapping) else None
+        if not isinstance(raw_nodes, list):
+            raise _fail("block-device inventory has an invalid shape")
+        nodes = [dict(node) for node in raw_nodes if isinstance(node, Mapping)]
+        mounted_sources, mounted_numbers = set(), set()
+    records: list[KeyIdentity] = []
+    for disk in nodes:
+        if _clean(disk.get("type")) != "disk":
+            continue
+        partitions = [item for item in _direct_children(disk) if _clean(item.get("type")) == "part"]
+        # The label is the explicit opt-in marker.  Unlabelled or unrelated
+        # USB partitions are never offered as key media to the controller.
+        for partition in partitions:
+            if (_clean(partition.get("label")) or "").upper() != _KEY_LABEL:
+                continue
+            records.append(
+                _key_identity_for(
+                    disk,
+                    partition,
+                    runner=runner,
+                    mounted_sources=mounted_sources,
+                    mounted_numbers=mounted_numbers,
+                )
+            )
+    stable_counts: dict[str, int] = {}
+    uuid_counts: dict[str, int] = {}
+    for identity in records:
+        if identity.stable_id:
+            stable_counts[identity.stable_id] = stable_counts.get(identity.stable_id, 0) + 1
+        if identity.uuid:
+            uuid_counts[identity.uuid] = uuid_counts.get(identity.uuid, 0) + 1
+    return [
+        replace(
+            identity,
+            reasons=identity.reasons
+            + (("stable parent identity is ambiguous",) if identity.stable_id and stable_counts[identity.stable_id] > 1 else ())
+            + (("key filesystem UUID is ambiguous",) if identity.uuid and uuid_counts[identity.uuid] > 1 else ()),
+        )
+        for identity in records
+    ]
+
+
 def _identity_from(value: TargetIdentity | Mapping[str, Any]) -> TargetIdentity:
     if isinstance(value, TargetIdentity):
         return value
@@ -560,6 +736,27 @@ def select_target(
         raise _fail("target confirmation did not match the current identity")
     if not selected.eligible:
         raise _fail("target is refused: " + "; ".join(selected.reasons))
+    return selected
+
+
+def select_key_device(
+    path: str,
+    *,
+    confirmation: str | None = None,
+    runner: Runner = subprocess.run,
+) -> KeyIdentity:
+    """Select and revalidate one explicitly confirmed USB key partition."""
+
+    if not isinstance(path, str) or not path.startswith("/dev/") or path == "/dev/":
+        raise _fail("an explicit key device is required")
+    matches = [item for item in discover_keys(runner=runner) if item.path == path]
+    if len(matches) != 1:
+        raise _fail("key device is not a uniquely discovered USB key partition")
+    selected = matches[0]
+    if confirmation is not None and confirmation != selected.token:
+        raise _fail("key confirmation did not match the current identity")
+    if not selected.eligible:
+        raise _fail("key device is refused: " + "; ".join(selected.reasons))
     return selected
 
 
@@ -758,6 +955,74 @@ def mount_target(identity: TargetIdentity | Mapping[str, Any], root_mount: str |
             except RecoveryError:
                 pass
         raise
+
+
+@dataclass(slots=True)
+class KeyMountLease:
+    """Own a temporary, read-only mount of the selected key filesystem."""
+
+    mount: Path
+    runner: Runner
+    cleaned: bool = False
+
+    def cleanup(self) -> None:
+        if self.cleaned:
+            return
+        _run(self.runner, ["umount", "--", str(self.mount)])
+        try:
+            self.mount.rmdir()
+        except OSError:
+            # The real mount is empty after umount.  File-backed tests may
+            # leave their copied fixture behind, which is harmless and is
+            # still outside the target filesystem.
+            pass
+        self.cleaned = True
+
+    close = cleanup
+
+def mount_key_device(
+    identity: KeyIdentity,
+    mount: str | Path,
+    *,
+    runner: Runner = subprocess.run,
+) -> KeyMountLease:
+    """Mount a selected key partition with restrictive read-only options."""
+
+    if not identity.eligible:
+        raise _fail("key identity is not eligible")
+    mount_dir = _mountpoint(mount, description="key mountpoint")
+    _run(runner, ["mount", "-t", "ext4", "-o", _KEY_MOUNT_OPTIONS, "--", identity.path, str(mount_dir)])
+    return KeyMountLease(mount_dir, runner)
+
+
+def _validate_key_filesystem(mount: str | Path) -> Path:
+    """Validate the generated nonbootable key layout and return its key path."""
+
+    mount_dir = _absolute(mount, description="key mountpoint")
+    _reject_symlink_components(mount_dir)
+    try:
+        entries = list(mount_dir.iterdir())
+    except OSError as exc:
+        raise _fail("key filesystem cannot be inspected") from exc
+    allowed = {".cryptroot.key", "lost+found"}
+    if any(entry.name not in allowed for entry in entries):
+        raise _fail("key filesystem has a bootable or unexpected layout")
+    lost_found = mount_dir / "lost+found"
+    if lost_found.is_symlink() or (lost_found.exists() and not lost_found.is_dir()):
+        raise _fail("key filesystem has an invalid lost+found entry")
+    key_path = mount_dir / ".cryptroot.key"
+    _regular_file(key_path, description="mounted recovery key")
+    try:
+        info = key_path.stat()
+    except OSError as exc:
+        raise _fail("mounted recovery key cannot be inspected") from exc
+    if stat.S_IMODE(info.st_mode) != 0o400:
+        raise _fail("mounted recovery key permissions are not 0400")
+    if os.geteuid() == 0 and info.st_uid != 0:
+        raise _fail("mounted recovery key must be root-owned")
+    if info.st_size != _KEY_SIZE:
+        raise _fail("mounted recovery key has an unexpected size")
+    return key_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -1362,14 +1627,25 @@ def repair_target(
     return {**plan.public(), "preserved_unchanged": True, "initramfs": str(initramfs)}
 
 
-def _credential(request: Mapping[str, Any]) -> tuple[str | None, str | None]:
+def _credential(request: Mapping[str, Any]) -> tuple[str | None, str | None, str | None, str | None]:
     key_file = request.get("key_file")
     passphrase = request.get("passphrase")
+    key_device = request.get("key_device")
+    key_confirmation = request.get("key_confirmation")
     if key_file is not None and not isinstance(key_file, str):
         raise _fail("key file is invalid")
     if passphrase is not None and not isinstance(passphrase, str):
         raise _fail("passphrase is invalid")
-    return key_file, passphrase
+    if key_device is not None and not isinstance(key_device, str):
+        raise _fail("key device is invalid")
+    if key_confirmation is not None and not isinstance(key_confirmation, str):
+        raise _fail("key confirmation is invalid")
+    if (key_device is None) != (key_confirmation is None):
+        raise _fail("key device and key confirmation must be provided together")
+    modes = sum(value is not None for value in (key_file, passphrase, key_device))
+    if modes > 1:
+        raise _fail("provide exactly one existing key file, attached key device, or passphrase")
+    return key_file, passphrase, key_device, key_confirmation
 
 
 def _select_from_request(request: Mapping[str, Any], *, runner: Runner) -> TargetIdentity:
@@ -1378,6 +1654,19 @@ def _select_from_request(request: Mapping[str, Any], *, runner: Runner) -> Targe
     if not isinstance(path, str) or not isinstance(confirmation, str):
         raise _fail("an explicit target and confirmation are required")
     return select_target(path, confirmation=confirmation, runner=runner)
+
+
+def _select_key_from_request(
+    key_device: str | None,
+    key_confirmation: str | None,
+    *,
+    runner: Runner,
+) -> KeyIdentity | None:
+    if key_device is None and key_confirmation is None:
+        return None
+    if key_device is None or key_confirmation is None:
+        raise _fail("key device and key confirmation must be provided together")
+    return select_key_device(key_device, confirmation=key_confirmation, runner=runner)
 
 
 def _inspect_mounted_target(root: Path, boot: Path) -> dict[str, Any]:
@@ -1419,9 +1708,9 @@ def handle_request(request: Mapping[str, Any], *, runner: Runner = subprocess.ru
     action = request.get("action")
     allowed_fields = {
         "recovery-discover": {"action"},
-        "recovery-plan": {"action", "target", "target_confirmation", "key_file", "passphrase", "mapper"},
-        "recovery-inspect": {"action", "target", "target_confirmation", "key_file", "passphrase", "mapper"},
-        "recovery-repair": {"action", "target", "target_confirmation", "key_file", "passphrase", "mapper", "repair_confirmation"},
+        "recovery-plan": {"action", "target", "target_confirmation", "key_file", "key_device", "key_confirmation", "passphrase", "mapper"},
+        "recovery-inspect": {"action", "target", "target_confirmation", "key_file", "key_device", "key_confirmation", "passphrase", "mapper"},
+        "recovery-repair": {"action", "target", "target_confirmation", "key_file", "key_device", "key_confirmation", "passphrase", "mapper", "repair_confirmation"},
     }
     if action not in allowed_fields:
         raise _fail("unknown recovery action")
@@ -1430,15 +1719,33 @@ def handle_request(request: Mapping[str, Any], *, runner: Runner = subprocess.ru
     if action == "recovery-discover":
         # Inventory is read-only.  The caller still has to select one of the
         # returned paths and echo its token before any unlock or repair.
-        return {"targets": [target.to_dict() for target in discover_targets(runner=runner)], "read_only": True}
+        return {
+            "targets": [target.to_dict() for target in discover_targets(runner=runner)],
+            "keys": [key.to_dict() for key in discover_keys(runner=runner)],
+            "read_only": True,
+        }
     if action == "recovery-plan":
         target = _select_from_request(request, runner=runner)
-        key_file, passphrase = _credential(request)
-        plan = build_unlock_plan(target, key_file=key_file, passphrase=passphrase, mapper=str(request.get("mapper", RECOVERY_MAPPER)))
+        key_file, passphrase, key_device, key_confirmation = _credential(request)
+        selected_key = _select_key_from_request(key_device, key_confirmation, runner=runner)
+        if selected_key is not None:
+            if not target.encrypted:
+                raise _fail("plain-root target does not accept unlock credentials")
+            # Planning verifies the current token and device identity but does
+            # not mount the key filesystem or inspect its secret contents.
+            unlock_plan: dict[str, Any] | None = {
+                "credential": "attached-key",
+                "key_device": selected_key.to_dict(),
+                "read_only": True,
+            }
+        else:
+            plan = build_unlock_plan(target, key_file=key_file, passphrase=passphrase, mapper=str(request.get("mapper", RECOVERY_MAPPER)))
+            unlock_plan = plan.public() if plan is not None else None
         return {
             "target": target.to_dict(),
             "read_only": True,
-            "unlock_plan": plan.public() if plan is not None else None,
+            "unlock_plan": unlock_plan,
+            **({"key_device": selected_key.to_dict()} if selected_key is not None else {}),
             "repair_confirmation": REPAIR_CONFIRMATION,
             "scope": "boot and initramfs only",
             "limitations": ["planning does not unlock, mount, repair, reinstall, or provide full-system rollback"],
@@ -1448,16 +1755,25 @@ def handle_request(request: Mapping[str, Any], *, runner: Runner = subprocess.ru
     if action == "recovery-repair" and request.get("repair_confirmation") != REPAIR_CONFIRMATION:
         raise _fail("boot repair requires its explicit confirmation")
     target = _select_from_request(request, runner=runner)
-    key_file, passphrase = _credential(request)
+    key_file, passphrase, key_device, key_confirmation = _credential(request)
+    selected_key = _select_key_from_request(key_device, key_confirmation, runner=runner)
+    if selected_key is not None and not target.encrypted:
+        raise _fail("plain-root target does not accept unlock credentials")
     mapper = _validate_mapper(str(request.get("mapper", RECOVERY_MAPPER)))
     owned_mapper: OwnedMapper | None = None
     lease: MountLease | None = None
+    key_lease: KeyMountLease | None = None
     try:
         writable = action == "recovery-repair"
-        owned_mapper = unlock_target(target, key_file=key_file, passphrase=passphrase, mapper=mapper, read_only=not writable, runner=runner)
         root = _absolute(mount_root or MOUNT_ROOT, description="recovery mount root")
         _reject_symlink_components(root)
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if selected_key is not None:
+            key_mount = root / f"key-{uuid.uuid4().hex[:12]}"
+            key_mount.mkdir(mode=0o700)
+            key_lease = mount_key_device(selected_key, key_mount, runner=runner)
+            key_file = str(_validate_key_filesystem(key_mount))
+        owned_mapper = unlock_target(target, key_file=key_file, passphrase=passphrase, mapper=mapper, read_only=not writable, runner=runner)
         root_mount = root / f"root-{uuid.uuid4().hex[:12]}"
         # Mount the boot partition below the selected root.  The target root's
         # own /boot directory is the mountpoint after the root mount hides the
@@ -1472,10 +1788,14 @@ def handle_request(request: Mapping[str, Any], *, runner: Runner = subprocess.ru
             return {"target": target.to_dict(), "repaired": True, **result}
         return {"target": target.to_dict(), "inspection": _inspect_mounted_target(root_mount, boot_mount), "limitations": ["inspection does not repair or roll back the installed system"]}
     finally:
-        if lease is not None:
-            lease.cleanup()
-        elif owned_mapper is not None:
-            owned_mapper.close()
+        try:
+            if lease is not None:
+                lease.cleanup()
+            elif owned_mapper is not None:
+                owned_mapper.close()
+        finally:
+            if key_lease is not None:
+                key_lease.cleanup()
 
 
 def _controller_call(request: Mapping[str, Any], *, controller: str = CONTROLLER_PATH, runner: Runner = subprocess.run) -> dict[str, Any]:
@@ -1495,6 +1815,8 @@ def _controller_call(request: Mapping[str, Any], *, controller: str = CONTROLLER
 
 __all__ = [
     "CONTROLLER_PATH",
+    "KeyIdentity",
+    "KeyMountLease",
     "MOUNT_ROOT",
     "OwnedMapper",
     "MountLease",
@@ -1505,11 +1827,14 @@ __all__ = [
     "TargetIdentity",
     "UnlockPlan",
     "build_unlock_plan",
+    "discover_keys",
     "discover_targets",
     "handle_request",
+    "mount_key_device",
     "mount_target",
     "plan_boot_repair",
     "repair_target",
     "select_target",
+    "select_key_device",
     "unlock_target",
 ]

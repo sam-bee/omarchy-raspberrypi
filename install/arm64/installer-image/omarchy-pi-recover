@@ -38,7 +38,15 @@ def _common(parser: argparse.ArgumentParser, *, target_required: bool = True) ->
 def _credential(parser: argparse.ArgumentParser) -> None:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--key-file", help="existing unlock key file; it is read by the privileged controller")
+    group.add_argument(
+        "--key-device",
+        help="attached unlock-key USB partition returned by recovery discover",
+    )
     group.add_argument("--passphrase", action="store_true", help="prompt for the existing LUKS passphrase without putting it in argv")
+    parser.add_argument(
+        "--confirm-key",
+        help="the exact key token printed for this partition by recovery discover (required with --key-device)",
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -81,7 +89,14 @@ def _request(args: argparse.Namespace) -> dict[str, Any]:
         if args.confirm_target:
             request["target_confirmation"] = args.confirm_target
     if args.command in {"plan", "inspect", "repair"}:
-        if args.key_file:
+        if args.key_device:
+            if not args.confirm_key:
+                raise recovery.RecoveryError("--key-device requires --confirm-key")
+            request["key_device"] = args.key_device
+            request["key_confirmation"] = args.confirm_key
+        elif args.confirm_key:
+            raise recovery.RecoveryError("--confirm-key requires --key-device")
+        elif args.key_file:
             request["key_file"] = args.key_file
         elif args.passphrase:
             request["passphrase"] = getpass.getpass("Existing LUKS passphrase: ")

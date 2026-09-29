@@ -254,6 +254,19 @@ class InstallerJobTests(unittest.TestCase):
         self.assertEqual(job._load_state()["phase"], "recovery-complete")
         self.assertFalse(job._request_path().exists())
 
+    def test_recovery_keeps_confirmed_key_device_through_worker_handoff(self):
+        calls = self.fake_recovery()
+        request = self.recovery_request()
+        del request["passphrase"]
+        request.update(key_device="/dev/sdb1", key_confirmation="KEY test-usb test-uuid")
+        job._handle_request(request)
+        for field in ("key_device", "key_confirmation"):
+            self.assertEqual(calls[0][field], request[field])
+        self.assertEqual(job._run_worker(), 0)
+        self.assertEqual(calls[-1], request)
+        self.assertEqual(self.disk.prepare_calls, [])
+        self.assertFalse(job._request_path().exists())
+
     def test_recovery_requires_confirmation_and_excludes_other_jobs(self):
         self.fake_recovery()
         with self.assertRaises(job.InstallerError):

@@ -24,15 +24,23 @@ SPEC.loader.exec_module(recovery)
 
 LUKS_UUID = "12345678-1234-1234-1234-123456789abc"
 BOOT_UUID = "ABCD-1234"
+KEY_UUID = "98765432-4321-4321-4321-987654321abc"
 
 
 class FixtureRunner:
     def __init__(self, source_root: Path) -> None:
         self.source_root = source_root
         self.bad_initramfs_listing = False
+        self.fail_key_open = False
         self.cached_package_metadata = "Name            : linux-rpi\nVersion         : 6.1-1\nArchitecture    : aarch64\n"
         self.calls: list[list[str]] = []
         self.inputs: list[str | None] = []
+        self.key_source = source_root.parent / "key-source"
+        self.key_source.mkdir()
+        (self.key_source / "lost+found").mkdir()
+        key_file = self.key_source / ".cryptroot.key"
+        key_file.write_bytes(b"k" * 64)
+        key_file.chmod(0o400)
         self.inventory = {
             "blockdevices": [
                 {
@@ -59,6 +67,26 @@ class FixtureRunner:
                         {"path": "/dev/sdb1", "kname": "sdb1", "type": "part", "fstype": "vfat", "label": "OMARCHY-INSTALLER", "uuid": "AAAA-BBBB"},
                     ],
                 },
+                {
+                    "path": "/dev/sdc",
+                    "kname": "sdc",
+                    "type": "disk",
+                    "size": 64 * 1024 * 1024 * 1024,
+                    "serial": "fixture-key-1",
+                    "model": "Cruzer Blade",
+                    "tran": "usb",
+                    "children": [
+                        {
+                            "path": "/dev/sdc1",
+                            "kname": "sdc1",
+                            "type": "part",
+                            "size": 256 * 1024 * 1024,
+                            "fstype": "ext4",
+                            "label": "OMARCHYKEY",
+                            "uuid": KEY_UUID,
+                        }
+                    ],
+                },
             ]
         }
 
@@ -76,12 +104,16 @@ class FixtureRunner:
         if command[:2] == ["cryptsetup", "luksUUID"]:
             return subprocess.CompletedProcess(command, 0, LUKS_UUID + "\n", "")
         if command[:2] == ["cryptsetup", "open"]:
+            if self.fail_key_open:
+                return subprocess.CompletedProcess(command, 1, "", "bad key")
             return subprocess.CompletedProcess(command, 0, "", "")
         if command[:2] == ["cryptsetup", "close"]:
             return subprocess.CompletedProcess(command, 0, "", "")
         if command[:1] == ["mount"]:
             mountpoint = Path(command[-1])
-            if command[-2] == "/dev/mapper/omarchy-pi-recovery-cryptroot":
+            if command[-2] == "/dev/sdc1":
+                shutil.copytree(self.key_source, mountpoint, dirs_exist_ok=True)
+            elif command[-2] == "/dev/mapper/omarchy-pi-recovery-cryptroot":
                 shutil.copytree(self.source_root, mountpoint, dirs_exist_ok=True)
             elif command[-2] == "/dev/sda1":
                 destination = mountpoint
@@ -168,6 +200,121 @@ class RecoveryTests(unittest.TestCase):
         installer = response["targets"][1]
         self.assertFalse(installer["eligible"])
         self.assertIn("installer media", installer["reasons"])
+
+        self.assertEqual(len(response["keys"]), 1)
+        key = response["keys"][0]
+        self.assertEqual(key["path"], "/dev/sdc1")
+        self.assertEqual(key["stable_id"], "serial:fixture-key-1")
+        self.assertEqual(key["uuid"], KEY_UUID)
+        self.assertEqual(key["model"], "Cruzer Blade")
+        self.assertTrue(key["eligible"])
+        self.assertIn("KEY serial:fixture-key-1 " + KEY_UUID, key["token"])
+
+    def test_attached_key_plan_revalidates_token_without_mounting(self) -> None:
+        target = self.target()
+        key = recovery.discover_keys(runner=self.runner)[0]
+        response = recovery.handle_request(
+            {
+                "action": "recovery-plan",
+                "target": target.path,
+                "target_confirmation": target.token,
+                "key_device": key.path,
+                "key_confirmation": key.token,
+            },
+            runner=self.runner,
+        )
+        self.assertEqual(response["unlock_plan"]["credential"], "attached-key")
+        self.assertEqual(response["key_device"]["uuid"], KEY_UUID)
+        self.assertFalse(any(call[:1] == ["mount"] for call in self.runner.calls))
+
+        with self.assertRaisesRegex(recovery.RecoveryError, "key confirmation"):
+            recovery.handle_request(
+                {
+                    "action": "recovery-plan",
+                    "target": target.path,
+                    "target_confirmation": target.token,
+                    "key_device": key.path,
+                    "key_confirmation": "KEY serial:fixture-key-1 wrong-uuid 1",
+                },
+                runner=self.runner,
+            )
+
+    def test_attached_key_inspect_mounts_restricted_and_cleans_everything(self) -> None:
+        target = self.target()
+        key = recovery.discover_keys(runner=self.runner)[0]
+        response = recovery.handle_request(
+            {
+                "action": "recovery-inspect",
+                "target": target.path,
+                "target_confirmation": target.token,
+                "key_device": key.path,
+                "key_confirmation": key.token,
+            },
+            runner=self.runner,
+            mount_root=self.base / "mounts",
+        )
+        self.assertEqual(response["inspection"]["source_revision"], "a" * 40)
+        key_mount = next(call for call in self.runner.calls if call[:1] == ["mount"] and call[-2] == "/dev/sdc1")
+        self.assertEqual(key_mount[1:3], ["-t", "ext4"])
+        self.assertEqual(key_mount[4], "ro,noload,nodev,nosuid,noexec")
+        open_call = next(call for call in self.runner.calls if call[:2] == ["cryptsetup", "open"])
+        self.assertTrue(any(".cryptroot.key" in item for item in open_call))
+        self.assertGreaterEqual(sum(call[:1] == ["umount"] for call in self.runner.calls), 3)
+
+    def test_attached_key_cleanup_runs_when_unlock_fails(self) -> None:
+        self.runner.fail_key_open = True
+        target = self.target()
+        key = recovery.discover_keys(runner=self.runner)[0]
+        with self.assertRaisesRegex(recovery.RecoveryError, "command failed: cryptsetup"):
+            recovery.handle_request(
+                {
+                    "action": "recovery-inspect",
+                    "target": target.path,
+                    "target_confirmation": target.token,
+                    "key_device": key.path,
+                    "key_confirmation": key.token,
+                },
+                runner=self.runner,
+                mount_root=self.base / "mounts",
+            )
+        self.assertTrue(any(call[:1] == ["mount"] and call[-2] == "/dev/sdc1" for call in self.runner.calls))
+        self.assertTrue(any(call[:1] == ["umount"] and "key-" in call[-1] for call in self.runner.calls))
+
+    def test_duplicate_key_identity_or_uuid_is_refused(self) -> None:
+        duplicate = {
+            "path": "/dev/sdd",
+            "kname": "sdd",
+            "type": "disk",
+            "size": 64 * 1024 * 1024 * 1024,
+            "serial": "fixture-key-2",
+            "tran": "usb",
+            "children": [
+                {
+                    "path": "/dev/sdd1",
+                    "kname": "sdd1",
+                    "type": "part",
+                    "size": 256 * 1024 * 1024,
+                    "fstype": "ext4",
+                    "label": "OMARCHYKEY",
+                    "uuid": KEY_UUID,
+                }
+            ],
+        }
+        self.runner.inventory["blockdevices"].append(duplicate)
+        keys = recovery.discover_keys(runner=self.runner)
+        self.assertTrue(all(not key.eligible for key in keys))
+        target = self.target()
+        with self.assertRaisesRegex(recovery.RecoveryError, "refused"):
+            recovery.handle_request(
+                {
+                    "action": "recovery-plan",
+                    "target": target.path,
+                    "target_confirmation": target.token,
+                    "key_device": "/dev/sdc1",
+                    "key_confirmation": keys[0].token,
+                },
+                runner=self.runner,
+            )
 
     def test_wrong_target_and_missing_confirmation_are_rejected(self) -> None:
         target = self.target()
