@@ -29,10 +29,12 @@ class BuildInstallerImageTests(unittest.TestCase):
         signature = directory / "rootfs.tar.zst.sig"
         keyring = directory / "archlinuxarm.gpg"
         binary = directory / "hypr-rdp"
+        desktop = directory / "desktop.tar.zst"
         archive.write_bytes(b"signed rootfs archive")
         signature.write_bytes(b"detached signature")
         keyring.write_bytes(b"trusted keyring")
         binary.write_bytes(b"aarch64 hypr-rdp")
+        desktop.write_bytes(b"verified desktop payload")
         return {
             "archive": archive,
             "signature": signature,
@@ -41,15 +43,28 @@ class BuildInstallerImageTests(unittest.TestCase):
             "hypr_rdp": binary,
             "hypr_rdp_sha256": digest(binary),
             "archive_sha256": digest(archive),
+            "desktop_payload": desktop,
+            "desktop_payload_sha256": digest(desktop),
             "repo_server": "https://mirror.archlinuxarm.org/$arch/$repo",
         }
 
     def call_plan(self, inputs: dict[str, object], directory: Path, *, workdir: Path | None = None, output: Path | None = None):
-        return MODULE.plan(
-            **inputs,
-            workdir=workdir or directory / "work",
-            output=output or directory / "installer.img",
-        )
+        class FakeDesktopPayload:
+            @staticmethod
+            def inspect_bundle(bundle, expected_sha256):
+                return {
+                    "schema_version": 1,
+                    "sha256": expected_sha256,
+                    "source_revision": "a" * 40,
+                    "unpacked_bytes": 1024,
+                }
+
+        with patch.object(MODULE, "_load_module", return_value=FakeDesktopPayload):
+            return MODULE.plan(
+                **inputs,
+                workdir=workdir or directory / "work",
+                output=output or directory / "installer.img",
+            )
 
     def test_plan_records_inputs_without_creating_build_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -66,12 +81,13 @@ class BuildInstallerImageTests(unittest.TestCase):
             self.assertFalse(workdir.exists())
             self.assertFalse(output.exists())
 
-    def test_desktop_input_pair_is_validated_before_build(self) -> None:
+    def test_desktop_payload_digest_is_required_before_build(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             inputs = self.make_inputs(root)
-            with self.assertRaisesRegex(MODULE.InstallerBuildError, "supplied together"):
-                MODULE.plan(**inputs, workdir=root / "work", output=root / "image", desktop_payload=root / "missing")
+            inputs["desktop_payload_sha256"] = None
+            with self.assertRaisesRegex(MODULE.InstallerBuildError, "desktop payload SHA-256"):
+                self.call_plan(inputs, root)
             self.assertFalse((root / "work").exists())
 
     def test_plan_rejects_mismatched_hashes_before_mutation(self) -> None:
@@ -142,23 +158,44 @@ class BuildInstallerImageTests(unittest.TestCase):
                     calls.append("services")
                     return {"binary_sha256": expected_sha256}
 
+            class FakeDesktop:
+                @staticmethod
+                def inspect_bundle(bundle, expected_sha256):
+                    calls.append("inspect-desktop")
+                    return {"sha256": expected_sha256, "unpacked_bytes": 1024}
+
+                @staticmethod
+                def stage_bundle(rootfs, bundle, expected_sha256):
+                    calls.append("desktop")
+                    return {"sha256": expected_sha256, "unpacked_bytes": 1024}
+
             class FakeImage:
                 @staticmethod
-                def assemble_image(rootfs, image, *, mkfs_fat):
+                def assemble_image(rootfs, image, *, mkfs_fat, root_extra_mib):
                     calls.append("image")
                     self.assertEqual(mkfs_fat, rootfs / "usr/bin/mkfs.fat")
+                    self.assertEqual(root_extra_mib, 1025)
                     image.write_bytes(b"regular image")
                     return {"output": str(image)}
+
+            class FakeVerify:
+                @staticmethod
+                def verify_image(image):
+                    calls.append("verify")
+                    return {"image": str(image), "verified": True}
 
             fake_components = {
                 "rootfs": FakeRootfs,
                 "packages": FakePackages,
                 "boot": FakeBoot,
                 "services": FakeServices,
+                "desktop": FakeDesktop,
                 "image": FakeImage,
+                "verify": FakeVerify,
             }
             with patch.object(MODULE.platform, "machine", return_value="aarch64"), \
                  patch.object(MODULE.os, "geteuid", return_value=0), \
+                 patch.object(MODULE, "_load_module", return_value=FakeDesktop), \
                  patch.object(MODULE, "_components", return_value=fake_components):
                 result = MODULE.build(
                     **inputs,
@@ -166,7 +203,7 @@ class BuildInstallerImageTests(unittest.TestCase):
                     output=output,
                 )
 
-            self.assertEqual(calls, ["rootfs", "packages", "boot", "services", "image"])
+            self.assertEqual(calls, ["inspect-desktop", "rootfs", "packages", "boot", "services", "desktop", "image", "verify"])
             self.assertEqual(result["mode"], "apply")
             self.assertEqual(result["artifacts"]["image_sha256"], digest(output))
             manifest = json.loads((workdir / "build-manifest.json").read_text(encoding="utf-8"))
@@ -178,6 +215,9 @@ class BuildInstallerImageTests(unittest.TestCase):
         options = {action.dest for action in parser._actions}
         self.assertNotIn("device", options)
         self.assertNotIn("settings", options)
+        required = {action.dest for action in parser._actions if action.required}
+        self.assertIn("desktop_payload", required)
+        self.assertIn("desktop_payload_sha256", required)
 
 
 if __name__ == "__main__":

@@ -93,7 +93,7 @@ def _regular_file(path: Path, *, name: str) -> Path:
 
 
 def _validate_digest(value: str, *, name: str) -> str:
-    if not SHA256.fullmatch(value):
+    if not isinstance(value, str) or not SHA256.fullmatch(value):
         raise InstallerBuildError(f"{name} must be 64 lowercase hexadecimal characters")
     return value
 
@@ -194,8 +194,8 @@ def plan(
     output: Path,
     archive_sha256: str | None,
     repo_server: str,
-    desktop_payload: Path | None = None,
-    desktop_payload_sha256: str | None = None,
+    desktop_payload: Path,
+    desktop_payload_sha256: str,
     installer_source_revision: str | None = None,
 ) -> dict[str, Any]:
     if installer_source_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", installer_source_revision):
@@ -216,12 +216,10 @@ def plan(
     binary_digest_actual = _sha256(binary_path)
     if binary_digest_actual != binary_digest:
         raise InstallerBuildError("hypr-rdp binary SHA-256 differs from the expected hash")
-    desktop = None
-    if (desktop_payload is None) != (desktop_payload_sha256 is None):
-        raise InstallerBuildError("desktop payload and expected SHA-256 must be supplied together")
-    if desktop_payload is not None:
-        desktop = _load_module("desktop_payload.py", "installer_desktop_payload").inspect_bundle(desktop_payload, desktop_payload_sha256)
-        desktop["path"] = os.fspath(_absolute(desktop_payload))
+    desktop = _load_module("desktop_payload.py", "installer_desktop_payload").inspect_bundle(
+        desktop_payload, _validate_digest(desktop_payload_sha256, name="desktop payload SHA-256")
+    )
+    desktop["path"] = os.fspath(_absolute(desktop_payload))
     return {
         "schema_version": 1,
         "mode": "plan",
@@ -262,8 +260,8 @@ def build(
     output: Path,
     archive_sha256: str | None,
     repo_server: str,
-    desktop_payload: Path | None = None,
-    desktop_payload_sha256: str | None = None,
+    desktop_payload: Path,
+    desktop_payload_sha256: str,
     installer_source_revision: str | None = None,
 ) -> dict[str, Any]:
     machine = platform.machine().lower()
@@ -317,13 +315,11 @@ def build(
             _validate_digest(hypr_rdp_sha256, name="hypr-rdp SHA-256"),
             source_revision=installer_source_revision,
         )
-        desktop_result = None
         image_arguments = {"mkfs_fat": rootfs / "usr/bin/mkfs.fat"}
-        if desktop_payload is not None:
-            desktop_result = components["desktop"].stage_bundle(rootfs, desktop_payload, desktop_payload_sha256)
-            image_arguments["root_extra_mib"] = (desktop_result["unpacked_bytes"] + 1024 * 1024 - 1) // (1024 * 1024) + 1024
+        desktop_result = components["desktop"].stage_bundle(rootfs, desktop_payload, desktop_payload_sha256)
+        image_arguments["root_extra_mib"] = (desktop_result["unpacked_bytes"] + 1024 * 1024 - 1) // (1024 * 1024) + 1024
         image_result = components["image"].assemble_image(rootfs, output_path, **image_arguments)
-        verification = components["verify"].verify_image(output_path) if desktop_result is not None else None
+        verification = components["verify"].verify_image(output_path)
         build_manifest = {
             "schema_version": 1,
             "mode": "apply",
@@ -367,8 +363,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workdir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repo-server", default="https://mirror.archlinuxarm.org/$arch/$repo")
-    parser.add_argument("--desktop-payload", type=Path, help="verified step-3 desktop tar.zst")
-    parser.add_argument("--desktop-payload-sha256", help="expected desktop bundle SHA-256")
+    parser.add_argument("--desktop-payload", type=Path, required=True, help="verified step-3 desktop tar.zst")
+    parser.add_argument("--desktop-payload-sha256", required=True, help="expected desktop bundle SHA-256")
     parser.add_argument("--installer-source-revision", help="full installer source commit; runtime hashes are always recorded")
     parser.add_argument("--apply", action="store_true", help="perform the complete mutating build")
     return parser

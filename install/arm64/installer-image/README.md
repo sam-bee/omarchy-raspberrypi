@@ -66,9 +66,9 @@ the mise bootstrap and its managed tools.
 
 ## Disk installer
 
-The image records a content digest of its staged installer runtime, independently of the desktop source and bundle. Supply `--installer-source-revision` when building from an exported checkout to record its full commit hash; runtime hashes are always recorded. Confirmed jobs and installed-target receipts retain these identifiers. Full bundle builds also run image verification before reporting success.
+The image records a content digest of its staged installer runtime, independently of the desktop source and bundle. Supply `--installer-source-revision` when building from an exported checkout to record its full commit hash; runtime hashes are always recorded. Confirmed jobs and installed-target receipts retain these identifiers. Builds run image verification before reporting success.
 
-The desktop bundle is copied into the installer root and checked before any erasure. The image reserves disk-backed space for its unpacked root/source; package archives remain in the compressed bundle. Omitting the desktop arguments builds a boot-only development image, which is not a complete disk-installer candidate and fails the full image verifier.
+The desktop bundle is required, copied into the installer root, and checked before any erasure. The image reserves disk-backed space for its unpacked root/source; package archives remain in the compressed bundle. The builder always runs full image verification before reporting success.
 
 `omarchy-pi-install` opens automatically in the installer Foot terminal and is also available over SSH or locally. A confirmed job runs as one system service. Closing the terminal detaches its progress viewer; reopening the command observes the same job. Durable state and redacted logs live on the installer USB under `/var/lib/omarchy-pi/installer`. Power-loss or failed jobs require a fresh confirmation to restart from the beginning.
 
