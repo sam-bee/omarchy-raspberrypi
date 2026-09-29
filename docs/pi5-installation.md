@@ -175,7 +175,15 @@ omarchy-pi-recover repair \
   --confirm-repair
 ```
 
+On a running key-unlocked target, systemd may retain the key filesystem read-only at `/run/systemd/cryptsetup/keydev-cryptroot`. Leave the key connected for subsequent unattended boots.
+
 Use `omarchy-pi-recover status --watch` to follow the repair job. Before booting an encrypted target unattended, reinsert the new unlock-key USB; otherwise keep it absent and answer the local boot prompt with the recovery passphrase. Remove the installer USB and boot the repaired target. Recovery planning and inspection are read-only. Confirmed repair is limited to the installed boot files and initramfs; it does not reinstall the system, change LUKS keyslots, change the EEPROM boot order, or provide a full-system rollback.
+
+## Tested rehearsal
+
+The 29 September 2026 Pi 5 rehearsal passed fresh encrypted installation, Wi-Fi/SSH/direct RDP access, cancellation and media exclusions, disconnect/reconnect, new-key-only boot, ordinary desktop use, normal update and reboot, USB repair with both key sticks attached, passphrase-only repair with both absent, and repaired-target boot/RDP reconnect. The original encrypted NVMe returned with its protected file/package baseline and permanent boot order unchanged.
+
+The tested image runtime is `e62e596d`, with desktop payload `fcb2b5af`; the installed target updated normally to `690ca070`. The image's legacy recovery provenance flag can report false because it checks the wrong receipt path; source `690ca070` corrects this diagnostic, and the actual target receipt was independently verified. This did not prevent installation or repair. Physical display/keyboard, real audio output and other RDP clients were not exercised.
 
 ## Current rehearsal limits
 
