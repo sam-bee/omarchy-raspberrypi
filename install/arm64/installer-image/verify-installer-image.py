@@ -27,6 +27,7 @@ from typing import Any, Callable, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import desktop_payload
+import installer_payload_manifest as payload_manifest
 
 FIRST_PARTITION_SECTOR = 2048
 BOOT_TYPE = "c"
@@ -42,84 +43,27 @@ LUKS_ARGUMENT = re.compile(
     re.IGNORECASE,
 )
 
-BUILDER_MARKER = Path("usr/lib/omarchy-pi/installer-image.marker")
-BUILDER_MARKER_CONTENT = b"omarchy-pi-installer-image-v1\n"
-SETTINGS_EXAMPLE = "installer-settings.example.toml"
-SETTINGS_FILE = "installer-settings.toml"
-NETWORKD_PRESET = "etc/systemd/system-preset/00-omarchy-installer-networkd.preset"
-NETWORKD_PRESET_CONTENT = b"disable systemd-networkd*\n"
+BUILDER_MARKER = Path(payload_manifest.BUILDER_MARKER)
+BUILDER_MARKER_CONTENT = payload_manifest.BUILDER_MARKER_CONTENT
+SETTINGS_EXAMPLE = payload_manifest.EXAMPLE_SETTINGS
+SETTINGS_FILE = payload_manifest.SETTINGS_FILE
+NETWORKD_PRESET = payload_manifest.NETWORKD_PRESET
+NETWORKD_PRESET_CONTENT = payload_manifest.NETWORKD_PRESET_CONTENT
 REQUIRED_INSTALLER_TOOLS = ("sfdisk", "lsblk", "findmnt", "mkfs.ext4", "mkfs.fat", "cryptsetup", "tar", "zstd", "mkinitcpio", "lsinitcpio", "systemd-nspawn", "python3", "git", "visudo", "sudo", "partprobe", "vcgencmd", "debugfs", "wipefs", "udevadm")
 REQUIRED_FONT = "usr/share/fonts/TTF/DejaVuSansMono.ttf"
 # The service launcher runs as the installer user. Verify every directory in
 # its staged path is traversable even when the image was assembled under a
 # restrictive umask; this is deliberately an explicit payload list rather
 # than a recursive permission rewrite.
-PUBLIC_PAYLOAD_DIRECTORIES = (
-    "usr",
-    "usr/local",
-    "usr/local/bin",
-    "usr/local/libexec",
-    "usr/local/libexec/omarchy-pi",
-    "usr/local/share",
-    "usr/local/share/omarchy-pi",
-    "usr/lib",
-    "usr/lib/omarchy-pi",
-    "usr/bin",
-    "usr/share",
-    "usr/share/omarchy-pi",
-    "etc",
-    "etc/systemd",
-    "etc/systemd/system",
-    "etc/systemd/system-preset",
-    "etc/systemd/user",
-    "etc/systemd/system/multi-user.target.wants",
-    "etc/systemd/system/network-pre.target.requires",
-    "etc/systemd/system/sshd.service.requires",
-    "etc/systemd/system/NetworkManager.service.requires",
-    "etc/systemd/user/graphical-session.target.wants",
-)
-EXECUTABLE_PAYLOAD_FILES = (
-    "usr/local/bin/omarchy-pi-install",
-    "usr/local/bin/omarchy-pi-recover",
-    "usr/local/libexec/omarchy-pi/installer-control",
-    "usr/local/libexec/omarchy-pi/provision-access.py",
-    "usr/local/libexec/omarchy-pi/provision-network.py",
-    "usr/local/libexec/omarchy-pi/provision-rdp.py",
-    "usr/local/libexec/omarchy-pi/verify-installer-rdp-runtime.py",
-    "usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py",
-    "usr/local/libexec/omarchy-pi/launch-installer-session.py",
-    "usr/local/libexec/omarchy-pi/start-installer-session.sh",
-    "usr/local/libexec/omarchy-pi/start-installer-desktop.sh",
-    "usr/bin/hypr-rdp",
-)
+PUBLIC_PAYLOAD_DIRECTORIES = payload_manifest.PUBLIC_PAYLOAD_DIRECTORIES
+EXECUTABLE_PAYLOAD_FILES = payload_manifest.EXECUTABLE_PAYLOAD_FILES
 
 PROVENANCE_OWNER_UID = 0
-PROVENANCE_MODULE_FILES = tuple("usr/local/libexec/omarchy-pi/" + name for name in
-    ("settings.py", "disk_install.py", "installer_job.py", "recovery.py", "installed_target.py", "desktop_payload.py", "configure-installer-boot.py", "assemble-image.py"))
+PROVENANCE_MODULE_FILES = payload_manifest.PROVENANCE_MODULE_FILES
 
-SYSTEM_UNITS = (
-    "omarchy-pi-install.service",
-    "omarchy-pi-provision-access.service",
-    "omarchy-pi-provision-network.service",
-    "omarchy-pi-provision-rdp.service",
-    "omarchy-installer-launch.service",
-    "omarchy-installer-session@.service",
-)
-USER_UNITS = ("omarchy-installer-rdp.service",)
-EXPECTED_LINKS = {
-    "etc/systemd/system/multi-user.target.wants/NetworkManager.service": "/usr/lib/systemd/system/NetworkManager.service",
-    "etc/systemd/system/multi-user.target.wants/sshd.service": "/usr/lib/systemd/system/sshd.service",
-    "etc/systemd/system/multi-user.target.wants/omarchy-pi-provision-access.service": "/etc/systemd/system/omarchy-pi-provision-access.service",
-    "etc/systemd/system/multi-user.target.wants/omarchy-pi-provision-network.service": "/etc/systemd/system/omarchy-pi-provision-network.service",
-    "etc/systemd/system/multi-user.target.wants/omarchy-pi-provision-rdp.service": "/etc/systemd/system/omarchy-pi-provision-rdp.service",
-    "etc/systemd/system/multi-user.target.wants/omarchy-installer-launch.service": "/etc/systemd/system/omarchy-installer-launch.service",
-    "etc/systemd/system/network-pre.target.requires/omarchy-pi-provision-access.service": "/etc/systemd/system/omarchy-pi-provision-access.service",
-    "etc/systemd/system/network-pre.target.requires/omarchy-pi-provision-network.service": "/etc/systemd/system/omarchy-pi-provision-network.service",
-    "etc/systemd/system/sshd.service.requires/omarchy-pi-provision-access.service": "/etc/systemd/system/omarchy-pi-provision-access.service",
-    "etc/systemd/system/sshd.service.requires/omarchy-pi-provision-network.service": "/etc/systemd/system/omarchy-pi-provision-network.service",
-    "etc/systemd/system/NetworkManager.service.requires/omarchy-pi-provision-network.service": "/etc/systemd/system/omarchy-pi-provision-network.service",
-    "etc/systemd/user/graphical-session.target.wants/omarchy-installer-rdp.service": "../omarchy-installer-rdp.service",
-}
+SYSTEM_UNITS = tuple(payload_manifest.SYSTEM_UNITS)
+USER_UNITS = tuple(payload_manifest.USER_UNITS)
+EXPECTED_LINKS = payload_manifest.EXPECTED_LINKS
 
 
 class ImageVerificationError(RuntimeError):
@@ -462,7 +406,7 @@ def _verify_installer_provenance(root: Path) -> None:
         if not isinstance(files, dict) or not files:
             raise ValueError
         expected_files = ((set(EXECUTABLE_PAYLOAD_FILES + PROVENANCE_MODULE_FILES) - {"usr/bin/hypr-rdp"})
-                          | {"usr/local/share/omarchy-pi/installer-hyprland.conf"}
+                          | {"usr/local/share/omarchy-pi/" + name for name in payload_manifest.SHARE_FILES}
                           | {"etc/systemd/system/" + name for name in SYSTEM_UNITS}
                           | {"etc/systemd/user/" + name for name in USER_UNITS})
         # Every runtime entrypoint and module must have a content hash. Other
@@ -524,8 +468,8 @@ def _verify_services(root: Path) -> None:
     _regular_file(marker, description="installer image marker")
     if marker.read_bytes() != BUILDER_MARKER_CONTENT:
         raise ImageVerificationError("installer image marker is invalid")
-    for module in ("disk_install.py", "installer_job.py", "installed_target.py", "desktop_payload.py", "configure-installer-boot.py", "assemble-image.py"):
-        _regular_file(_root_path(root, "usr/local/libexec/omarchy-pi/" + module), description="installer runtime module")
+    for module in PROVENANCE_MODULE_FILES:
+        _regular_file(_root_path(root, module), description="installer runtime module")
     worker_wants = _root_path(root, "etc/systemd/system/multi-user.target.wants/omarchy-pi-install.service", allow_leaf_symlink=True)
     if os.path.lexists(worker_wants):
         raise ImageVerificationError("destructive install worker must not start at boot")
