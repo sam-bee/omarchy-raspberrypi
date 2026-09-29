@@ -63,7 +63,7 @@ Source rollback is separate from package rollback. The active source helper can 
 python3 "$HOME/.local/share/omarchy-pi/current/install/arm64/update-source.py" rollback --json
 ```
 
-This changes the user-owned source pointer and managed session files only. It does not undo ALARM package changes, migrations, caches, boot files or a reboot. Use the installer USB recovery path below for a bounded boot repair or for the separate installer handoff; do not treat source rollback as a complete system rollback.
+This changes the user-owned source pointer and managed session files only. It does not undo ALARM package changes, migrations, caches, boot files or a reboot. Use the installer USB recovery path below for a bounded boot repair. For the guided Install or Repair home, run `omarchy-pi-install`; do not treat source rollback as a complete system rollback.
 
 ## USB recovery commands
 
@@ -102,6 +102,8 @@ omarchy-pi-recover repair \
 ```
 
 The controller maps `--confirm-repair` to the exact internal confirmation `REPAIR BOOT ONLY` and then permits only the configured boot and initramfs repair. It refuses ambiguous, mounted, active-swap, installer or key media targets and does not format storage, change LUKS keyslots, change EEPROM or boot order, or provide full-system rollback. Native Pi acceptance of this recovery flow remains a separate test gate.
+
+`omarchy-pi-recover` intentionally exposes only `discover`, `plan`, `inspect`, `repair` and `status`. Run `omarchy-pi-install` for the guided Install or Repair home.
 
 The new upstream lock PAM file is an explicit operator-approved change; staging does not apply it automatically. Retain the recorded authorization and rollback baseline; existing authorization for this exact change does not need to be requested again. Staging must preserve existing authentication policies.
 

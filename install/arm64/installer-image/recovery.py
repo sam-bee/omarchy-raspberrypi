@@ -39,7 +39,6 @@ Runner = Callable[..., Any]
 
 RECOVERY_MAPPER = "omarchy-pi-recovery-cryptroot"
 REPAIR_CONFIRMATION = "REPAIR BOOT ONLY"
-REINSTALL_CONFIRMATION = "REINSTALL VIA INSTALLER"
 CONTROLLER_PATH = "/usr/local/libexec/omarchy-pi/installer-control"
 MOUNT_ROOT = Path("/run/omarchy-pi/recovery")
 SYSFS_ROOT = Path("/sys/class/block")
@@ -1363,22 +1362,6 @@ def repair_target(
     return {**plan.public(), "preserved_unchanged": True, "initramfs": str(initramfs)}
 
 
-def reinstall_handoff(identity: TargetIdentity | Mapping[str, Any], *, confirmation: str | None) -> dict[str, Any]:
-    """Return a handoff to the existing installer without touching storage."""
-
-    target = _identity_from(identity)
-    if confirmation != REINSTALL_CONFIRMATION:
-        raise _fail("reinstall handoff requires its separate confirmation")
-    if not target.eligible:
-        raise _fail("target identity is not eligible for installer handoff")
-    return {
-        "handoff": "installer-submit",
-        "target": target.to_dict(),
-        "message": "Use the existing installer flow with a fresh target confirmation; this recovery helper never formats storage.",
-        "destructive": True,
-    }
-
-
 def _credential(request: Mapping[str, Any]) -> tuple[str | None, str | None]:
     key_file = request.get("key_file")
     passphrase = request.get("passphrase")
@@ -1516,7 +1499,6 @@ __all__ = [
     "OwnedMapper",
     "MountLease",
     "RECOVERY_MAPPER",
-    "REINSTALL_CONFIRMATION",
     "REPAIR_CONFIRMATION",
     "RecoveryError",
     "RepairPlan",
@@ -1527,7 +1509,6 @@ __all__ = [
     "handle_request",
     "mount_target",
     "plan_boot_repair",
-    "reinstall_handoff",
     "repair_target",
     "select_target",
     "unlock_target",

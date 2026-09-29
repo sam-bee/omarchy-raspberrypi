@@ -385,6 +385,18 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("recovery", result.stdout)
 
+    def test_standalone_cli_keeps_recovery_commands_and_guided_installer_help(self) -> None:
+        cli = HERE / "omarchy-pi-recover"
+        result = subprocess.run([str(cli), "--help"], env={"PATH": "/usr/bin:/bin"}, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("omarchy-pi-install", result.stdout)
+        for command in ("discover", "plan", "inspect", "repair", "status"):
+            self.assertIn(command, result.stdout)
+        for removed in ("unlock", "reinstall"):
+            rejected = subprocess.run([str(cli), removed, "--help"], env={"PATH": "/usr/bin:/bin"}, text=True, capture_output=True, check=False)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("invalid choice", rejected.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
