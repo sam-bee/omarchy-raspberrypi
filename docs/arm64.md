@@ -67,7 +67,7 @@ This changes the user-owned source pointer and managed session files only. It do
 
 ## USB recovery commands
 
-From the installer USB, run `omarchy-pi-recover` as the installer session user. It submits requests through the fixed root controller; credentials are read transiently and are not written to job records. Use an existing unlock key with `--key-file` or prompt for the existing passphrase with `--passphrase`.
+From the installer USB, run `omarchy-pi-recover` as the installer session user. It submits requests through the fixed root controller; credentials are read transiently and are not written to job records. For an attached unlock-key USB, use the partition and exact key token returned by `discover` with `--key-device` and `--confirm-key`. The controller mounts that selected key temporarily read-only during inspection or repair, then cleans it up. Existing `--key-file` and `--passphrase` options remain available.
 
 Start with the read-only inventory and save the exact target token printed for the intended disk:
 
@@ -77,7 +77,7 @@ omarchy-pi-recover status
 omarchy-pi-recover status --watch
 ```
 
-Copy the exact token returned by `discover` into `--confirm-target`; do not reconstruct or shorten it. For an encrypted root, planning, inspection and repair require exactly one existing credential: either `--key-file` or `--passphrase`. For a plaintext root, omit both credential flags.
+Copy the exact target token returned by `discover` into `--confirm-target`; do not reconstruct or shorten it. The same response lists eligible attached key partitions with their parent stable ID, filesystem UUID, size/model and exact key token. When more than one key USB is present, match the stable ID and UUID to the physical media before selecting its partition path. For an encrypted root, planning, inspection and repair require exactly one credential: an attached key using `--key-device` plus `--confirm-key`, an existing `--key-file`, or `--passphrase`. For a plaintext root, omit all credential flags.
 
 ```bash
 omarchy-pi-recover plan \
@@ -89,15 +89,34 @@ omarchy-pi-recover inspect \
   --target /dev/mmcblk0 \
   --confirm-target '<token from discover>' \
   --key-file /path/to/existing-unlock-key
+
+omarchy-pi-recover plan \
+  --target /dev/mmcblk0 \
+  --confirm-target '<target token from discover>' \
+  --key-device /dev/<key-partition> \
+  --confirm-key '<key token from discover>'
+
+omarchy-pi-recover inspect \
+  --target /dev/mmcblk0 \
+  --confirm-target '<target token from discover>' \
+  --key-device /dev/<key-partition> \
+  --confirm-key '<key token from discover>'
 ```
 
-`plan` returns a bounded unlock/repair plan without unlocking or mounting anything. `inspect` unlocks an encrypted volume read-only, mounts the root with `ro,noload` and the boot partition read-only, then cleans up. `repair` requires the same exact target token and the `--confirm-repair` flag, plus one existing credential for an encrypted root:
+`plan` returns a bounded unlock/repair plan without unlocking or mounting anything; with `--key-device`, it revalidates the key identity and token without opening the key filesystem. `inspect` unlocks an encrypted volume read-only, mounts the selected key with restrictive read-only options, mounts the root with `ro,noload` and the boot partition read-only, then cleans up all mounts. `repair` uses the same credential choices and requires the same exact target token plus `--confirm-repair`:
 
 ```bash
 omarchy-pi-recover repair \
   --target /dev/mmcblk0 \
   --confirm-target '<token from discover>' \
   --key-file /path/to/existing-unlock-key \
+  --confirm-repair
+
+omarchy-pi-recover repair \
+  --target /dev/mmcblk0 \
+  --confirm-target '<target token from discover>' \
+  --key-device /dev/<key-partition> \
+  --confirm-key '<key token from discover>' \
   --confirm-repair
 ```
 
