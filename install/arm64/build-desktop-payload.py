@@ -44,90 +44,6 @@ REVISION = re.compile(r"[0-9a-f]{40}\Z")
 PACKAGE_NAME = re.compile(r"[A-Za-z0-9@_+][A-Za-z0-9@._+:-]*\Z")
 
 
-# These are the package roots used by the desktop that is already running on
-# the Pi.  Keep this list explicit: a new candidate in the upstream list must
-# be deliberately reviewed before it becomes part of the prepared payload.
-FULL_DESKTOP_ROOTS = (
-    "alsa-utils",
-    "avahi",
-    "bash-completion",
-    "bluez",
-    "bluez-tools",
-    "bluez-utils",
-    "brightnessctl",
-    "chromium",
-    "expac",
-    "eza",
-    "fd",
-    "fontconfig",
-    "foot",
-    "fzf",
-    "git",
-    "gnome-keyring",
-    "gnome-themes-extra",
-    "grim",
-    "gum",
-    "hyprland",
-    "hyprland-guiutils",
-    "hyprsunset",
-    "imagemagick",
-    "imv",
-    "inotify-tools",
-    "networkmanager",
-    "jq",
-    "less",
-    "libsecret",
-    "libvips",
-    "mpv",
-    "mpv-mpris",
-    "nautilus",
-    "noto-fonts",
-    "noto-fonts-emoji",
-    "pacman-contrib",
-    "pamixer",
-    "python-gobject",
-    "qt6-imageformats",
-    "quickshell",
-    "ripgrep",
-    "slurp",
-    "socat",
-    "starship",
-    "tmux",
-    "unzip",
-    "uwsm",
-    "wireplumber",
-    "wl-clipboard",
-    "wtype",
-    "woff2-font-awesome",
-    "xdg-desktop-portal-gtk",
-    "xdg-desktop-portal-hyprland",
-    "xdg-terminal-exec",
-    "zoxide",
-    # Extra roots from packages-extra.tsv.
-    "gtk3",
-    "libnotify",
-    "gtk4-layer-shell",
-    "libpulse",
-    "mesa",
-    "polkit",
-    "pipewire",
-    "pipewire-audio",
-    "pipewire-alsa",
-    "pipewire-jack",
-    "pipewire-pulse",
-    "qt6-wayland",
-    "rav1e",
-    "python",
-    "ttf-liberation",
-    "vulkan-broadcom",
-    # Upstream names mapped by the ARM policy to their available providers.
-    "nvim",
-    "ttf-jetbrains-mono-nerd-basic",
-    "vi",
-    "ttfx",
-)
-
-
 class DesktopPayloadError(RuntimeError):
     """Raised when a desktop payload cannot be made safely."""
 
@@ -254,7 +170,14 @@ def _select_roots(plan_document: dict[str, Any], profiles: Sequence[str]) -> tup
     profile_roots: dict[str, list[str]] = {}
     for name in profiles:
         if name == "full-desktop":
-            names = list(FULL_DESKTOP_ROOTS)
+            # build_plan() rejects unclassified upstream packages and exposes
+            # only reviewed candidate/replacement rows here. Deferred and
+            # excluded entries therefore stay out without a second manifest.
+            names = [
+                row["package"]
+                for row in plan_document["packages"]
+                if row["action"] in {"candidate", "replace"}
+            ]
         else:
             profile = plan_document["package_profiles"][name]
             names = list(profile["roots"]) + list(profile["file_chooser_roots"])

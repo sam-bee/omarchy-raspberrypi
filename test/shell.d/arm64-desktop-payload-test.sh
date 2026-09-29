@@ -31,6 +31,19 @@ def expect_error(function):
     raise AssertionError("expected DesktopPayloadError")
 
 
+plan = module._plan_document()
+selected, profile_roots = module._select_roots(plan, ("full-desktop",))
+reviewed = {
+    row["replacement"] if row["action"] == "replace" else row["package"]
+    for row in plan["packages"]
+    if row["action"] in {"candidate", "replace"}
+}
+assert set(selected) == reviewed
+assert profile_roots["full-desktop"] == selected
+assert {"neovim", "ex-vi-compat", "ttfx", "vulkan-broadcom"} <= set(selected)
+assert not {"nvim", "vi", "aether", "omasnap", "ffmpegthumbnailer"} & set(selected)
+
+
 with tempfile.TemporaryDirectory(prefix="omarchy-payload-test-") as temporary:
     target = Path(temporary) / "rootfs"
     etc = target / "etc"
