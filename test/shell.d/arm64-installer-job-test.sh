@@ -36,3 +36,6 @@ pass "installer worker is manual and session-independent"
 
 python3 "$job_test" || fail "installer job Python contract tests pass"
 pass "installer job Python contract tests pass"
+
+python3 "$image_dir/test-installer-ui.py" || fail "guided installer UI contract tests pass"
+pass "guided installer UI contract tests pass"

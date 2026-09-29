@@ -661,65 +661,76 @@ print('ok')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
 
-    def test_frontend_watches_a_new_submission_to_completion(self) -> None:
-        actions: list[str] = []
-        status_calls = 0
-        inputs = iter([
-            "/dev/nvme0n1",
-            "pi-user",
-            "pi-target",
-            "",
-            "",
-            "",
-            "no",
-            "no",
-            "disabled",
-            "plain",
-            "",
-            "CONFIRM /dev/nvme0n1",
-            "YES",
-            "",
-        ])
-        prompts: list[str] = []
+    def test_frontend_connects_guided_ui_to_fixed_controller_and_validator(self):
+        call = mock.Mock(return_value={"defaults": {"rdp_mode": "lan"}})
+        ui = mock.Mock()
+        ui.run.return_value = 0
+        with mock.patch.object(job, "_module", return_value=ui):
+            self.assertEqual(job.frontend_main(call=call), 0)
+        call.assert_called_once_with({"action": "defaults"})
+        ui.run.assert_called_once_with(call, job._validate_settings, defaults={"rdp_mode": "lan"})
+        call.reset_mock(side_effect=True)
+        call.side_effect = job.InstallerError("settings unavailable")
+        ui.reset_mock()
+        with mock.patch.object(job, "_module", return_value=ui):
+            self.assertEqual(job.frontend_main(call=call), 0)
+        ui.run.assert_called_once_with(call, job._validate_settings, defaults={})
 
-        def call(request):
-            nonlocal status_calls
-            actions.append(request["action"])
-            if request["action"] == "status":
-                status_calls += 1
-                if status_calls == 1:
-                    return {"state": {"status": "idle"}}
-                if status_calls == 2:
-                    return {
-                        "state": {
-                            "status": "complete",
-                            "phase": "complete",
-                            "message": "target configuration finished",
-                            "summary": {"hostname": "pi-target"},
-                        }
-                    }
-            if request["action"] == "discover":
-                return {"disks": []}
-            if request["action"] == "plan":
-                return {"settings": {}, "payload": {}, "target": {"token": "CONFIRM /dev/nvme0n1"}, "key": None}
-            if request["action"] == "submit":
-                return {"job_id": "native-test-job", "state": {"status": "queued", "phase": "queued", "job_id": "native-test-job"}}
-            raise AssertionError(request)
+    def test_defaults_reuse_only_installer_connection_settings_without_persisting_secrets(self):
+        settings_file = Path(self.temporary.name) / "installer-settings.toml"
+        settings_file.write_text("""[installer]
+hostname = "installer-host"
+username = "installuser"
+[wifi]
+country = "GB"
+ssid = "test-network"
+password = "wifi-private"
+[ssh]
+password = "installer-login-private"
+[rdp]
+password = "rdp-private"
+""")
+        with mock.patch.object(job, "INSTALLER_SETTINGS_PATH", settings_file):
+            defaults = job._handle_request({"action": "defaults"})["defaults"]
+        self.assertEqual(defaults["wifi"]["password"], "wifi-private")
+        self.assertEqual(defaults["rdp_password"], "rdp-private")
+        self.assertNotIn("installer-login-private", json.dumps(defaults))
+        self.assertNotIn("username", defaults)
+        self.assertNotIn("hostname", defaults)
+        self.assertFalse(job._state_path().exists())
+        self.assertFalse(job._request_path().exists())
 
-        output: list[str] = []
-        result = job.frontend_main(
-            input_fn=lambda prompt: (prompts.append(prompt) or next(inputs)),
-            secret_fn=lambda prompt: "target-password",
-            output=output.append,
-            call=call,
-            sleep_fn=lambda seconds: None,
-        )
-        self.assertEqual(result, 0)
-        self.assertIn("Installation complete", "\n".join(output))
-        self.assertIn("remove the installer USB", "\n".join(output))
-        self.assertIn("target configuration finished", "\n".join(output))
-        self.assertIn("Press Enter to close", "\n".join(prompts))
-        self.assertEqual(actions, ["status", "discover", "plan", "submit", "status"])
+    def test_shutdown_requires_installer_identity_confirmation_and_idle_worker(self):
+        marker = Path(self.temporary.name) / "installer.marker"
+        marker.write_bytes(b"omarchy-pi-installer-image-v1\n")
+        with mock.patch.object(job, "INSTALLER_MARKER_PATH", marker), mock.patch.object(job.subprocess, "run") as run:
+            with self.assertRaises(job.InstallerError):
+                job._handle_request({"action": "shutdown"})
+            run.assert_not_called()
+            request = {"action": "shutdown", "confirmation": "SHUT DOWN INSTALLER"}
+            with job._file_lock(job.RUNTIME_ROOT / job.WORKER_LOCK_NAME):
+                with self.assertRaises(job.InstallerError):
+                    job._handle_request(request)
+            run.assert_not_called()
+            self.assertEqual(job._handle_request(request), {"shutdown": "requested"})
+            run.assert_called_once_with(["/usr/bin/systemctl", "--no-block", "poweroff"], check=True, capture_output=True)
+            for action in ("submit", "restart", "recovery-repair"):
+                with self.assertRaisesRegex(job.InstallerError, "shutting down"):
+                    job._handle_request({"action": action})
+            self.assertFalse(job._request_path().exists())
+            run.reset_mock()
+            self.assertEqual(job._handle_request(request), {"shutdown": "requested"})
+            run.assert_not_called()
+            (job.RUNTIME_ROOT / "shutdown-requested").unlink()
+            run.side_effect = OSError("poweroff unavailable")
+            with self.assertRaisesRegex(job.InstallerError, "Shutdown could not"):
+                job._handle_request(request)
+            self.assertFalse((job.RUNTIME_ROOT / "shutdown-requested").exists())
+            run.reset_mock(side_effect=True)
+            marker.unlink()
+            with self.assertRaises(job.InstallerError):
+                job._handle_request(request)
+            run.assert_not_called()
 
     def test_state_and_runtime_roots_reject_symlink_redirection(self) -> None:
         real = Path(self.temporary.name) / "real-state"

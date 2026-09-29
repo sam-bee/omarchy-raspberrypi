@@ -42,7 +42,12 @@ fi
 
 for attempt in {1..25}; do
   if count=$(installer_monitor_count) && (( count > 0 )); then
-    exec /usr/bin/foot --app-id=omarchy-installer --title='Omarchy Installer' /usr/local/bin/omarchy-pi-install
+    exec /usr/bin/foot --app-id=omarchy-installer --title='Omarchy Installer' \
+      --font='DejaVu Sans Mono:size=12' \
+      --override=pad=14x14 \
+      --override=colors.background=1a1b26 --override=colors.foreground=c0caf5 \
+      --override=colors.regular6=7dcfff --override=colors.regular2=9ece6a \
+      /usr/local/bin/omarchy-pi-install
   fi
   sleep 0.2
 done

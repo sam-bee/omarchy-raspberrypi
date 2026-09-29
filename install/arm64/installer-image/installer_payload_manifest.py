@@ -16,6 +16,7 @@ LIBEXEC_FILES = {
     "settings.py": 0o644,
     "disk_install.py": 0o644,
     "installer_job.py": 0o644,
+    "installer_ui.py": 0o644,
     "recovery.py": 0o644,
     "installed_target.py": 0o644,
     "desktop_payload.py": 0o644,

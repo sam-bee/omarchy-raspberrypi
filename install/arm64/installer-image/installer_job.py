@@ -30,7 +30,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
 from typing import Any, Callable, Iterable, Iterator, Mapping
 import urllib.error
 import urllib.request
@@ -46,8 +45,9 @@ REQUEST_FILE_NAME = "request.json"
 SERVICE_NAME = "omarchy-pi-install.service"
 CONTROL_PATH = "/usr/local/libexec/omarchy-pi/installer-control"
 INSTALLER_PROVENANCE_PATH = Path("/usr/lib/omarchy-pi/installer-provenance.json")
+INSTALLER_SETTINGS_PATH = Path("/boot/installer-settings.toml")
+INSTALLER_MARKER_PATH = Path("/usr/lib/omarchy-pi/installer-image.marker")
 MAX_INPUT_BYTES = 512 * 1024
-POLL_SECONDS = 2.0
 MIB = 1024 * 1024
 LUKS_OVERHEAD_BYTES = 16 * MIB
 
@@ -64,7 +64,7 @@ NETWORK_PREFLIGHT_TIMEOUT = 10
 
 _MODULE_DIR = Path(__file__).resolve().parent
 _MODULE_SEARCH_DIRS: list[Path] = []
-_SIBLING_MODULES = frozenset({"disk_install", "desktop_payload", "installed_target", "recovery"})
+_SIBLING_MODULES = frozenset({"disk_install", "desktop_payload", "installed_target", "recovery", "settings", "installer_ui"})
 
 _SENSITIVE_NAME = re.compile(
     r"(?:pass(?:word|phrase)?|secret|authorized.?key|private.?key|credential|token)",
@@ -657,6 +657,8 @@ def _start_service() -> None:
 
 
 def _submit(request: Mapping[str, Any], *, restart: bool) -> dict[str, Any]:
+    if (RUNTIME_ROOT / "shutdown-requested").exists():
+        raise InstallerError("The installer is shutting down; new jobs cannot start.")
     state = _mark_stale_if_needed(_load_state())
     if _worker_is_running():
         raise InstallerError("the previous installer worker is still finishing")
@@ -795,6 +797,8 @@ def _raise_worker_sigterm(_signum: int, _frame: Any) -> None:
 
 def _submit_recovery(request: Mapping[str, Any]) -> dict[str, Any]:
     """Queue a boot repair in the same locked PID1 worker as installation."""
+    if (RUNTIME_ROOT / "shutdown-requested").exists():
+        raise InstallerError("The installer is shutting down; new jobs cannot start.")
     state = _mark_stale_if_needed(_load_state())
     if _worker_is_running() or state.get("status") in ACTIVE_STATES:
         raise InstallerError("an installation or recovery job is already running")
@@ -1019,6 +1023,41 @@ def _run_worker() -> int:
 
 def _handle_request(request: Mapping[str, Any]) -> dict[str, Any]:
     action = request.get("action")
+    if action == "defaults":
+        # These are this installer's existing settings, passed privately to
+        # its frontend for explicit reuse. Never include them in job records.
+        settings_module = _module("settings")
+        try:
+            settings = settings_module.load_settings(INSTALLER_SETTINGS_PATH)
+        except settings_module.SettingsError as exc:
+            raise InstallerError("Installer connection settings could not be read; enter target settings manually.") from exc
+        wifi = settings.wifi
+        return {"defaults": {
+            "wifi": {"country": wifi.country, "ssid": wifi.ssid, "password": wifi.password} if wifi else None,
+            "ssh_enabled": True,
+            "ssh_authorized_key": settings.ssh.authorized_key,
+            "rdp_mode": "lan",
+            "rdp_password": settings.rdp.password,
+        }}
+    if action == "shutdown":
+        if request.get("confirmation") != "SHUT DOWN INSTALLER":
+            raise InstallerError("Shutdown requires explicit confirmation.")
+        if INSTALLER_MARKER_PATH.is_symlink() or not INSTALLER_MARKER_PATH.is_file() or INSTALLER_MARKER_PATH.read_bytes() != b"omarchy-pi-installer-image-v1\n":
+            raise InstallerError("Shutdown is available only in the installer environment.")
+        with _file_lock(RUNTIME_ROOT / CONTROL_LOCK_NAME):
+            with _file_lock(RUNTIME_ROOT / WORKER_LOCK_NAME, nonblocking=True) as acquired:
+                if not acquired or _mark_stale_if_needed(_load_state()).get("status") in ACTIVE_STATES:
+                    raise InstallerError("Wait for the installation or repair job before shutting down.")
+                shutdown_gate = RUNTIME_ROOT / "shutdown-requested"
+                if shutdown_gate.exists():
+                    return {"shutdown": "requested"}
+                shutdown_gate.touch(mode=0o600)
+                try:
+                    subprocess.run(["/usr/bin/systemctl", "--no-block", "poweroff"], check=True, capture_output=True)
+                except (OSError, subprocess.CalledProcessError) as exc:
+                    shutdown_gate.unlink(missing_ok=True)
+                    raise InstallerError("Shutdown could not be started.") from exc
+        return {"shutdown": "requested"}
     if action in {"recovery-discover", "recovery-plan", "recovery-inspect", "recovery-repair"}:
         with _file_lock(RUNTIME_ROOT / CONTROL_LOCK_NAME):
             if action == "recovery-repair":
@@ -1092,14 +1131,6 @@ def control_main() -> int:
     return 0 if result["ok"] else 1
 
 
-def _ask(output: Callable[[str], None], prompt: str, input_fn: Callable[[str], str]) -> str:
-    return input_fn(prompt).strip()
-
-
-def _ask_yes(output: Callable[[str], None], prompt: str, input_fn: Callable[[str], str]) -> bool:
-    return _ask(output, f"{prompt} [yes/no] ", input_fn).lower() in {"yes", "y"}
-
-
 def _client_call(request: Mapping[str, Any], runner: Callable[..., Any] | None = None) -> dict[str, Any]:
     encoded = json.dumps(dict(request), separators=(",", ":")) + "\n"
     invoke = runner or subprocess.run
@@ -1124,165 +1155,16 @@ def _client_call(request: Mapping[str, Any], runner: Callable[..., Any] | None =
     return response
 
 
-def _frontend_collect(input_fn: Callable[[str], str], secret_fn: Callable[[str], str]) -> tuple[dict[str, Any], str | None]:
-    username = input_fn("Target username: ").strip()
-    hostname = input_fn("Target hostname: ").strip()
-    password = secret_fn("Target account password: ")
-    timezone = input_fn("Timezone [Europe/London]: ").strip() or "Europe/London"
-    locale = input_fn("Locale [en_GB.UTF-8]: ").strip() or "en_GB.UTF-8"
-    keymap = input_fn("Keyboard layout [us]: ").strip() or "us"
-    wifi: dict[str, str] | None = None
-    if _ask_yes(print, "Configure Wi-Fi?", input_fn):
-        wifi = {
-            "country": input_fn("Wi-Fi country: ").strip(),
-            "ssid": input_fn("Wi-Fi SSID: ").strip(),
-            "password": secret_fn("Wi-Fi password: "),
-        }
-    ssh_enabled = _ask_yes(print, "Enable SSH on the installed target?", input_fn)
-    ssh_key = input_fn("Target SSH authorized key (blank to omit): ").strip() or None if ssh_enabled else None
-    rdp_mode = input_fn("RDP mode [disabled/loopback/lan]: ").strip().lower() or "disabled"
-    rdp_password = secret_fn("Target RDP password: ") if rdp_mode != "disabled" else None
-    encryption = input_fn("Storage encryption [plain/passphrase/key]: ").strip().lower() or "plain"
-    recovery = secret_fn("Recovery passphrase: ") if encryption != "plain" else None
-    settings = {
-        "username": username,
-        "hostname": hostname,
-        "password": password,
-        "timezone": timezone,
-        "locale": locale,
-        "keymap": keymap,
-        "wifi": wifi,
-        "ssh_enabled": ssh_enabled,
-        "ssh_authorized_key": ssh_key,
-        "rdp_mode": rdp_mode,
-        "rdp_password": rdp_password,
-        "encryption": encryption,
-        "recovery_passphrase": recovery,
-    }
-    return settings, None
+def frontend_main(*, call: Callable[[Mapping[str, Any]], dict[str, Any]] | None = None) -> int:
+    """Open the guided terminal UI using the fixed controller protocol."""
 
-
-def _print_finished_state(state: Mapping[str, Any], output: Callable[[str], None]) -> None:
-    status = state.get("status")
-    if status == "complete":
-        output("Installation complete. Reconnect details:")
-        if state.get("summary") is not None:
-            output(json.dumps(state["summary"], indent=2, sort_keys=True))
-        output("Shut down manually, remove the installer USB, retain any unlock-key USB, and boot the target.")
-        return
-    if status in {"failed", "interrupted"}:
-        output(f"The previous installer job is {status}.")
-        if state.get("error"):
-            output(f"Reason: {state['error']}")
-        if state.get("log_file"):
-            output(f"Diagnostic log: {state['log_file']}")
-
-
-def _watch_job(
-    state: Mapping[str, Any],
-    *,
-    call: Callable[[Mapping[str, Any]], dict[str, Any]],
-    output: Callable[[str], None],
-    sleep_fn: Callable[[float], None],
-) -> int:
-    current = dict(state)
-    last_message = current.get("message")
-    initial = f"Installer job {current.get('job_id')} is {current.get('status')} ({current.get('phase')})."
-    if isinstance(last_message, str) and last_message:
-        initial += f" {last_message}"
-    output(initial)
-    output("You may disconnect; reconnect later to observe the same job.")
-    while current.get("status") in ACTIVE_STATES:
-        sleep_fn(POLL_SECONDS)
-        current = call({"action": "status"})["state"]
-        message = current.get("message")
-        progress = f"{current.get('status')}: {current.get('phase')}"
-        if isinstance(message, str) and message and message != last_message:
-            progress += f" — {message}"
-        last_message = message
-        output(progress)
-    _print_finished_state(current, output)
-    return 0 if current.get("status") == "complete" else 1
-
-
-def _hold_after_watch(input_fn: Callable[[str], str]) -> None:
-    """Keep the terminal open long enough for completion guidance to be read."""
-
+    call = call or _client_call
     try:
-        input_fn("Press Enter to close the installer view...")
-    except (EOFError, KeyboardInterrupt):
-        # Closing a disconnected terminal must not affect the worker or job;
-        # it only skips the optional pause before returning to the shell.
-        return
-
-
-def frontend_main(
-    *,
-    input_fn: Callable[[str], str] = input,
-    secret_fn: Callable[[str], str] | None = None,
-    output: Callable[[str], None] = print,
-    call: Callable[[Mapping[str, Any]], dict[str, Any]] | None = None,
-    sleep_fn: Callable[[float], None] = time.sleep,
-) -> int:
-    """Run the same line-oriented flow on a local TTY, SSH, or RDP terminal."""
-
-    if secret_fn is None:
-        import getpass
-
-        secret_fn = getpass.getpass
-    if call is None:
-        call = _client_call
-    try:
-        response = call({"action": "status"})
-        state = response["state"]
-        if state.get("status") in {"queued", "running"}:
-            result = _watch_job(state, call=call, output=output, sleep_fn=sleep_fn)
-            _hold_after_watch(input_fn)
-            return result
-        restart = state.get("status") in {"interrupted", "failed", "complete"}
-        if restart:
-            _print_finished_state(state, output)
-            if state.get("status") == "complete":
-                prompt = "Type the exact restart phrase to begin another install, or press Enter to leave the result: "
-            else:
-                prompt = f"Type {RESTART_CONFIRMATION!r} to restart from the beginning, or press Enter to leave: "
-            if input_fn(prompt).strip() != RESTART_CONFIRMATION:
-                output("Restart cancelled; the recorded result remains available.")
-                return 0 if state.get("status") == "complete" else 1
-        disks = call({"action": "discover"}).get("disks", [])
-        for disk in disks:
-            output(json.dumps(disk, sort_keys=True))
-        target = input_fn("Target disk path exactly as listed: ").strip()
-        settings, _ = _frontend_collect(input_fn, secret_fn)
-        key = input_fn("Disposable key disk path (required only for key encryption): ").strip() or None
-        plan_request = {"action": "plan", "settings": settings, "target": target, "key": key}
-        plan = call(plan_request)
-        output("Review this secret-free plan:")
-        output(json.dumps({key: value for key, value in plan.items() if key != "ok"}, indent=2, sort_keys=True))
-        target_confirmation = input_fn("Type the displayed target token exactly: ").strip()
-        key_confirmation = input_fn("Type the displayed key token exactly: ").strip() if plan.get("key") else None
-        if input_fn("Type YES to consent to target setup needing internet access: ").strip() != "YES":
-            output("Submission cancelled.")
-            return 1
-        submit = {
-            "action": "restart" if restart else "submit",
-            "settings": settings,
-            "target": target,
-            "key": key,
-            "target_confirmation": target_confirmation,
-            "key_confirmation": key_confirmation,
-            "consent_internet": True,
-        }
-        result = call({**submit, "restart_confirmation": RESTART_CONFIRMATION} if restart else submit)
-        watch_result = _watch_job(result["state"], call=call, output=output, sleep_fn=sleep_fn)
-        _hold_after_watch(input_fn)
-        return watch_result
-    except (EOFError, KeyboardInterrupt):
-        output("Installer input cancelled.")
-        return 1
-    except InstallerError as exc:
-        output(_redact(str(exc)))
-        return 1
+        defaults = call({"action": "defaults"}).get("defaults", {})
+    except InstallerError:
+        # Missing installer settings must not block manual target setup.
+        defaults = {}
+    return _module("installer_ui").run(call, _validate_settings, defaults=defaults)
 
 
 def main(argv: list[str] | None = None) -> int:
