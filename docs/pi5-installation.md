@@ -1,6 +1,6 @@
 # Raspberry Pi 5 installation rehearsal
 
-This is the step 6 acceptance procedure for a freshly flashed Omarchy Pi 5 installer image. Use a deliberately disposable target disk and, for the encrypted key test, a separate disposable USB key. Keep any existing system disk and its recovery media disconnected or otherwise protected. The installer never changes the Pi's EEPROM boot order, but the installer USB must be removed before booting the new target because the normal boot order remains USB-first.
+This is the step 6 acceptance procedure for a freshly flashed Omarchy Pi 5 installer image. Use a deliberately disposable target disk and, for the encrypted key test, a separate disposable USB key. Keep any existing system disk and its recovery media disconnected or otherwise protected. If an existing bootable disk remains attached, do not assume that the new SD target will be selected automatically; use the operator-approved temporary firmware boot selection method when needed. The installer never changes the Pi's EEPROM boot order.
 
 The procedure exercises the complete path: configure the installer image, connect over SSH and direct RDP, install under a new username, cancel before submission, detach and reconnect while the worker runs, boot the installed desktop, update it, and repair its boot files from USB with an attached unlock-key USB or the recovery passphrase.
 
@@ -12,12 +12,14 @@ Start with the candidate image and its accompanying `SHA256SUMS` file. Verify th
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-For this rehearsal, the transfer archive is `omarchy-step6-installer-01.img.zst`. Decompress it to the raw image without deleting the archive, then check the raw image against its checksum too:
+Use the candidate archive filename listed by the accompanying `SHA256SUMS`. Decompress it to the raw image without deleting the archive, then check the raw image against its checksum too:
 
 ```bash
-zstd -dk omarchy-step6-installer-01.img.zst
+zstd -dk omarchy-step6-installer-candidate.img.zst
 sha256sum --check --ignore-missing SHA256SUMS
 ```
+
+Replace `omarchy-step6-installer-candidate.img.zst` with the exact candidate archive filename from `SHA256SUMS`.
 
 Before writing, unplug protected removable media and inventory the remaining devices by stable identity:
 
@@ -56,7 +58,7 @@ Insert only the installer USB, the designated disposable target, and (for the en
 
 ## Connect to the installer
 
-Boot the Pi from the installer USB and wait for its configured network to obtain an address. Find that address in the router's DHCP/device list. Try the configured hostname when the router's DNS resolves it, then fall back to the DHCP address; the image does not advertise a hostname by itself. Verify the installer SSH host-key fingerprint on the first connection, then run the guided installer with an interactive terminal:
+Boot the Pi from the installer USB and wait for its configured network to obtain an address. If the Pi selects another attached bootable disk, arrange a temporary boot selection with the operator; the installer does not change the permanent boot order. Find that address in the router's DHCP/device list. Try the configured hostname when the router's DNS resolves it, then fall back to the DHCP address; the image does not advertise a hostname by itself. Verify the installer SSH host-key fingerprint on the first connection, then run the guided installer with an interactive terminal:
 
 ```bash
 ssh -t <installer-username>@<installer-address> omarchy-pi-install
@@ -94,7 +96,7 @@ ssh -t <installer-username>@<installer-address> omarchy-pi-install
 
 The installer home screen finds the active job and resumes its progress view. **View latest job** reads the persisted result after completion. If a job is failed or interrupted, the installer requires the exact phrase `RESTART FROM SCRATCH` before beginning a new installation; it does not resume an incomplete destructive phase automatically.
 
-When installation completes, read the completion card and record the new target SSH fingerprint. Choose **Shut down installer** only when the job is idle or complete, type `SHUT DOWN INSTALLER`, and wait for power-off. Remove the installer USB. Leave the new key USB inserted for key-unlocked encrypted boot, then power on the Pi. For passphrase-unlocked encryption, enter the recovery passphrase at the local boot prompt before expecting SSH or RDP.
+When installation completes, read the completion card and record the new target SSH fingerprint. Choose **Shut down installer** only when the job is idle or complete, type `SHUT DOWN INSTALLER`, and wait for power-off. Remove the installer USB. Leave the new key USB inserted for key-unlocked encrypted boot, then power on the Pi. If another bootable disk remains attached and is selected instead, arrange temporary target selection with the operator; do not expect the SD target to be chosen automatically. For passphrase-unlocked encryption, enter the recovery passphrase at the local boot prompt before expecting SSH or RDP.
 
 ## Boot and use the target
 
@@ -129,7 +131,7 @@ omarchy update --watch
 
 Allow the update to finish and reboot when it reports that a reboot is required. Confirm that the target returns with its SSH/RDP access, desktop, configuration, and external-key boot intact. A source rollback, if needed for the rehearsal, is separate from package rollback and does not undo the package transaction.
 
-For recovery, power down and boot the installer USB again. Keep the encrypted target connected. Start with a read-only inventory:
+For recovery, power down and boot the installer USB again. If the Pi selects another attached bootable disk, arrange temporary USB selection with the operator; the installer never changes permanent boot order. Keep the encrypted target connected. Start with a read-only inventory:
 
 ```bash
 omarchy-pi-recover discover
