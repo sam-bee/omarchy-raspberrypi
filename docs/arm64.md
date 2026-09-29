@@ -91,7 +91,7 @@ omarchy-pi-recover inspect \
   --key-file /path/to/existing-unlock-key
 ```
 
-`plan` and `inspect` unlock and mount read-only for their bounded operation. `repair` requires the same exact target token, one existing credential and the `--confirm-repair` flag:
+`plan` returns a bounded unlock/repair plan without unlocking or mounting anything. `inspect` unlocks an encrypted volume read-only, mounts the root with `ro,noload` and the boot partition read-only, then cleans up. `repair` requires the same exact target token and the `--confirm-repair` flag, plus one existing credential for an encrypted root:
 
 ```bash
 omarchy-pi-recover repair \
