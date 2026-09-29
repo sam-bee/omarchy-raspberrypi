@@ -1,0 +1,12 @@
+# Omarchy Pi 5 0.1.0-pi5-2026.09.29 package and source pins
+
+installer-runtime-source=e62e596de97fe91fae7b61a3af797450eaa61f27
+installer-runtime-sha256=b9b25a28bbeed06f66100a604a744b5984095f523b62489cee5ed1ee3c52a2fc
+installer-package-records=235
+desktop-payload-source=fcb2b5afcb8c06b6daf93319792f072f9111d669
+desktop-payload-package-records=633
+desktop-payload-sha256=1f640ef4641cf0a2086956d9b7c51368b5d95a9a853b31bf4dfcd27c1637042c
+full-package-inventory=package-versions.json
+linux-rpi=6.18.53-1
+raspberrypi-bootloader=20260915-1
+ttf-dejavu=2.37+18+g9b5d1b2f-8

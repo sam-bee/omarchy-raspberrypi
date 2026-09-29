@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "release": "0.1.0-pi5-2026.09.29",
+  "compression": {
+    "format": "zstd",
+    "level": 1,
+    "threads": 2,
+    "stream_bytes": 4628036661,
+    "stream_sha256": "6ba0293062e2f30c1d4df70a6e6fb0992a81a6bd27202f8337e892d751ccbcab"
+  },
+  "image": {
+    "filename": "omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img",
+    "bytes": 14643363840,
+    "sha256": "4d7c23ebc32ddc6499db4ebe526a1e645bf44abf1212ee16dd4206fbd6543714"
+  },
+  "parts": [
+    {
+      "filename": "omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-00",
+      "bytes": 1900000000,
+      "sha256": "045d8d0e57b1335e5374f3f115703a5eeb12eb100ea6d6834c8b5d8993b5e538"
+    },
+    {
+      "filename": "omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-01",
+      "bytes": 1900000000,
+      "sha256": "ef87a4daeeb9b1f1585a0b41bda5bff5ed09e1f2ee849491cda1b8b80fb60244"
+    },
+    {
+      "filename": "omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-02",
+      "bytes": 828036661,
+      "sha256": "c9b8f147e09a3fe9a70ffce62910addc247e164320ed52031b97b63da86fcb2e"
+    }
+  ],
+  "sources": {
+    "installer_runtime_revision": "e62e596de97fe91fae7b61a3af797450eaa61f27",
+    "installer_runtime_sha256": "b9b25a28bbeed06f66100a604a744b5984095f523b62489cee5ed1ee3c52a2fc",
+    "desktop_payload_revision": "fcb2b5afcb8c06b6daf93319792f072f9111d669",
+    "desktop_payload_sha256": "1f640ef4641cf0a2086956d9b7c51368b5d95a9a853b31bf4dfcd27c1637042c",
+    "desktop_payload_package_records": 633
+  },
+  "verification": {
+    "source_image": "native step-6 candidate 02",
+    "physical_devices_touched_during_packaging": false,
+    "raw_and_compressed_hashes_rechecked_locally": true,
+    "part_hashes_rechecked_locally": true
+  }
+}
