@@ -4,6 +4,12 @@ An experimental Raspberry Pi 5 installer for the Omarchy Quattro desktop. Boot t
 
 Omarchy is created by DHH and the [Omarchy project](https://omarchy.org). This independently maintained ARM64 port follows the upstream desktop where the hardware supports it. See the [Omarchy manual](manual/01-welcome-to-omarchy.md) for desktop use.
 
+## Experimental Compute Module 5 test image
+
+The planned [CM5 test release v0.1.1-cm5-test-2026.09.30](https://github.com/sam-bee/omarchy-raspberrypi/releases/tag/v0.1.1-cm5-test-2026.09.30) is for experimental bring-up. A USB installer boot has been photographed on a CM5 and showed 119.1 GiB MMC and 238.5 GiB NVMe storage. Installation and first boot from an installed target remain untested, so this does not establish CM5 hardware acceptance.
+
+Use the [CM5 test release note](release/omarchy-cm5-test-2026.09.30/RELEASE.md) for the test scope and checklist. When the planned release is published, use its image assets and checksums instead of the stable Pi 5 assets in this guide. The CM5 must already have EEPROM boot order configured to try USB before the selected NVMe or MMC target; the installer does not change boot order. Confirm which device is the approved target, keep the other storage protected, boot the installer from USB, and remove the installer USB before testing the installed target's first boot.
+
 ## What you need
 
 - A Raspberry Pi 5 with 8 GB RAM, suitable power supply, and NVMe SSD or microSD installation target; use 32 GB or larger for the target.
