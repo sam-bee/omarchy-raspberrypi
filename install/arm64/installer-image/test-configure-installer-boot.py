@@ -40,7 +40,13 @@ class FakeRunner:
 
 
 class ConfigureInstallerBootTests(unittest.TestCase):
-    def make_root(self, *, kernel8: bool = True, kernel_2712: bool = False) -> Path:
+    def make_root(
+        self,
+        *,
+        kernel8: bool = True,
+        kernel_2712: bool = False,
+        dtb_name: str = "bcm2712-rpi-5-b.dtb",
+    ) -> Path:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -48,7 +54,7 @@ class ConfigureInstallerBootTests(unittest.TestCase):
         (boot / "dtbs/broadcom").mkdir(parents=True)
         (boot / "overlays").mkdir()
         (root / "etc").mkdir()
-        (boot / "dtbs/broadcom/bcm2712-rpi-5-b.dtb").write_bytes(b"dtb")
+        (boot / "dtbs/broadcom" / dtb_name).write_bytes(b"dtb")
         (boot / "overlays/vc4-kms-v3d-pi5.dtbo").write_bytes(b"overlay")
         (boot / "initramfs-linux.img").write_bytes(b"initramfs")
         linux_image = bytearray(64)
@@ -110,6 +116,15 @@ class ConfigureInstallerBootTests(unittest.TestCase):
         result = configure.configure_installer_boot(root)
         self.assertEqual(result.kernel, "kernel_2712.img")
         self.assertIn("kernel=kernel_2712.img", (root / "boot/config.txt").read_text(encoding="utf-8"))
+
+    def test_accepts_cm5_dtb_without_forcing_firmware_tree_selection(self) -> None:
+        root = self.make_root(dtb_name="bcm2712-rpi-cm5-cm5io.dtb")
+
+        result = configure.configure_installer_boot(root)
+
+        self.assertEqual(result.dtb, "dtbs/broadcom/bcm2712-rpi-cm5-cm5io.dtb")
+        rendered = (root / "boot/config.txt").read_text(encoding="utf-8")
+        self.assertNotIn("device_tree=", rendered)
 
     def test_explicit_generation_uses_native_nspawn_and_no_argv_secrets(self) -> None:
         root = self.make_root()

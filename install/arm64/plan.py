@@ -37,6 +37,7 @@ GEN2_WARNING = (
     "hardware defect, and Gen2 stability is not guaranteed. Keep a recovery route and rollback config available; "
     "return to Gen1 if problems recur."
 )
+RPI5_MODEL = re.compile(r"^Raspberry Pi (?:5|Compute Module 5|CM5)(?:\s|$)")
 
 PACKAGE_PROFILES = {
     "everyday-desktop": {
@@ -97,7 +98,7 @@ def detect_target(target, machine=None, model=None):
                 break
             except FileNotFoundError:
                 continue
-    profile = "rpi5" if re.match(r"^Raspberry Pi 5(?:\s|$)", model) else "arm64"
+    profile = "rpi5" if RPI5_MODEL.match(model) else "arm64"
     return {"architecture": architecture, "profile": profile, "source": "host", "model": model}
 
 

@@ -267,7 +267,11 @@ assert module.detect_target("auto", machine="arm64", model="generic board") == {
     "architecture": "aarch64", "profile": "arm64", "source": "host", "model": "generic board"
 }
 assert module.detect_target("auto", machine="aarch64", model="Raspberry Pi 5 Model B")["profile"] == "rpi5"
+assert module.detect_target("auto", machine="aarch64", model="Raspberry Pi Compute Module 5")["profile"] == "rpi5"
+assert module.detect_target("auto", machine="aarch64", model="Raspberry Pi Compute Module 5 Lite")["profile"] == "rpi5"
+assert module.detect_target("auto", machine="aarch64", model="Raspberry Pi CM5")["profile"] == "rpi5"
 assert module.detect_target("auto", machine="aarch64", model="Raspberry Pi 50")["profile"] == "arm64"
+assert module.detect_target("auto", machine="aarch64", model="Raspberry Pi Compute Module 50")["profile"] == "arm64"
 try:
     module.detect_target("auto", machine="x86_64", model="Raspberry Pi 5 Model B")
 except ValueError:

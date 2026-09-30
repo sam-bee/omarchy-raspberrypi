@@ -44,10 +44,17 @@ LINUX_RPI_PRESET_DIRECTORY = Path("etc/mkinitcpio.d")
 MKINITCPIO_CONFIG = Path("etc/mkinitcpio.conf")
 
 KERNEL_CANDIDATES = ("kernel8.img", "kernel_2712.img", "Image")
-DTB_CANDIDATES = (
-    Path("dtbs/broadcom/bcm2712-rpi-5-b.dtb"),
-    Path("broadcom/bcm2712-rpi-5-b.dtb"),
-    Path("bcm2712-rpi-5-b.dtb"),
+DTB_NAMES = (
+    "bcm2712-rpi-5-b.dtb",
+    "bcm2712-rpi-cm5-cm4io.dtb",
+    "bcm2712-rpi-cm5-cm5io.dtb",
+    "bcm2712-rpi-cm5l-cm4io.dtb",
+    "bcm2712-rpi-cm5l-cm5io.dtb",
+)
+DTB_CANDIDATES = tuple(
+    Path(directory) / name
+    for directory in ("dtbs/broadcom", "broadcom", "")
+    for name in DTB_NAMES
 )
 OVERLAY_FILE = Path("overlays/vc4-kms-v3d-pi5.dtbo")
 
@@ -227,9 +234,9 @@ def _select_dtb(boot: Path) -> Path:
     for relative in DTB_CANDIDATES:
         candidate = boot / relative
         if os.path.lexists(candidate):
-            return _regular_file(candidate, description="Pi 5 device tree")
+            return _regular_file(candidate, description="Pi 5/CM5 device tree")
     expected = ", ".join(os.fspath(item) for item in DTB_CANDIDATES)
-    raise BootConfigurationError(f"no nonempty Pi 5 device tree found (expected one of {expected})")
+    raise BootConfigurationError(f"no nonempty Pi 5/CM5 device tree found (expected one of {expected})")
 
 
 def _package_file_list(path: Path) -> set[str]:

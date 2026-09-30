@@ -35,6 +35,18 @@ ROOT_TYPE = "83"
 LOOP_DEVICE_PATTERN = re.compile(r"^/dev/loop[0-9]+$")
 UUID_PATTERN = re.compile(r"^(?=[0-9A-Fa-f-]{8,}$)[0-9A-Fa-f]+(?:-[0-9A-Fa-f]+)*$")
 KERNEL_NAMES = frozenset({"kernel8.img", "kernel_2712.img", "Image"})
+DTB_NAMES = (
+    "bcm2712-rpi-5-b.dtb",
+    "bcm2712-rpi-cm5-cm4io.dtb",
+    "bcm2712-rpi-cm5-cm5io.dtb",
+    "bcm2712-rpi-cm5l-cm4io.dtb",
+    "bcm2712-rpi-cm5l-cm5io.dtb",
+)
+DTB_CANDIDATES = tuple(
+    Path(directory) / name
+    for directory in ("dtbs/broadcom", "broadcom", "")
+    for name in DTB_NAMES
+)
 ARM64_IMAGE_MAGIC_OFFSET = 0x38
 ARM64_IMAGE_MAGIC = b"ARM\x64"
 LUKS_ARGUMENT = re.compile(
@@ -319,6 +331,15 @@ def _is_arm64_image(path: Path) -> bool:
     return header[ARM64_IMAGE_MAGIC_OFFSET : ARM64_IMAGE_MAGIC_OFFSET + len(ARM64_IMAGE_MAGIC)] == ARM64_IMAGE_MAGIC
 
 
+def _select_dtb(boot: Path) -> Path:
+    for relative in DTB_CANDIDATES:
+        candidate = boot / relative
+        if os.path.lexists(candidate):
+            return _regular_file(candidate, description="Pi 5/CM5 device tree")
+    expected = ", ".join(os.fspath(item) for item in DTB_CANDIDATES)
+    raise ImageVerificationError(f"Pi 5/CM5 device tree is missing (expected one of {expected})")
+
+
 def _verify_boot(boot: Path, root_uuid: str, example: Path) -> str:
     _require_directory(boot, description="boot filesystem")
     _assert_no_fat_links(boot)
@@ -351,13 +372,7 @@ def _verify_boot(boot: Path, root_uuid: str, example: Path) -> str:
     if "[pi5]" not in {line.lower() for line in lines} or "[all]" not in {line.lower() for line in lines}:
         raise ImageVerificationError("config.txt is missing required Pi sections")
     _regular_file(boot / "initramfs-linux.img", description="installer initramfs")
-    dtb_candidates = (
-        Path("dtbs/broadcom/bcm2712-rpi-5-b.dtb"),
-        Path("broadcom/bcm2712-rpi-5-b.dtb"),
-        Path("bcm2712-rpi-5-b.dtb"),
-    )
-    if not any(os.path.lexists(boot / candidate) and stat.S_ISREG((boot / candidate).lstat().st_mode) for candidate in dtb_candidates):
-        raise ImageVerificationError("Pi 5 device tree is missing")
+    _select_dtb(boot)
     _regular_file(boot / "overlays/vc4-kms-v3d-pi5.dtbo", description="Pi 5 DRM overlay")
 
     tokens = cmdline.split()

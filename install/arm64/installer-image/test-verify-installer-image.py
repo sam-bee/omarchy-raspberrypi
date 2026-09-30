@@ -96,7 +96,9 @@ class VerifyInstallerImageTests(unittest.TestCase):
         owner.start()
         self.addCleanup(owner.stop)
 
-    def make_fixture(self) -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path]:
+    def make_fixture(
+        self, *, dtb_name: str = "bcm2712-rpi-5-b.dtb"
+    ) -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
         image = root / "installer.img"
@@ -186,7 +188,7 @@ class VerifyInstallerImageTests(unittest.TestCase):
         kernel[verify.ARM64_IMAGE_MAGIC_OFFSET : verify.ARM64_IMAGE_MAGIC_OFFSET + 4] = verify.ARM64_IMAGE_MAGIC
         (boot_source / "kernel8.img").write_bytes(kernel + b"kernel")
         (boot_source / "initramfs-linux.img").write_bytes(b"initramfs")
-        (boot_source / "dtbs/broadcom/bcm2712-rpi-5-b.dtb").write_bytes(b"dtb")
+        (boot_source / "dtbs/broadcom" / dtb_name).write_bytes(b"dtb")
         (boot_source / "overlays/vc4-kms-v3d-pi5.dtbo").write_bytes(b"overlay")
         files = {}
         for relative in sorted((set(verify.EXECUTABLE_PAYLOAD_FILES) - {"usr/bin/hypr-rdp"}) | set(verify.PROVENANCE_MODULE_FILES) | {"usr/local/share/omarchy-pi/installer-hyprland.conf"} | {"etc/systemd/system/" + name for name in verify.SYSTEM_UNITS} | {"etc/systemd/user/" + name for name in verify.USER_UNITS}):
@@ -221,6 +223,28 @@ class VerifyInstallerImageTests(unittest.TestCase):
         self.assertEqual(runner.commands[-3][0], "umount")
         self.assertEqual(runner.commands[-2][0], "umount")
         self.assertEqual(runner.commands[-1][:2], ["losetup", "--detach"])
+
+    def test_cm5_dtb_is_verified(self) -> None:
+        temporary, image, root_source, boot_source = self.make_fixture(
+            dtb_name="bcm2712-rpi-cm5l-cm5io.dtb"
+        )
+        self.addCleanup(temporary.cleanup)
+        runner = FakeRunner(root_source, boot_source)
+
+        result = verify.verify_image(image, example=HERE / "installer-settings.example.toml", runner=runner)
+
+        self.assertEqual(result.kernel, "kernel8.img")
+
+    def test_empty_dtb_is_rejected(self) -> None:
+        temporary, image, root_source, boot_source = self.make_fixture(
+            dtb_name="bcm2712-rpi-cm5-cm5io.dtb"
+        )
+        self.addCleanup(temporary.cleanup)
+        (boot_source / "dtbs/broadcom/bcm2712-rpi-cm5-cm5io.dtb").write_bytes(b"")
+        runner = FakeRunner(root_source, boot_source)
+
+        with self.assertRaisesRegex(verify.ImageVerificationError, "device tree is empty"):
+            verify.verify_image(image, runner=runner)
 
     def test_installer_provenance_detects_modified_runtime_and_missing_descriptor(self):
         temporary, image, root, boot = self.make_fixture()
