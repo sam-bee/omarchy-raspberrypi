@@ -321,7 +321,7 @@ def _hardware_model(model: str | None) -> str | None:
     """Return the supported board family for a device-tree model string."""
 
     normalised = " ".join((model or "").replace("\x00", " ").split())
-    if normalised.startswith("Raspberry Pi Compute Module 5"):
+    if re.match(r"^Raspberry Pi Compute Module 5(?:\b|$)", normalised):
         return "cm5"
     # Keep the Pi 5 guard specific to the Model B family. A generic
     # Raspberry Pi match would make unrelated boards look supported.

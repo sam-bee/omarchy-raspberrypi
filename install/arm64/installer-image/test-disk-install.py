@@ -119,6 +119,10 @@ class DiskInstallTests(unittest.TestCase):
                     "path": "/dev/mmcblk0", "kname": "mmcblk0", "type": "disk", "size": 64 * GIB,
                     "serial": "MMC-TARGET", "tran": "mmc", "log-sec": 512, "children": [],
                 },
+                {
+                    "path": "/dev/sdb", "kname": "sdb", "type": "disk", "size": 64 * GIB,
+                    "serial": "FRESH-KEY", "tran": "usb", "log-sec": 512, "children": [],
+                },
             ],
         }
 
@@ -148,6 +152,7 @@ class DiskInstallTests(unittest.TestCase):
         self.assertTrue(disks["/dev/nvme0n1"]["eligible"])
         self.assertFalse(disks["/dev/mmcblk0"]["eligible"])
         self.assertIn("MMC/SD fallback", disks["/dev/mmcblk0"]["reasons"][-1])
+        self.assertTrue(disks["/dev/sdb"]["key_eligible"])
 
     def test_selection_token_contains_path_and_stable_identity(self) -> None:
         with self.discovery_patches():
@@ -376,20 +381,22 @@ class DiskInstallTests(unittest.TestCase):
             marker = Path(temporary) / "marker"
             model = Path(temporary) / "model"
             marker.write_bytes(disk_install.INSTALLER_MARKER_CONTENT)
-            model.write_text("Raspberry Pi 4 Model B", encoding="utf-8")
 
             def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
                 if command[:2] == ["uname", "-m"]:
                     return _result(command, "aarch64\n")
                 raise AssertionError(f"unexpected preflight command: {command}")
 
-            with mock.patch.multiple(
-                disk_install,
-                _run=mock.Mock(side_effect=runner),
-                INSTALLER_MARKER=marker,
-                MODEL_PATH=model,
-            ), mock.patch.object(disk_install.os, "geteuid", return_value=0):
-                self.assertIn("Raspberry Pi 5 or Compute Module 5", disk_install._preflight_error() or "")
+            for value in ("Raspberry Pi 4 Model B", "Raspberry Pi Compute Module 50 Rev 1.0"):
+                with self.subTest(model=value):
+                    model.write_text(value, encoding="utf-8")
+                    with mock.patch.multiple(
+                        disk_install,
+                        _run=mock.Mock(side_effect=runner),
+                        INSTALLER_MARKER=marker,
+                        MODEL_PATH=model,
+                    ), mock.patch.object(disk_install.os, "geteuid", return_value=0):
+                        self.assertIn("Raspberry Pi 5 or Compute Module 5", disk_install._preflight_error() or "")
 
     def test_debugfs_key_probe_uses_real_stat_output_without_mounting(self) -> None:
         item = {"path": "/dev/sdd1", "fstype": "ext4", "mountpoints": []}
