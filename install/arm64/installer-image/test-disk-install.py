@@ -108,6 +108,47 @@ class DiskInstallTests(unittest.TestCase):
         self.assertTrue(disks["/dev/sdb"]["eligible"])
         self.assertTrue(disks["/dev/sdb"]["key_eligible"])
 
+    def test_discovery_applies_target_boot_fallback_to_disk_eligibility(self) -> None:
+        document = {
+            "blockdevices": [
+                {
+                    "path": "/dev/nvme0n1", "kname": "nvme0n1", "type": "disk", "size": 64 * GIB,
+                    "serial": "NVME-TARGET", "tran": "nvme", "log-sec": 512, "children": [],
+                },
+                {
+                    "path": "/dev/mmcblk0", "kname": "mmcblk0", "type": "disk", "size": 64 * GIB,
+                    "serial": "MMC-TARGET", "tran": "mmc", "log-sec": 512, "children": [],
+                },
+            ],
+        }
+
+        def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            if command[0] == "lsblk":
+                return _result(command, json.dumps(document))
+            if command[0] == "findmnt":
+                return _result(command, json.dumps({"filesystems": []}))
+            if command[0] == "udevadm":
+                return _result(command)
+            raise AssertionError(f"unexpected discovery command: {command}")
+
+        def preflight(target: dict | None = None) -> str | None:
+            if target and target.get("kname") == "mmcblk0":
+                return "EEPROM boot order has no MMC/SD fallback for this target"
+            return None
+
+        with mock.patch.multiple(
+            disk_install,
+            _run=mock.Mock(side_effect=runner),
+            _preflight_error=mock.Mock(side_effect=preflight),
+            _swap_sources=mock.Mock(return_value=set()),
+            _sysfs_details=mock.Mock(return_value={"available": True, "holders": [], "slaves": [], "partition": False, "ro": False}),
+        ):
+            disks = {disk["path"]: disk for disk in disk_install.discover_disks()}
+
+        self.assertTrue(disks["/dev/nvme0n1"]["eligible"])
+        self.assertFalse(disks["/dev/mmcblk0"]["eligible"])
+        self.assertIn("MMC/SD fallback", disks["/dev/mmcblk0"]["reasons"][-1])
+
     def test_selection_token_contains_path_and_stable_identity(self) -> None:
         with self.discovery_patches():
             selected = disk_install.select_disk("/dev/sdb")
@@ -262,6 +303,93 @@ class DiskInstallTests(unittest.TestCase):
                 MODEL_PATH=model,
             ), mock.patch.object(disk_install.os, "geteuid", return_value=0):
                 self.assertIsNone(disk_install._preflight_error())
+
+    def test_preflight_matches_cm5_fallback_to_selected_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "marker"
+            model = Path(temporary) / "model"
+            marker.write_bytes(disk_install.INSTALLER_MARKER_CONTENT)
+            model.write_text("Raspberry Pi Compute Module 5 Rev 1.0", encoding="utf-8")
+
+            cases = (
+                ("0xf64", {"kname": "nvme0n1"}, None),
+                ("0xf64", {"kname": "mmcblk0"}, "MMC/SD"),
+                ("0xf14", {"kname": "mmcblk0"}, None),
+                ("0xf14", {"kname": "nvme0n1"}, "NVMe"),
+                ("0xf15", {"kname": "mmcblk0"}, None),
+                ("0xf15", {"kname": "nvme0n1"}, "NVMe"),
+            )
+            for order, target, expected_reason in cases:
+                with self.subTest(order=order, target=target["kname"]):
+                    commands: list[list[str]] = []
+
+                    def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+                        commands.append(command)
+                        if command[:2] == ["uname", "-m"]:
+                            return _result(command, "aarch64\n")
+                        if command[:2] == ["vcgencmd", "bootloader_config"]:
+                            return _result(command, f"BOOT_ORDER: {order}\n")
+                        raise AssertionError(f"unexpected preflight command: {command}")
+
+                    with mock.patch.multiple(
+                        disk_install,
+                        _run=mock.Mock(side_effect=runner),
+                        INSTALLER_MARKER=marker,
+                        MODEL_PATH=model,
+                    ), mock.patch.object(disk_install.os, "geteuid", return_value=0):
+                        error = disk_install._preflight_error(target)
+                    if expected_reason is None:
+                        self.assertIsNone(error)
+                    else:
+                        self.assertIn(expected_reason, error or "")
+                    # Preflight reads the EEPROM configuration only; it must
+                    # never invoke a write or update command.
+                    self.assertEqual(
+                        commands,
+                        [["uname", "-m"], ["vcgencmd", "bootloader_config"]],
+                    )
+
+    def test_preflight_preserves_pi5_nvme_fallback_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "marker"
+            model = Path(temporary) / "model"
+            marker.write_bytes(disk_install.INSTALLER_MARKER_CONTENT)
+            model.write_text("Raspberry Pi 5 Model B Rev 1.0", encoding="utf-8")
+
+            def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+                if command[:2] == ["uname", "-m"]:
+                    return _result(command, "aarch64\n")
+                if command[:2] == ["vcgencmd", "bootloader_config"]:
+                    return _result(command, "BOOT_ORDER: 0xf14\n")
+                raise AssertionError(f"unexpected preflight command: {command}")
+
+            with mock.patch.multiple(
+                disk_install,
+                _run=mock.Mock(side_effect=runner),
+                INSTALLER_MARKER=marker,
+                MODEL_PATH=model,
+            ), mock.patch.object(disk_install.os, "geteuid", return_value=0):
+                self.assertIn("USB-first boot order", disk_install._preflight_error({"kname": "mmcblk0"}) or "")
+
+    def test_preflight_rejects_unknown_board_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "marker"
+            model = Path(temporary) / "model"
+            marker.write_bytes(disk_install.INSTALLER_MARKER_CONTENT)
+            model.write_text("Raspberry Pi 4 Model B", encoding="utf-8")
+
+            def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+                if command[:2] == ["uname", "-m"]:
+                    return _result(command, "aarch64\n")
+                raise AssertionError(f"unexpected preflight command: {command}")
+
+            with mock.patch.multiple(
+                disk_install,
+                _run=mock.Mock(side_effect=runner),
+                INSTALLER_MARKER=marker,
+                MODEL_PATH=model,
+            ), mock.patch.object(disk_install.os, "geteuid", return_value=0):
+                self.assertIn("Raspberry Pi 5 or Compute Module 5", disk_install._preflight_error() or "")
 
     def test_debugfs_key_probe_uses_real_stat_output_without_mounting(self) -> None:
         item = {"path": "/dev/sdd1", "fstype": "ext4", "mountpoints": []}

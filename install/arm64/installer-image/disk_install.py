@@ -317,7 +317,51 @@ def _descendants(node: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return result
 
 
-def _preflight_error() -> str | None:
+def _hardware_model(model: str | None) -> str | None:
+    """Return the supported board family for a device-tree model string."""
+
+    normalised = " ".join((model or "").replace("\x00", " ").split())
+    if normalised.startswith("Raspberry Pi Compute Module 5"):
+        return "cm5"
+    # Keep the Pi 5 guard specific to the Model B family. A generic
+    # Raspberry Pi match would make unrelated boards look supported.
+    if re.match(r"^Raspberry Pi 5 Model B(?:\b|$)", normalised):
+        return "pi5"
+    return None
+
+
+def _boot_policy(board: str) -> tuple[set[str], set[str]]:
+    """Return accepted installer and local fallback modes for a board."""
+
+    if board == "cm5":
+        # CM5 supports the normal USB mass-storage path (4) and its BCM USB
+        # path (5, normally the USB-C/OTG connector).  Either may fall back
+        # to NVMe (6) or SD/eMMC (1), subject to the selected target check.
+        return {"4", "5"}, {"1", "6"}
+    # Preserve the Pi 5 installer contract: USB-A mass storage first, with
+    # the established NVMe fallback requirement.
+    return {"4"}, {"6"}
+
+
+def _target_boot_code(target: Mapping[str, Any] | str | None) -> tuple[str, str] | None:
+    """Return the boot-order code required by a selected physical target."""
+
+    if target is None:
+        return None
+    if isinstance(target, str):
+        kname = _device_component(target) or ""
+    else:
+        kname = _device_component(target.get("kname")) or _device_component(target.get("path")) or ""
+    if kname.startswith("nvme"):
+        return "6", "NVMe"
+    if kname.startswith("mmcblk"):
+        return "1", "MMC/SD"
+    # USB-MSD is the first required mode for the installer and a USB target
+    # can boot through that same first mode; it needs no later fallback.
+    return None
+
+
+def _preflight_error(target: Mapping[str, Any] | str | None = None) -> str | None:
     if os.geteuid() != 0:
         return "disk installation requires root"
     machine = _checked(["uname", "-m"]).stdout.strip().lower()
@@ -330,8 +374,9 @@ def _preflight_error() -> str | None:
     if marker != INSTALLER_MARKER_CONTENT:
         return "installer image marker is invalid"
     model = _read(MODEL_PATH)
-    if not model or "Raspberry Pi 5" not in model:
-        return "installer requires a Raspberry Pi 5"
+    board = _hardware_model(model)
+    if board is None:
+        return "installer requires a Raspberry Pi 5 or Compute Module 5"
     result = _run(["vcgencmd", "bootloader_config"], check=False)
     if result.returncode != 0:
         return "cannot read EEPROM boot order"
@@ -339,11 +384,19 @@ def _preflight_error() -> str | None:
     if not match:
         return "EEPROM boot order is unavailable"
     # Raspberry Pi encodes the first attempted medium in the rightmost
-    # hexadecimal digit.  Accept USB-first orders with either NVMe or SD
-    # fallback (for example 0xf164 and 0xf64), while rejecting NVMe-first.
+    # hexadecimal digit. The installer must remain USB-first and must have
+    # a usable local fallback. Code 6 is NVMe; code 1 is SD/eMMC. Which
+    # fallback is usable for a selected disk is checked below as part of its
+    # identity, so an NVMe-only order cannot accidentally bless an MMC disk.
+    usb_modes, fallback_modes = _boot_policy(board)
     order_digits = [digit for digit in match.group(1)[2:].lower()[::-1] if digit != "f"]
-    if not order_digits or order_digits[0] != "4" or "6" not in order_digits[1:]:
+    if not order_digits or order_digits[0] not in usb_modes or not fallback_modes.intersection(order_digits[1:]):
         return "EEPROM USB-first boot order is required"
+    required = _target_boot_code(target)
+    if required is not None:
+        code, medium = required
+        if code not in order_digits[1:]:
+            return f"EEPROM boot order has no {medium} fallback for this target"
     return None
 
 
@@ -466,6 +519,10 @@ def _identity_for(node: Mapping[str, Any], *, nodes: Sequence[Mapping[str, Any]]
         reasons.append("installer media")
     if preflight_error:
         reasons.append(preflight_error)
+    else:
+        target_preflight_error = _preflight_error(node)
+        if target_preflight_error:
+            reasons.append(target_preflight_error)
     # A removable USB is valid as a key candidate only when it is genuinely
     # blank.  It remains ineligible as a target once selected as key media.
     blank_candidate = (
