@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "release": "0.1.1-cm5-test-2026.09.30",
+  "compression": {
+    "format": "zstd",
+    "level": 1,
+    "threads": 2,
+    "stream_bytes": 4628688958,
+    "stream_sha256": "3a8832738444040f34ab556fd174df8b7e2aae3b7f62fc27d23eb7b3c27f0a97"
+  },
+  "image": {
+    "filename": "omarchy-cm5-0.1.1-cm5-test-2026.09.30-installer.img",
+    "bytes": 14643363840,
+    "sha256": "ff5e6c75e99de491d7ea06ba49a6905c9adeb6dd0aafe161170d1e228e791b3e"
+  },
+  "parts": [
+    {
+      "filename": "omarchy-cm5-0.1.1-cm5-test-2026.09.30-installer.img.zst.part-00",
+      "bytes": 1900000000,
+      "sha256": "c47c985793132793b52dfde0233c64ff78a8188fa0caf7b3e4fa2f21ae8987ee"
+    },
+    {
+      "filename": "omarchy-cm5-0.1.1-cm5-test-2026.09.30-installer.img.zst.part-01",
+      "bytes": 1900000000,
+      "sha256": "61dbcd58e6b775a470394070527e00860a707e7b3d0235e448f6a1f9d046d589"
+    },
+    {
+      "filename": "omarchy-cm5-0.1.1-cm5-test-2026.09.30-installer.img.zst.part-02",
+      "bytes": 828688958,
+      "sha256": "f1b1faca4e3ff8a8fd4b7b01c1b34869b554c90850b516684f201f52fa82ec3d"
+    }
+  ],
+  "sources": {
+    "installer_runtime_revision": "7867d04893d472219bc32ab034dce0e6e5b375fc",
+    "installer_runtime_sha256": "cfbf09cc2363ebe196e75dad56fc1b91b4ca597148b2593c9788b29b51861ac2",
+    "desktop_payload_revision": "fcb2b5afcb8c06b6daf93319792f072f9111d669",
+    "desktop_payload_sha256": "1f640ef4641cf0a2086956d9b7c51368b5d95a9a853b31bf4dfcd27c1637042c",
+    "desktop_payload_package_records": 633
+  },
+  "verification": {
+    "source_image": "native CM5 experimental test image",
+    "physical_devices_touched_during_packaging": false,
+    "raw_and_compressed_hashes_rechecked_locally": true,
+    "part_hashes_rechecked_locally": true
+  }
+}

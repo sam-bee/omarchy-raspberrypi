@@ -1,0 +1,12 @@
+# Omarchy CM5 0.1.1-cm5-test-2026.09.30 package and source pins
+
+installer-runtime-source=7867d04893d472219bc32ab034dce0e6e5b375fc
+installer-runtime-sha256=cfbf09cc2363ebe196e75dad56fc1b91b4ca597148b2593c9788b29b51861ac2
+installer-package-records=235
+desktop-payload-source=fcb2b5afcb8c06b6daf93319792f072f9111d669
+desktop-payload-package-records=633
+desktop-payload-sha256=1f640ef4641cf0a2086956d9b7c51368b5d95a9a853b31bf4dfcd27c1637042c
+full-package-inventory=package-versions.json
+linux-rpi=6.18.53-1
+raspberrypi-bootloader=20260915-1
+ttf-dejavu=2.37+18+g9b5d1b2f-8
