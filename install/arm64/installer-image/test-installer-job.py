@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import importlib.util
 import json
 from pathlib import Path
@@ -728,6 +729,60 @@ print('ok')
         with mock.patch.object(job, "_module", return_value=ui):
             self.assertEqual(job.frontend_main(call=call), 0)
         ui.run.assert_called_once_with(call, job._validate_settings, defaults={})
+
+    def test_client_launch_error_preserves_errno_without_retrying_or_logging_secrets(self):
+        for number in (errno.ENOMEM, errno.EMFILE, errno.EIO, errno.ENOENT):
+            with self.subTest(errno=number):
+                log = Path(self.temporary.name) / f"client-{number}" / "installer-client.log"
+                runner = mock.Mock(side_effect=OSError(number, SECRET, WIFI_SECRET))
+                with mock.patch.object(job, "_client_log_path", return_value=log):
+                    with self.assertRaises(job.InstallerError) as raised:
+                        job._client_call(self.request(), runner=runner)
+                self.assertIn(errno.errorcode[number], str(raised.exception))
+                self.assertIn(str(log), str(raised.exception))
+                self.assertNotIn(SECRET, str(raised.exception))
+                self.assertNotIn(WIFI_SECRET, str(raised.exception))
+                runner.assert_called_once()
+                self.assertEqual(runner.call_args.args[0], ["/usr/bin/sudo", "-n", job.CONTROL_PATH])
+                record = json.loads(log.read_text())
+                self.assertEqual(record["action"], "submit")
+                self.assertEqual(record["errno"], number)
+                self.assertEqual(record["code"], errno.errorcode[number])
+                self.assertNotIn(SECRET, log.read_text())
+                self.assertNotIn(WIFI_SECRET, log.read_text())
+                self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+
+    def test_client_error_still_reports_errno_if_diagnostic_cannot_be_saved(self):
+        parent = Path(self.temporary.name) / "not-a-directory"
+        parent.write_text("preserve")
+        runner = mock.Mock(side_effect=OSError(errno.EIO, SECRET))
+        with mock.patch.object(job, "_client_log_path", return_value=parent / "client.log"):
+            with self.assertRaises(job.InstallerError) as raised:
+                job._client_call({"action": "status"}, runner=runner)
+        self.assertIn("EIO", str(raised.exception))
+        self.assertIn("could not be saved", str(raised.exception))
+        self.assertNotIn(SECRET, str(raised.exception))
+        self.assertEqual(parent.read_text(), "preserve")
+        runner.assert_called_once()
+
+    def test_client_diagnostic_does_not_follow_symlink(self):
+        destination = Path(self.temporary.name) / "preserve"
+        destination.write_text("unchanged")
+        link = destination.with_name("client.log")
+        link.symlink_to(destination)
+        with mock.patch.object(job, "_client_log_path", return_value=link):
+            message = job._record_client_os_error("status", OSError(errno.EMFILE, SECRET))
+        self.assertIn("EMFILE", message)
+        self.assertIn("could not be saved", message)
+        self.assertEqual(destination.read_text(), "unchanged")
+
+    def test_client_diagnostic_does_not_record_arbitrary_action(self):
+        log = Path(self.temporary.name) / "client.log"
+        with mock.patch.object(job, "_client_log_path", return_value=log):
+            job._record_client_os_error(SECRET, OSError(errno.EAGAIN, WIFI_SECRET))
+        self.assertEqual(json.loads(log.read_text())["action"], "unknown")
+        self.assertNotIn(SECRET, log.read_text())
+        self.assertNotIn(WIFI_SECRET, log.read_text())
 
     def test_defaults_reuse_only_installer_connection_settings_without_persisting_secrets(self):
         settings_file = Path(self.temporary.name) / "installer-settings.toml"

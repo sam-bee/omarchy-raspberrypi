@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import contextlib
 import datetime as _datetime
+import errno
 import fcntl
 import importlib.util
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import signal
 import stat
@@ -1160,6 +1162,41 @@ def control_main() -> int:
     return 0 if result["ok"] else 1
 
 
+def _client_log_path() -> Path:
+    # The frontend has no general sudo grant. Use its account's persistent
+    # home, not the root-owned worker directory or the volatile /run tree.
+    return Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local/state/omarchy-pi/installer-client.log"
+
+
+def _record_client_os_error(action: Any, exc: OSError) -> str:
+    # Exception text, filenames and request values can contain secrets. Keep
+    # only the OS error number and a fixed protocol action in this record.
+    number = exc.errno if isinstance(exc.errno, int) else None
+    name = errno.errorcode.get(number, "UNKNOWN")
+    detail = os.strerror(number) if number is not None else "unknown operating system error"
+    error = f"installer control is unavailable (errno {number}: {name}: {detail})"
+    actions = {
+        "defaults", "status", "discover", "plan", "submit", "restart", "shutdown",
+        "recovery-discover", "recovery-plan", "recovery-inspect", "recovery-repair",
+    }
+    record = {"time": _now(), "action": action if isinstance(action, str) and action in actions else "unknown", "errno": number, "code": name}
+    try:
+        path = _client_log_path()
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+                raise OSError("client diagnostic destination is unsafe")
+            os.write(fd, (json.dumps(record, sort_keys=True) + "\n").encode())
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except (OSError, KeyError):
+        return error + ". The client diagnostic could not be saved."
+    return error + f". Client diagnostic: {path}"
+
+
 def _client_call(request: Mapping[str, Any], runner: Callable[..., Any] | None = None) -> dict[str, Any]:
     encoded = json.dumps(dict(request), separators=(",", ":")) + "\n"
     invoke = runner or subprocess.run
@@ -1172,7 +1209,7 @@ def _client_call(request: Mapping[str, Any], runner: Callable[..., Any] | None =
             check=False,
         )
     except OSError as exc:
-        raise InstallerError("installer control is unavailable") from exc
+        raise InstallerError(_record_client_os_error(request.get("action"), exc)) from exc
     if completed.returncode != 0 and not completed.stdout:
         raise InstallerError("installer control was not authorized")
     try:
