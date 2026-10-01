@@ -485,20 +485,20 @@ class InstallerUi:
                     return None
 
     def run(self) -> int:
+        state = None
         try:
             state = self._startup_state()
+            if state is None:
+                return 0
+            if _text(state.get("status")) in ACTIVE_STATES:
+                result = self.ui.watch(state, self._call, time.sleep)
+                if result is not None:
+                    return result
         except (EOFError, KeyboardInterrupt):
-            self.ui.message("Installer view closed", ["No new install or repair was submitted by this check."])
+            self.ui.message("Installer view closed", ["Any submitted job keeps running. Reopen the installer to check its status."])
             return 1
         except Exception as exc:
-            self._error("Installer unavailable", exc)
-            return 0
-        if state is None:
-            return 0
-        if _text(state.get("status")) in ACTIVE_STATES:
-            result = self.ui.watch(state, self._call, time.sleep)
-            if result is not None:
-                return result
+            self._error("Installer unavailable", exc, phase="status" if state and _text(state.get("status")) in ACTIVE_STATES else "setup")
         while True:
             try:
                 choice = self.ui.choose(

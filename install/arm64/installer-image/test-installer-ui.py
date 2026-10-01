@@ -460,6 +460,26 @@ class InstallerUiTests(unittest.TestCase):
         self.assertEqual(installer_ui.run(call, _valid_settings, interaction=ui), 0)
         self.assertEqual([request["action"] for request in calls], ["status"])
 
+    def test_reopened_active_job_handles_view_interruption(self):
+        for exception in (KeyboardInterrupt, EOFError):
+            with self.subTest(exception=exception):
+                controller = mock.Mock(return_value={"state": {"status": "running"}})
+                ui = FakeInteraction()
+                ui.watch = mock.Mock(side_effect=exception)
+                self.assertEqual(installer_ui.run(controller, _valid_settings, interaction=ui), 1)
+                controller.assert_called_once_with({"action": "status"})
+                self.assertEqual(ui.messages[0][0], "Installer view closed")
+                self.assertIn("Any submitted job keeps running", " ".join(ui.messages[0][1]))
+
+    def test_reopened_active_job_unexpected_observer_error_returns_home(self):
+        controller = mock.Mock(return_value={"state": {"status": "running"}})
+        ui = FakeInteraction(choices=[3])
+        ui.watch = mock.Mock(side_effect=RuntimeError("observer unavailable"))
+        self.assertEqual(installer_ui.run(controller, _valid_settings, interaction=ui), 0)
+        controller.assert_called_once_with({"action": "status"})
+        self.assertIn("The job was accepted", " ".join(ui.messages[0][1]))
+        self.assertEqual(ui.choose_calls, [("Installer home", 0)])
+
     def test_renderer_reads_navigation_and_unicode_text_without_extra_adapter(self):
         ui = installer_ui.CursesInteraction.__new__(installer_ui.CursesInteraction)
         ui.screen = mock.Mock()
