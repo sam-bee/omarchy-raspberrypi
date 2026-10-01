@@ -80,7 +80,8 @@ class FakeInteraction:
     def completion(self, state: Mapping[str, Any]) -> None:
         self.completions.append(state)
 
-    def watch(self, state: Mapping[str, Any], _call: Any, _sleep_fn: Any) -> int:
+    def watch(self, state: Mapping[str, Any], _call: Any, _sleep_fn: Any, *, secrets: Sequence[str] = ()) -> int:
+        del secrets
         self.watched.append(state)
         return 0
 
@@ -374,9 +375,90 @@ class InstallerUiTests(unittest.TestCase):
         ui = installer_ui.CursesInteraction.__new__(installer_ui.CursesInteraction)
         ui.screen = screen
         ui._draw = mock.Mock()
-        with self.assertRaisesRegex(RuntimeError, "connection lost"):
-            ui.watch({"status": "running"}, mock.Mock(side_effect=RuntimeError("connection lost")), lambda _seconds: None)
+        ui.message = mock.Mock()
+        result = ui.watch({"status": "running"}, mock.Mock(side_effect=RuntimeError("connection lost")), lambda _seconds: None)
+        self.assertIsNone(result)
         self.assertEqual(screen.nodelay.call_args_list, [mock.call(True), mock.call(False)])
+        ui.message.assert_called_once()
+        self.assertIn("accepted and may still be running", " ".join(ui.message.call_args.args[1]))
+
+    def test_submit_failure_does_not_retry_and_returns_home(self):
+        controller = FakeController()
+
+        def call(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            if request["action"] == "submit":
+                controller.requests.append(dict(request))
+                raise RuntimeError("submit transport account-secret")
+            return controller(request)
+
+        ui = FakeInteraction(
+            choices=_plain_form_choices() + [3],
+            texts=[
+                "sierra", "omarchy-pi", "Europe/London", "en_GB.UTF-8", "us", "account-secret", "account-secret",
+                "TARGET-123", "YES",
+            ],
+        )
+        result = installer_ui.run(call, _valid_settings, interaction=ui)
+        self.assertEqual(result, 0)
+        self.assertEqual([request["action"] for request in controller.requests], ["status", "status", "discover", "plan", "submit"])
+        rendered = "\n".join(line for _title, lines in ui.messages for line in lines)
+        self.assertIn("No accepted response was received", rendered)
+        self.assertIn("No retry was attempted", rendered)
+        self.assertNotIn("uncertain", rendered.lower())
+        self.assertNotIn("account-secret", rendered)
+
+    def test_startup_status_unavailable_can_retry_then_explicitly_exit(self):
+        attempts = 0
+
+        def call(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            nonlocal attempts
+            self.assertEqual(request["action"], "status")
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("controller unavailable")
+            return {"state": {"status": "idle", "phase": "idle"}}
+
+        ui = FakeInteraction(choices=[0, 3])
+        result = installer_ui.run(call, _valid_settings, interaction=ui)
+        self.assertEqual(result, 0)
+        self.assertEqual(attempts, 2)
+        self.assertIn(("Installer status unavailable", 0), ui.choose_calls)
+
+    def test_accepted_job_observer_failure_returns_home_without_resubmitting(self):
+        controller = FakeController()
+
+        def call(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            if request["action"] == "submit":
+                controller.requests.append(dict(request))
+                return {"state": {"status": "queued", "phase": "queued", "job_id": "job-1"}}
+            return controller(request)
+
+        class ObserverFailureInteraction(FakeInteraction):
+            def watch(self, state: Mapping[str, Any], _call: Any, _sleep_fn: Any, *, secrets: Sequence[str] = ()) -> None:
+                del state, _call, _sleep_fn, secrets
+                raise RuntimeError("status observer unavailable")
+
+        ui = ObserverFailureInteraction(choices=_plain_form_choices() + [3], texts=[
+            "sierra", "omarchy-pi", "Europe/London", "en_GB.UTF-8", "us", "account-secret", "account-secret",
+            "TARGET-123", "YES",
+        ])
+        result = installer_ui.run(call, _valid_settings, interaction=ui)
+        self.assertEqual(result, 0)
+        self.assertEqual([request["action"] for request in controller.requests], ["status", "status", "discover", "plan", "submit"])
+        rendered = "\n".join(line for _title, lines in ui.messages for line in lines)
+        self.assertIn("job was accepted and may still be running", rendered)
+        self.assertNotIn("uncertain", rendered.lower())
+
+    def test_home_exit_is_explicit(self):
+        calls: list[Mapping[str, Any]] = []
+
+        def call(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            calls.append(request)
+            return {"state": {"status": "idle", "phase": "idle"}}
+
+        ui = FakeInteraction(choices=[3])
+        self.assertEqual(installer_ui.run(call, _valid_settings, interaction=ui), 0)
+        self.assertEqual([request["action"] for request in calls], ["status"])
 
     def test_renderer_reads_navigation_and_unicode_text_without_extra_adapter(self):
         ui = installer_ui.CursesInteraction.__new__(installer_ui.CursesInteraction)

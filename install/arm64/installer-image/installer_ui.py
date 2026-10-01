@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 
-POLL_SECONDS = 2.0
+POLL_SECONDS = 5.0
 ACTIVE_STATES = {"queued", "running"}
 RESTART_CONFIRMATION = "RESTART FROM SCRATCH"
 REPAIR_CONFIRMATION = "REPAIR BOOT ONLY"
@@ -321,7 +321,14 @@ class CursesInteraction:
             elif key == curses.KEY_PPAGE:
                 top = max(0, top - visible)
 
-    def watch(self, state: Mapping[str, Any], call: Callable[[Mapping[str, Any]], Mapping[str, Any]], sleep_fn: Callable[[float], None]) -> int:
+    def watch(
+        self,
+        state: Mapping[str, Any],
+        call: Callable[[Mapping[str, Any]], Mapping[str, Any]],
+        sleep_fn: Callable[[float], None],
+        *,
+        secrets: Sequence[str] = (),
+    ) -> int | None:
         current = dict(state)
         started = time.time()
         try:
@@ -329,6 +336,7 @@ class CursesInteraction:
         except ValueError:
             pass
         recovery = _text(current.get("kind")).lower() == "recovery" or _text(current.get("phase")).startswith("recovery")
+        status_error: Exception | None = None
         self.screen.nodelay(True)
         try:
             while current.get("status") in ACTIVE_STATES:
@@ -344,13 +352,27 @@ class CursesInteraction:
                 ]
                 self._draw("Recovery in progress" if recovery else "Installation in progress", lines, footer="q/Esc leave progress view")
                 if self.screen.getch() in (27, ord("q")):
-                    return 0
+                    return None
                 sleep_fn(POLL_SECONDS)
-                current = dict(call({"action": "status"}).get("state", {}))
+                try:
+                    response = call({"action": "status"})
+                    if not isinstance(response, Mapping):
+                        raise RuntimeError("installer service returned invalid status data")
+                    current = dict(response.get("state", {}))
+                except Exception as exc:
+                    status_error = exc
+                    break
                 recovery = recovery or _text(current.get("kind")).lower() == "recovery"
         finally:
             # Error screens must accept input even if status polling fails.
             self.screen.nodelay(False)
+        if status_error is not None:
+            self.message("Progress unavailable", [
+                _redact(str(status_error), secrets),
+                "The job was accepted and may still be running in the background.",
+                "Return to Installer home and choose View latest job before retrying.",
+            ])
+            return None
         if current.get("status") == "complete":
             self.completion(current)
             self.after_completion(current, call)
@@ -361,7 +383,7 @@ class CursesInteraction:
             "Open View latest job to review the result.",
             "Diagnostic log: " + _text(current.get("log_file") or "not available"),
         ])
-        return 1
+        return None
 
     def completion(self, state: Mapping[str, Any]) -> None:
         summary = state.get("summary")
@@ -437,22 +459,48 @@ class InstallerUi:
             raise RuntimeError(_redact(response.get("error") or "installer service rejected the request"))
         return response
 
-    def _error(self, title: str, exc: Exception, *, secrets: Sequence[str] = (), uncertain: bool = False) -> None:
-        follow_up = (
-            "The submit response was uncertain. Check View latest job before retrying."
-            if uncertain else "No answer was submitted."
-        )
+    def _error(self, title: str, exc: Exception, *, secrets: Sequence[str] = (), phase: str = "setup") -> None:
+        if phase == "submit":
+            follow_up = "No accepted response was received; the job may already be running. No retry was attempted. Choose View latest job before starting another install."
+        elif phase == "status":
+            follow_up = "The job was accepted and may still be running in the background. Progress could not be read. Choose View latest job before retrying."
+        else:
+            follow_up = "No new install or repair was submitted by this check."
         self.ui.message(title, [_redact(str(exc), secrets), follow_up])
 
     def _state(self) -> Mapping[str, Any]:
         return self._call({"action": "status"}).get("state", {})
 
+    def _startup_state(self) -> Mapping[str, Any] | None:
+        while True:
+            try:
+                return self._state()
+            except Exception as exc:
+                choice = self.ui.choose(
+                    "Installer status unavailable",
+                    ["Retry status", "Exit installer"],
+                    detail=[_redact(str(exc)), "No new install or repair was submitted by this check."],
+                )
+                if choice != 0:
+                    return None
+
     def run(self) -> int:
         try:
-            state = self._state()
-            if _text(state.get("status")) in ACTIVE_STATES:
-                return self.ui.watch(state, self._call, time.sleep)
-            while True:
+            state = self._startup_state()
+        except (EOFError, KeyboardInterrupt):
+            self.ui.message("Installer view closed", ["No new install or repair was submitted by this check."])
+            return 1
+        except Exception as exc:
+            self._error("Installer unavailable", exc)
+            return 0
+        if state is None:
+            return 0
+        if _text(state.get("status")) in ACTIVE_STATES:
+            result = self.ui.watch(state, self._call, time.sleep)
+            if result is not None:
+                return result
+        while True:
+            try:
                 choice = self.ui.choose(
                     "Installer home",
                     ["Install Omarchy on a target", "Repair target boot files", "View latest job", "Exit"],
@@ -465,8 +513,9 @@ class InstallerUi:
                     # screen, so never use the initial snapshot for restart.
                     state = self._state()
                     if _text(state.get("status")) in ACTIVE_STATES:
-                        return self.ui.watch(state, self._call, time.sleep)
-                    result = self.install(state)
+                        result = self.ui.watch(state, self._call, time.sleep)
+                    else:
+                        result = self.install(state)
                     if result is not None:
                         return result
                 elif choice == 1:
@@ -477,19 +526,18 @@ class InstallerUi:
                     result = self.latest_job()
                     if result is not None:
                         return result
-        except (EOFError, KeyboardInterrupt):
-            self.ui.message("Installer view closed", ["Any submitted job keeps running. Reopen the installer to check its status."])
-            return 1
-        except Exception as exc:
-            self._error("Installer unavailable", exc, uncertain=True)
-            return 1
+            except (EOFError, KeyboardInterrupt):
+                self.ui.message("Installer view closed", ["Any submitted job keeps running. Reopen the installer to check its status."])
+                return 1
+            except Exception as exc:
+                self._error("Installer unavailable", exc)
 
     def latest_job(self) -> int | None:
         try:
             state = self._state()
         except Exception as exc:
             self._error("Could not read latest job", exc)
-            return 0
+            return None
         if _text(state.get("status")) in ACTIVE_STATES:
             return self.ui.watch(state, self._call, time.sleep)
         if _text(state.get("status")) == "complete":
@@ -854,7 +902,8 @@ class InstallerUi:
         if initial is _CANCEL:
             return None
         secrets: list[str] = []
-        submission_started = False
+        submission_attempted = False
+        accepted = False
         try:
             disks = self._call({"action": "discover"}).get("disks", [])
             target = self._select_disk(disks)
@@ -905,16 +954,19 @@ class InstallerUi:
             }
             if restart:
                 submit["restart_confirmation"] = RESTART_CONFIRMATION
-            submission_started = True
+            submission_attempted = True
             result = self._call(submit)
-            return self.ui.watch(result.get("state", {}), self._call, time.sleep)
+            accepted = True
+            return self.ui.watch(result.get("state", {}), self._call, time.sleep, secrets=secrets)
         except Exception as exc:
-            self._error("Install could not continue", exc, secrets=secrets, uncertain=submission_started)
-            return 1
+            phase = "status" if accepted else "submit" if submission_attempted else "setup"
+            self._error("Install could not continue", exc, secrets=secrets, phase=phase)
+            return None
 
     def recover(self) -> int | None:
         secrets: list[str] = []
-        submission_started = False
+        submission_attempted = False
+        accepted = False
         try:
             discovered = self._call({"action": "recovery-discover"})
             targets = discovered.get("targets", [])
@@ -980,12 +1032,14 @@ class InstallerUi:
             if not self.ui.confirm("Continue to boot repair?"):
                 return None
             repair_request = {**request, "action": "recovery-repair", "repair_confirmation": REPAIR_CONFIRMATION}
-            submission_started = True
+            submission_attempted = True
             result = self._call(repair_request)
-            return self.ui.watch(result.get("state", {"status": "complete", "kind": "recovery", "summary": result}), self._call, time.sleep)
+            accepted = True
+            return self.ui.watch(result.get("state", {"status": "complete", "kind": "recovery", "summary": result}), self._call, time.sleep, secrets=secrets)
         except Exception as exc:
-            self._error("Recovery could not continue", exc, secrets=secrets, uncertain=submission_started)
-            return 1
+            phase = "status" if accepted else "submit" if submission_attempted else "setup"
+            self._error("Recovery could not continue", exc, secrets=secrets, phase=phase)
+            return None
 
 
 def run(
