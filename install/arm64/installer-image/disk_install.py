@@ -24,7 +24,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 
 class InstallError(Exception):
@@ -52,6 +52,14 @@ ROOT_LABEL = "OMARCHY-ROOT"
 UUID_RE = re.compile(r"^[0-9A-Fa-f-]{8,64}$")
 SERIAL_RE = re.compile(r"^[A-Za-z0-9._:+/-]{1,256}$")
 BOOT_ORDER_RE = re.compile(r"\bBOOT_ORDER\s*[:=]\s*(0x[0-9A-Fa-f]+)")
+ProgressCallback = Callable[[str], None]
+
+
+def _progress(callback: ProgressCallback | None, label: str) -> None:
+    """Report one fixed, non-secret preparation milestone when requested."""
+
+    if callback is not None:
+        callback(label)
 
 
 def _run(command: Sequence[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -741,9 +749,15 @@ def _safe_secret_dir(prefix: str) -> Path:
     return path
 
 
-def _reread_partitions(device: str) -> None:
+def _reread_partitions(device: str, *, progress_callback: ProgressCallback | None = None, label: str = "target") -> None:
+    subject = "unlock-key USB" if label == "key" else "target"
+    subject_title = "Unlock-key USB" if label == "key" else "Target"
+    _progress(progress_callback, f"Re-reading {subject} partitions with partprobe")
     _checked(["partprobe", "--", device])
+    _progress(progress_callback, f"{subject_title} partitions re-read with partprobe")
+    _progress(progress_callback, f"Waiting for {subject} partition udev events")
     _checked(["udevadm", "settle"])
+    _progress(progress_callback, f"{subject_title} partition udev events settled")
 
 
 def _uuid_for(device: str) -> str:
@@ -784,35 +798,56 @@ def _verify_key_file(path: Path, expected: bytes) -> None:
         raise InstallError("generated key file failed read-back verification")
 
 
-def _make_key(key_identity: Mapping[str, Any], *, job_dir: Path) -> tuple[str, str, Path, Path]:
+def _make_key(
+    key_identity: Mapping[str, Any],
+    *,
+    job_dir: Path,
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[str, str, Path, Path]:
     key_disk = str(key_identity["path"])
     key_part, _unused = _partition_devices(key_disk)
+    _progress(progress_callback, "Revalidating selected unlock-key USB")
     current = _revalidate(key_identity, role="key")
+    _progress(progress_callback, "Selected unlock-key USB revalidated")
+    _progress(progress_callback, "Preparing unlock-key USB: wiping previous signatures")
+    current = _revalidate(current, role="key")
     _checked(["wipefs", "--all", "--force", "--", key_disk])
+    _progress(progress_callback, "Unlock-key USB signatures wiped")
     # wipefs removes the old partition/filesystem signatures.  Let udev
     # publish that change before rediscovering the identity; otherwise a
     # transient stale lsblk/sysfs graph can look like device replacement.
+    _progress(progress_callback, "Preparing unlock-key USB: settling device changes")
     _checked(["udevadm", "settle", "--timeout=30"])
+    _progress(progress_callback, "Unlock-key USB device changes settled")
+    _progress(progress_callback, "Writing unlock-key USB partition table")
     current = _current_identity(current, role="key")
     if current["path"] != key_disk:
         raise InstallError("key device path changed during preparation")
     _checked(["sfdisk", "--no-reread", "--", key_disk], input_text=_key_partition_script(int(current["size"])))
-    _reread_partitions(key_disk)
+    _progress(progress_callback, "Unlock-key USB partition table written")
+    _reread_partitions(key_disk, progress_callback=progress_callback, label="key")
     current = _current_identity(current, role="key")
     if current["path"] != key_disk:
         raise InstallError("key device path changed after partitioning")
     key_part, _unused = _partition_devices(key_disk)
+    _progress(progress_callback, "Formatting unlock-key USB filesystem (ext4)")
     current = _current_identity(current, role="key")
     if current["path"] != key_disk:
         raise InstallError("key device path changed before filesystem formatting")
     _checked(["mkfs.ext4", "-F", "-U", "random", "-L", KEY_LABEL, "--", key_part])
+    _progress(progress_callback, "Unlock-key USB filesystem formatted")
+    _progress(progress_callback, "Discovering unlock-key USB filesystem UUID")
     key_uuid = _uuid_for(key_part)
+    _progress(progress_callback, "Unlock-key USB filesystem UUID discovered")
     key_mount = _safe_mount_dir(f"omarchy-pi-key-{uuid.uuid4().hex[:12]}-")
     mounted = False
     try:
+        _progress(progress_callback, "Mounting unlock-key USB read/write")
         _checked(["mount", "--", key_part, os.fspath(key_mount)])
         mounted = True
+        _progress(progress_callback, "Unlock-key USB mounted read/write")
         key_path = key_mount / ".cryptroot.key"
+        _progress(progress_callback, "Writing unlock key file")
         descriptor = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
         key_bytes = secrets.token_bytes(64)
         try:
@@ -829,19 +864,30 @@ def _make_key(key_identity: Mapping[str, Any], *, job_dir: Path) -> tuple[str, s
             if os.geteuid() == 0:
                 raise
         _verify_key_file(key_path, key_bytes)
+        _progress(progress_callback, "Unlock key file written and verified")
+        _progress(progress_callback, "Syncing unlock-key USB")
         _checked(["sync"])
+        _progress(progress_callback, "Unlock-key USB synced")
+        _progress(progress_callback, "Unmounting unlock-key USB read/write")
         _checked(["umount", "--", os.fspath(key_mount)])
         mounted = False
+        _progress(progress_callback, "Unlock-key USB unmounted read/write")
         # Reopen the filesystem read-only and verify the file after the
         # unmount/remount boundary.  This proves that the bytes and metadata
         # came from the newly formatted key medium, rather than only from the
         # writer's page cache.
+        _progress(progress_callback, "Mounting unlock-key USB read-only for verification")
         _checked(["mount", "-o", "ro", "--", key_part, os.fspath(key_mount)])
         mounted = True
+        _progress(progress_callback, "Unlock-key USB mounted read-only")
         _verify_key_file(key_mount / ".cryptroot.key", key_bytes)
+        _progress(progress_callback, "Unlock key file verified after remount")
+        _progress(progress_callback, "Unmounting unlock-key USB read-only")
         _checked(["umount", "--", os.fspath(key_mount)])
         mounted = False
+        _progress(progress_callback, "Unlock-key USB unmounted read-only")
         key_file = _write_secret_file(job_dir, "generated-key", key_bytes)
+        _progress(progress_callback, "Unlock key staged for target enrollment")
         return key_part, key_uuid, key_file, key_mount
     finally:
         cleanup_failures: list[str] = []
@@ -891,6 +937,8 @@ def prepare_target(
     mode: str,
     passphrase: str | None,
     key_identity: Mapping[str, Any] | None = None,
+    *,
+    progress_callback: ProgressCallback | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Prepare and mount one target, yielding only resources owned by the job."""
 
@@ -909,10 +957,14 @@ def prepare_target(
     if mode != "key" and key_identity is not None:
         raise InstallError("a key USB is valid only in key mode")
 
+    _progress(progress_callback, "Revalidating selected target and key devices")
     target, key = validate_pair(target_identity, key_identity)
+    _progress(progress_callback, "Selected target and key devices revalidated")
     # Recheck once more directly before the first destructive command.  This
     # catches a device replacement between validation and command dispatch.
+    _progress(progress_callback, "Rechecking devices immediately before mutation")
     target, key = validate_pair(target, key)
+    _progress(progress_callback, "Devices rechecked immediately before mutation")
     target_path = str(target["path"])
     boot_device, root_device = _partition_devices(target_path)
     mount_dir = _safe_mount_dir(f"omarchy-pi-install-{uuid.uuid4().hex[:12]}-")
@@ -936,32 +988,50 @@ def prepare_target(
         if mode == "key":
             if key is None:
                 raise InstallError("key identity disappeared")
-            key_part, key_uuid, key_file, key_mount = _make_key(key, job_dir=job_dir)
+            key_part, key_uuid, key_file, key_mount = _make_key(
+                key,
+                job_dir=job_dir,
+                progress_callback=progress_callback,
+            )
 
+        _progress(progress_callback, "Preparing target: wiping previous signatures")
+        # Progress persistence can block on the installer media. Revalidate
+        # after the callback so it cannot make the destructive guard stale.
+        _revalidate(target, role="target")
         _checked(["wipefs", "--all", "--force", "--", target_path])
+        _progress(progress_callback, "Target signatures wiped")
         # As above, settle the kernel/udev view before the post-wipe identity
         # guard.  The guard remains mandatory; this only removes the expected
         # partition-signature propagation race.
+        _progress(progress_callback, "Preparing target: settling device changes")
         _checked(["udevadm", "settle", "--timeout=30"])
+        _progress(progress_callback, "Target device changes settled")
         # Re-run the identity guard after wipefs and before partitioning.  The
         # command itself is destructive, so later retries still fail closed.
+        _progress(progress_callback, "Writing target partition table")
         current_target = _revalidate(target, role="target")
         if current_target["path"] != target_path:
             raise InstallError("target device path changed during preparation")
         _checked(["sfdisk", "--no-reread", "--", target_path], input_text=_partition_script(int(target["size"])))
-        _reread_partitions(target_path)
+        _progress(progress_callback, "Target partition table written")
+        _reread_partitions(target_path, progress_callback=progress_callback, label="target")
+        _progress(progress_callback, "Formatting target boot filesystem (FAT)")
         current_target = _revalidate(target, role="target")
         if current_target["path"] != target_path:
             raise InstallError("target device path changed after partitioning")
         _checked(["mkfs.fat", "-F", "32", "-n", BOOT_LABEL, "--", boot_device])
+        _progress(progress_callback, "Target boot filesystem formatted")
 
         if mode == "plain":
+            _progress(progress_callback, "Formatting target root filesystem (ext4)")
             current_target = _revalidate(target, role="target")
             if current_target["path"] != target_path:
                 raise InstallError("target device path changed before root formatting")
             _checked(["mkfs.ext4", "-F", "-U", "random", "-L", ROOT_LABEL, "--", root_device])
+            _progress(progress_callback, "Target root filesystem formatted")
             root_source = root_device
         else:
+            _progress(progress_callback, "Formatting target root encryption (LUKS)")
             current_target = _revalidate(target, role="target")
             if current_target["path"] != target_path:
                 raise InstallError("target device path changed before encryption")
@@ -975,9 +1045,11 @@ def prepare_target(
                 "--",
                 root_device,
             ], input_text=passphrase)
+            _progress(progress_callback, "Target root encryption formatted")
             if mode == "key":
                 if key is None or key_file is None:
                     raise InstallError("key identity disappeared")
+                _progress(progress_callback, "Enrolling unlock key in target root encryption")
                 current_target = _revalidate(target, role="target")
                 current_key = _current_identity(key, role="prepared key")
                 if current_target["path"] != target_path or current_key["path"] != key["path"]:
@@ -987,6 +1059,7 @@ def prepare_target(
                     "--key-file", os.fspath(recovery_file),
                     "--new-keyfile", os.fspath(key_file), "--", root_device,
                 ])
+                _progress(progress_callback, "Unlock key enrolled in target root encryption")
             root_source = mapper_path
             # The open operation below is intentionally repeated after the
             # key enrollment branch; it validates the selected unlock route.
@@ -995,24 +1068,38 @@ def prepare_target(
             current_target = _revalidate(target, role="target")
             if current_target["path"] != target_path:
                 raise InstallError("target device path changed before unlock verification")
+            _progress(progress_callback, "Verifying target recovery passphrase")
             _checked(["cryptsetup", "open", "--test-passphrase", "--key-file", os.fspath(recovery_file), "--", root_device])
+            _progress(progress_callback, "Target recovery passphrase verified")
             if mode == "key":
                 if key_file is None:
                     raise InstallError("key file was not created")
+                _progress(progress_callback, "Verifying target unlock key")
                 _checked(["cryptsetup", "open", "--test-passphrase", "--key-file", os.fspath(key_file), "--", root_device])
+                _progress(progress_callback, "Target unlock key verified")
+                _progress(progress_callback, "Opening encrypted target root")
                 _checked(["cryptsetup", "open", "--type", "luks2", "--key-file", os.fspath(key_file), "--", root_device, mapper_name])
+                mapper_open = True
+                _progress(progress_callback, "Encrypted target root opened")
             else:
+                _progress(progress_callback, "Opening encrypted target root")
                 _checked(["cryptsetup", "open", "--type", "luks2", "--key-file", os.fspath(recovery_file), "--", root_device, mapper_name])
-            mapper_open = True
+                mapper_open = True
+                _progress(progress_callback, "Encrypted target root opened")
+            _progress(progress_callback, "Formatting encrypted target root filesystem (ext4)")
             _checked(["mkfs.ext4", "-F", "-U", "random", "-L", ROOT_LABEL, "--", mapper_path])
+            _progress(progress_callback, "Encrypted target root filesystem formatted")
             root_source = mapper_path
 
+        _progress(progress_callback, "Mounting target root filesystem")
         _checked(["mount", "--", root_source, os.fspath(root_mount)])
         root_mounted = True
+        _progress(progress_callback, "Target root filesystem mounted")
         # The root mount hides the pre-mount directory tree.  Create /boot
         # only after the target root is mounted, so the FAT mount is attached
         # inside the target filesystem rather than the host-side staging dir.
         boot_mount.mkdir()
+        _progress(progress_callback, "Mounting target boot filesystem")
         _checked([
             "mount",
             "-t",
@@ -1024,16 +1111,27 @@ def prepare_target(
             os.fspath(boot_mount),
         ])
         boot_mounted = True
+        _progress(progress_callback, "Target boot filesystem mounted")
+        _progress(progress_callback, "Discovering target root filesystem UUID")
         root_uuid = _uuid_for(root_source)
+        _progress(progress_callback, "Target root filesystem UUID discovered")
+        _progress(progress_callback, "Discovering target boot filesystem UUID")
         boot_uuid = _uuid_for(boot_device)
+        _progress(progress_callback, "Target boot filesystem UUID discovered")
         if mode == "key" and key_uuid is None:
             raise InstallError("key UUID was not discovered")
+        luks_uuid = None
+        if mode != "plain":
+            _progress(progress_callback, "Discovering target encryption UUID")
+            luks_uuid = _luks_uuid_for(root_device)
+            _progress(progress_callback, "Target encryption UUID discovered")
+        _progress(progress_callback, "Target storage preparation complete")
         yield {
             "root": root_mount,
             "boot": boot_mount,
             "root_uuid": root_uuid,
             "boot_uuid": boot_uuid,
-            "luks_uuid": _luks_uuid_for(root_device) if mode != "plain" else None,
+            "luks_uuid": luks_uuid,
             "key_uuid": key_uuid,
             "key_path": "/.cryptroot.key" if mode == "key" else None,
         }

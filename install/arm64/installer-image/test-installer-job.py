@@ -79,8 +79,10 @@ class FakeDisk(types.ModuleType):
         return target, key
 
     @contextlib.contextmanager
-    def prepare_target(self, target: str, mode: str, passphrase: str | None, key: str | None):
+    def prepare_target(self, target: str, mode: str, passphrase: str | None, key: str | None, *, progress_callback=None):
         self.prepare_calls.append((target, mode, passphrase, key))
+        if progress_callback is not None:
+            progress_callback("Preparing test target")
         root = self.root / "target-root"
         root.mkdir()
         yield {
@@ -521,6 +523,30 @@ class InstallerJobTests(unittest.TestCase):
         self.assertNotIn(SECRET, json.dumps(state))
         self.assertNotIn(SECRET, (job.STATE_ROOT / "jobs" / f"{state['job_id']}.log").read_text())
 
+    def test_storage_milestone_is_durable_before_failure_and_redacts_secrets(self):
+        self.submit()
+        snapshots = []
+
+        @contextlib.contextmanager
+        def prepare_target(target, mode, passphrase, key, *, progress_callback):
+            progress_callback("Formatting target root filesystem " + SECRET)
+            snapshots.append(job._load_state())
+            raise RuntimeError("storage command stopped")
+            yield  # Make the failure occur on context entry, as in production.
+
+        self.disk.prepare_target = prepare_target
+        self.assertEqual(job._run_worker(), 1)
+        self.assertEqual(snapshots[0]["phase"], "target-preparation")
+        self.assertEqual(snapshots[0]["message"], "Formatting target root filesystem [REDACTED]")
+        state = job._load_state()
+        self.assertEqual(state["status"], "failed")
+        self.assertEqual(state["message"], snapshots[0]["message"])
+        self.assertEqual(self.payload.copy_calls, [])
+        log = job._log_path(state["job_id"]).read_text()
+        self.assertIn("target-preparation: Formatting target root filesystem [REDACTED]", log)
+        self.assertNotIn(SECRET, log)
+        self.assertFalse(job._request_path().exists())
+
     def test_stale_running_job_becomes_interrupted_without_resume(self) -> None:
         self.submit()
         state = job._load_state()
@@ -586,7 +612,7 @@ class InstallerJobTests(unittest.TestCase):
             disk.validate_pair = lambda target, key: (target, key)
 
             @contextlib.contextmanager
-            def prepare_target(target, mode, passphrase, key):
+            def prepare_target(target, mode, passphrase, key, *, progress_callback=None):
                 mounted = base / "mounted"
                 (mounted / "root").mkdir(parents=True)
                 (mounted / "boot").mkdir()

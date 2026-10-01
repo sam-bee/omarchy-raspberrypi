@@ -991,6 +991,12 @@ def _run_worker() -> int:
                 settings["encryption"],
                 passphrase,
                 private_request.get("key_identity"),
+                progress_callback=lambda message: _worker_progress(
+                    job_id,
+                    "target-preparation",
+                    message,
+                    secrets_to_hide=secret_values,
+                ),
             )
             with storage_context as storage:
                 copy_payload = getattr(payload, "copy_payload", None)

@@ -443,6 +443,164 @@ class DiskInstallTests(unittest.TestCase):
         ))
         self.assertTrue(any(argv[:2] == ["umount", "--"] for argv, _ in commands))
 
+    def test_preparation_progress_reports_static_milestones_in_order(self) -> None:
+        commands: list[tuple[list[str], str | None]] = []
+        progress: list[str] = []
+
+        def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            commands.append((command, input_text))
+            if command[0] == "blkid":
+                return _result(command, "11111111-1111-1111-1111-111111111111\n" if command[-1].endswith("p2") else "22222222-2222-2222-2222-222222222222\n")
+            return _result(command)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.multiple(
+                disk_install,
+                _run=mock.Mock(side_effect=runner),
+                _preflight_error=mock.Mock(return_value=None),
+                discover_disks=mock.Mock(return_value=[self.target["/dev/nvme0n1"]]),
+                MOUNT_BASE=Path(temporary) / "mnt",
+                SECRET_BASE=Path(temporary) / "run",
+            ):
+                with disk_install.prepare_target(
+                    self.target["/dev/nvme0n1"],
+                    "plain",
+                    None,
+                    progress_callback=progress.append,
+                ):
+                    pass
+
+        self.assertEqual(
+            progress,
+            [
+                "Revalidating selected target and key devices",
+                "Selected target and key devices revalidated",
+                "Rechecking devices immediately before mutation",
+                "Devices rechecked immediately before mutation",
+                "Preparing target: wiping previous signatures",
+                "Target signatures wiped",
+                "Preparing target: settling device changes",
+                "Target device changes settled",
+                "Writing target partition table",
+                "Target partition table written",
+                "Re-reading target partitions with partprobe",
+                "Target partitions re-read with partprobe",
+                "Waiting for target partition udev events",
+                "Target partition udev events settled",
+                "Formatting target boot filesystem (FAT)",
+                "Target boot filesystem formatted",
+                "Formatting target root filesystem (ext4)",
+                "Target root filesystem formatted",
+                "Mounting target root filesystem",
+                "Target root filesystem mounted",
+                "Mounting target boot filesystem",
+                "Target boot filesystem mounted",
+                "Discovering target root filesystem UUID",
+                "Target root filesystem UUID discovered",
+                "Discovering target boot filesystem UUID",
+                "Target boot filesystem UUID discovered",
+                "Target storage preparation complete",
+            ],
+        )
+        self.assertTrue(all("/dev/" not in label and "11111111" not in label for label in progress))
+
+    def test_preparation_progress_stops_before_failed_operation(self) -> None:
+        commands: list[list[str]] = []
+        progress: list[str] = []
+
+        def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            if command[0] == "sfdisk":
+                raise disk_install.InstallError("command failed: sfdisk")
+            return _result(command)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.multiple(
+                disk_install,
+                _run=mock.Mock(side_effect=runner),
+                _preflight_error=mock.Mock(return_value=None),
+                discover_disks=mock.Mock(return_value=[self.target["/dev/nvme0n1"]]),
+                MOUNT_BASE=Path(temporary) / "mnt",
+                SECRET_BASE=Path(temporary) / "run",
+            ):
+                with self.assertRaisesRegex(disk_install.InstallError, "sfdisk"):
+                    with disk_install.prepare_target(
+                        self.target["/dev/nvme0n1"],
+                        "plain",
+                        None,
+                        progress_callback=progress.append,
+                    ):
+                        self.fail("preparation unexpectedly reached the mount boundary")
+
+        self.assertEqual(progress[-1], "Writing target partition table")
+        self.assertNotIn("Target partition table written", progress)
+        self.assertNotIn("Formatting target boot filesystem (FAT)", progress)
+        self.assertFalse(any(command[0] == "mkfs.fat" for command in commands))
+
+    def test_encrypted_progress_labels_never_include_recovery_secret(self) -> None:
+        secret = "recovery-passphrase"
+        progress: list[str] = []
+
+        def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            if command[0] == "cryptsetup" and command[1] == "luksFormat":
+                raise disk_install.InstallError("command failed: cryptsetup")
+            return _result(command)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.multiple(
+                disk_install,
+                _run=mock.Mock(side_effect=runner),
+                _preflight_error=mock.Mock(return_value=None),
+                discover_disks=mock.Mock(return_value=[self.target["/dev/nvme0n1"]]),
+                MOUNT_BASE=Path(temporary) / "mnt",
+                SECRET_BASE=Path(temporary) / "run",
+            ):
+                with self.assertRaisesRegex(disk_install.InstallError, "cryptsetup"):
+                    with disk_install.prepare_target(
+                        self.target["/dev/nvme0n1"],
+                        "passphrase",
+                        secret,
+                        progress_callback=progress.append,
+                    ):
+                        self.fail("preparation unexpectedly reached the mount boundary")
+
+        self.assertIn("Formatting target root encryption (LUKS)", progress)
+        self.assertNotIn("Target root encryption formatted", progress)
+        self.assertTrue(all(secret not in label for label in progress))
+
+    def test_progress_failure_after_root_mount_still_cleans_up_mount(self) -> None:
+        commands: list[list[str]] = []
+
+        def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            if command[0] == "blkid":
+                return _result(command, "11111111-1111-1111-1111-111111111111\n" if command[-1].endswith("p2") else "22222222-2222-2222-2222-222222222222\n")
+            return _result(command)
+
+        def progress(label: str) -> None:
+            if label == "Target root filesystem mounted":
+                raise RuntimeError("progress sink failed")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.multiple(
+                disk_install,
+                _run=mock.Mock(side_effect=runner),
+                _preflight_error=mock.Mock(return_value=None),
+                discover_disks=mock.Mock(return_value=[self.target["/dev/nvme0n1"]]),
+                MOUNT_BASE=Path(temporary) / "mnt",
+                SECRET_BASE=Path(temporary) / "run",
+            ):
+                with self.assertRaisesRegex(RuntimeError, "progress sink"):
+                    with disk_install.prepare_target(
+                        self.target["/dev/nvme0n1"],
+                        "plain",
+                        None,
+                        progress_callback=progress,
+                    ):
+                        self.fail("progress callback unexpectedly returned")
+
+        self.assertTrue(any(command[:2] == ["umount", "--"] for command in commands))
+
     def test_post_wipe_settle_failure_stops_target_and_key_mutation(self) -> None:
         """A lost udev view must fail closed before any new partitioning."""
 
@@ -480,17 +638,18 @@ class DiskInstallTests(unittest.TestCase):
         stale_target["identity"] = dict(stale_target["identity"])
         stale_target["eligible"] = False
         stale_target["reasons"] = ["sysfs block graph is unavailable"]
-        calls = 0
+        wiped = False
 
         def discover() -> list[dict[str, object]]:
-            nonlocal calls
-            calls += 1
-            return [stale_target if calls >= 3 else self.target["/dev/nvme0n1"]]
+            return [stale_target if wiped else self.target["/dev/nvme0n1"]]
 
         commands: list[list[str]] = []
 
         def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            nonlocal wiped
             commands.append(command)
+            if command[0] == "wipefs":
+                wiped = True
             return _result(command)
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -510,6 +669,45 @@ class DiskInstallTests(unittest.TestCase):
             self.assertFalse(any(argv[0] in {"sfdisk", "mkfs.fat", "mkfs.ext4"} for argv in commands))
             self.assertFalse(list((temporary_root / "mnt").glob("omarchy-pi-install-*")))
             self.assertFalse(list((temporary_root / "run").glob("omarchy-pi-install-*")))
+
+    def test_progress_callback_cannot_make_destructive_identity_guard_stale(self):
+        for milestone, forbidden_command in (
+            ("Preparing target: wiping previous signatures", "wipefs"),
+            ("Writing target partition table", "sfdisk"),
+            ("Formatting target boot filesystem (FAT)", "mkfs.fat"),
+            ("Formatting target root filesystem (ext4)", "mkfs.ext4"),
+        ):
+            with self.subTest(milestone=milestone), tempfile.TemporaryDirectory() as temporary:
+                commands = []
+                changed = False
+                stale = dict(self.target["/dev/nvme0n1"])
+                stale["eligible"] = False
+                stale["reasons"] = ["device changed while recording progress"]
+
+                def progress(message):
+                    nonlocal changed
+                    if message == milestone:
+                        changed = True
+
+                def discover():
+                    return [stale if changed else self.target["/dev/nvme0n1"]]
+
+                def runner(command, *, input_text=None, check=True):
+                    commands.append(command)
+                    return _result(command)
+
+                with mock.patch.multiple(
+                    disk_install,
+                    _run=mock.Mock(side_effect=runner),
+                    _preflight_error=mock.Mock(return_value=None),
+                    discover_disks=mock.Mock(side_effect=discover),
+                    MOUNT_BASE=Path(temporary) / "mnt",
+                    SECRET_BASE=Path(temporary) / "run",
+                ):
+                    with self.assertRaisesRegex(disk_install.InstallError, "device changed while recording progress"):
+                        with disk_install.prepare_target(self.target["/dev/nvme0n1"], "plain", None, progress_callback=progress):
+                            self.fail("changed target was accepted")
+                self.assertNotIn(forbidden_command, [command[0] for command in commands])
 
     def test_cleanup_tree_failure_is_reported_and_staging_is_retained(self) -> None:
         def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -533,6 +731,7 @@ class DiskInstallTests(unittest.TestCase):
 
     def test_key_mode_keeps_recovery_secret_out_of_argv_and_cleans_secret_dir(self) -> None:
         commands: list[tuple[list[str], str | None]] = []
+        progress: list[str] = []
         key = dict(self.blank_key)
         key["identity"] = dict(key["identity"])
 
@@ -559,7 +758,13 @@ class DiskInstallTests(unittest.TestCase):
                 MOUNT_BASE=Path(temporary) / "mnt",
                 SECRET_BASE=Path(temporary) / "run",
             ), mock.patch.object(disk_install.os, "chown", return_value=None), mock.patch.object(disk_install.Path, "stat", return_value=fake_key_stat):
-                with disk_install.prepare_target(self.target["/dev/nvme0n1"], "key", "recovery-passphrase", key) as context:
+                with disk_install.prepare_target(
+                    self.target["/dev/nvme0n1"],
+                    "key",
+                    "recovery-passphrase",
+                    key,
+                    progress_callback=progress.append,
+                ) as context:
                     self.assertEqual(context["key_uuid"], "33333333-3333-3333-3333-333333333333")
                     self.assertEqual(context["key_path"], "/.cryptroot.key")
                     self.assertEqual(context["luks_uuid"], "44444444-4444-4444-4444-444444444444")
@@ -581,6 +786,11 @@ class DiskInstallTests(unittest.TestCase):
         self.assertEqual(len(wipefs_indices), 2)
         for index in wipefs_indices:
             self.assertEqual(commands[index + 1][0], ["udevadm", "settle", "--timeout=30"])
+        self.assertIn("Writing unlock-key USB partition table", progress)
+        self.assertIn("Unlock-key USB partition table written", progress)
+        self.assertIn("Formatting unlock-key USB filesystem (ext4)", progress)
+        self.assertIn("Unlock key staged for target enrollment", progress)
+        self.assertTrue(all("recovery-passphrase" not in label for label in progress))
 
 
 if __name__ == "__main__":
