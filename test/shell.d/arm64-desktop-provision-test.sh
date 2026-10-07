@@ -43,19 +43,59 @@ for relative in \
   usr/lib/systemd/user/omarchy-pi-hypr-rdp.service; do
   printf 'packaged fixture\n' >"$packaged_target/$relative"
 done
+packaged_helpers=(
+  setup-desktop-user.sh
+  setup-desktop-theme.sh
+  setup-desktop-images.sh
+  setup-mise.sh
+  setup-user-agents.sh
+  session/90-omarchy-pi
+  session/chromium-flags.conf
+  session/ensure-headless-output.sh
+  session/fresh-hyprland-prefix.lua
+  session/portals.conf
+  session/start-shell.sh
+  session/xdg-terminals.list
+)
+for relative in "${packaged_helpers[@]}"; do
+  mkdir -p -- "$(dirname "$packaged_target/usr/share/omarchy/install/arm64/$relative")"
+  cp -a -- "$test_checkout/install/arm64/$relative" \
+    "$packaged_target/usr/share/omarchy/install/arm64/$relative"
+done
+packaged_helper_state="$test_tmp/packaged-helper-state"
+for relative in "${packaged_helpers[@]}"; do
+  helper="$packaged_target/usr/share/omarchy/install/arm64/$relative"
+  stat -c '%a %n' -- "$helper"
+  sha256sum -- "$helper"
+done >"$packaged_helper_state"
 packaged_dry_run_output=$(bash "$ROOT/install/arm64/provision-desktop-root.sh" \
   --rootfs "$packaged_target" --source-checkout "$test_checkout" \
   --runtime-layout packaged --dry-run)
-grep -Fq '/usr/share/omarchy/install/arm64/setup-user-agents.sh' <<<"$packaged_dry_run_output" ||
-  fail "packaged dry-run stages the Pi helper extension under the package runtime"
 grep -Fq 'runtime mode: packaged' <<<"$packaged_dry_run_output" ||
   fail "packaged dry-run identifies the selected runtime mode"
 if grep -Fq 'extract clean Omarchy source' <<<"$packaged_dry_run_output" ||
   grep -Fq 'copy Omarchy release' <<<"$packaged_dry_run_output"; then
   fail "packaged dry-run does not stage a source release"
 fi
-[[ ! -e $packaged_target/usr/share/omarchy/install ]] ||
-  fail "packaged dry-run does not mutate the package runtime"
+[[ -d $packaged_target/usr/share/omarchy/install ]] ||
+  fail "packaged fixture includes the package-owned install tree"
+packaged_helper_state_after="$test_tmp/packaged-helper-state-after"
+for relative in "${packaged_helpers[@]}"; do
+  helper="$packaged_target/usr/share/omarchy/install/arm64/$relative"
+  stat -c '%a %n' -- "$helper"
+  sha256sum -- "$helper"
+done >"$packaged_helper_state_after"
+cmp -s -- "$packaged_helper_state" "$packaged_helper_state_after" ||
+  fail "packaged dry-run preserves helper contents and modes"
+missing_helper="$packaged_target/usr/share/omarchy/install/arm64/session/start-shell.sh"
+mv -- "$missing_helper" "$missing_helper.missing"
+if bash "$ROOT/install/arm64/provision-desktop-root.sh" \
+  --rootfs "$packaged_target" --source-checkout "$test_checkout" \
+  --runtime-layout packaged --dry-run >/dev/null 2>&1; then
+  mv -- "$missing_helper.missing" "$missing_helper"
+  fail "packaged dry-run rejects a missing package-owned helper"
+fi
+mv -- "$missing_helper.missing" "$missing_helper"
 pass "packaged provisioning dry-run keeps the package-owned runtime and omits source releases"
 
 assert_mode() {

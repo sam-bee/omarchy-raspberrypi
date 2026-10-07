@@ -61,9 +61,10 @@ PY
 cat >"$fake_bin/pacman" <<'SH'
 #!/bin/bash
 if [[ $1 == -Qo ]]; then
-  case "$3" in
-    */version) printf 'omarchy 4-1 owns %s\n' "$3" ;;
-    */config) printf 'omarchy-settings 4-1 owns %s\n' "$3" ;;
+  [[ $2 == --quiet ]] || exit 1
+  case "$4" in
+    */version) printf 'omarchy\n' ;;
+    */config) printf 'omarchy-settings\n' ;;
     *) exit 1 ;;
   esac
   exit 0
