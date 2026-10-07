@@ -6,8 +6,31 @@
 # omarchy:examples=omarchy update | omarchy update -y
 # omarchy:requires-sudo=true
 
-if [[ $(uname -m) == "aarch64" && -f "$OMARCHY_PATH/.omarchy-pi-source-commit" && -f "$OMARCHY_PATH/install/arm64/update.py" ]]; then
-  exec /usr/bin/python3 "$OMARCHY_PATH/install/arm64/update.py" "$@"
+packaged_arm_runtime() {
+  [[ $(uname -m) == "aarch64" ]] || return 1
+  local runtime_root="/usr/share/omarchy"
+  if [[ ${OMARCHY_PI_TESTING:-0} == 1 && -n ${OMARCHY_PI_TEST_RUNTIME_ROOT:-} ]]; then
+    runtime_root=$OMARCHY_PI_TEST_RUNTIME_ROOT
+  fi
+  [[ ${OMARCHY_PATH:-$runtime_root} == "$runtime_root" ]] || return 1
+  [[ -f "$runtime_root/version" && -f "$runtime_root/.omarchy-pi-packaged.json" && -d "$runtime_root/config" && -f "$runtime_root/install/arm64/update.py" ]] || return 1
+  local runtime_owner settings_owner
+  runtime_owner=$(pacman -Qo -- "$runtime_root/version" 2>/dev/null | awk 'NR == 1 {print $1}')
+  settings_owner=$(pacman -Qo -- "$runtime_root/config" 2>/dev/null | awk 'NR == 1 {print $1}')
+  [[ $runtime_owner == "omarchy" && $settings_owner == "omarchy-settings" ||
+     $runtime_owner == "omarchy-dev" && $settings_owner == "omarchy-settings-dev" ]]
+}
+
+omarchy_path=${OMARCHY_PATH:-}
+
+if packaged_arm_runtime; then
+  runtime_root="/usr/share/omarchy"
+  if [[ ${OMARCHY_PI_TESTING:-0} == 1 && -n ${OMARCHY_PI_TEST_RUNTIME_ROOT:-} ]]; then
+    runtime_root=$OMARCHY_PI_TEST_RUNTIME_ROOT
+  fi
+  exec /usr/bin/python3 "$runtime_root/install/arm64/update.py" --packaged "$@"
+elif [[ $(uname -m) == "aarch64" && -n $omarchy_path && -f "$omarchy_path/.omarchy-pi-source-commit" && -f "$omarchy_path/install/arm64/update.py" ]]; then
+  exec /usr/bin/python3 "$omarchy_path/install/arm64/update.py" "$@"
 elif [[ $(uname -m) != "x86_64" ]]; then
   echo "This command is not supported on ARM or other non-x86 platforms; use omarchy-install-plan for the ARM64 plan-only preview." >&2
   exit 1

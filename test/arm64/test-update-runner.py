@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import stat
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -70,6 +71,29 @@ class UpdateRunnerTests(unittest.TestCase):
         stack.enter_context(mock.patch.object(update.subprocess, "run", side_effect=fake_subprocess_run))
         return stack
 
+    def _native_archive(self, path, name, version, revision):
+        marker = json.dumps({
+            "schema_version": 1,
+            "layout": "packaged",
+            "runtime_mode": "packaged",
+            "channel": "stable",
+            "version": version,
+            "source_revision": revision,
+            "source_sha256": "c" * 64,
+        }, sort_keys=True).encode() + b"\n"
+        with tarfile.open(path, "w") as stream:
+            def add(name_, data):
+                info = tarfile.TarInfo(name_)
+                info.size = len(data)
+                info.mode = 0o644
+                stream.addfile(info, io.BytesIO(data))
+            metadata = f"pkgname = {name}\npkgver = {version}\narch = aarch64\n"
+            if name == "omarchy":
+                metadata += f"depend = omarchy-settings={version}\n"
+            add(".PKGINFO", metadata.encode())
+            add("usr/share/omarchy/.omarchy-pi-source-commit", (revision + "\n").encode())
+            add("usr/share/omarchy/.omarchy-pi-packaged.json", marker)
+
     def test_launch_copies_private_runtime_and_starts_durable_pid1_worker(self):
         commands = []
         root_calls = []
@@ -98,6 +122,174 @@ class UpdateRunnerTests(unittest.TestCase):
         self.assertEqual(start[-5:], ["/usr/bin/python3", "-I", str(runtime / "update.py"), "--worker", str(job)])
         reset = ["/usr/bin/systemctl", "reset-failed", update.UNIT]
         self.assertLess(commands.index(reset), commands.index(start))
+
+    def test_packaged_launch_records_candidate_pair_for_durable_worker(self):
+        commands = []
+        root_calls = []
+        candidate_root = self.base / "candidate"
+        candidate_root.mkdir()
+        (candidate_root / "candidate.json").write_text("{}\n", encoding="utf-8")
+        (candidate_root / "source").mkdir(mode=0o700)
+        (candidate_root / "source/migration.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+        candidate = SimpleNamespace(
+            root=candidate_root,
+            manifest=candidate_root / "candidate.json",
+            channel="stable",
+            source_tree=candidate_root / "source",
+            packages=(),
+            previous_packages=(),
+        )
+        def load_candidate(root, *, require_previous):
+            root = Path(root)
+            if root == candidate_root:
+                return candidate
+            return SimpleNamespace(
+                root=root,
+                manifest=root / "candidate.json",
+                channel="stable",
+                source_tree=root / "source",
+                packages=(),
+                previous_packages=(),
+            )
+        with mock.patch.dict(update.os.environ, {"SUDO_UID": str(self.account.pw_uid)}, clear=False), self._launch_patches(commands, root_calls), \
+             mock.patch.object(update, "require_packaged_runtime", return_value="stable"), \
+             mock.patch.object(update, "PACKAGED_RUNTIME_ROOT", ROOT), \
+             mock.patch.object(update.update_packages, "load_candidate", side_effect=load_candidate):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                update.launch(packaged=True, candidate_root=candidate_root)
+
+        response = json.loads(output.getvalue())
+        request = json.loads((Path(response["job"]) / "request.json").read_text())
+        self.assertEqual(request["mode"], "packaged")
+        self.assertEqual(request["channel"], "stable")
+        self.assertEqual(Path(request["candidate_root"]).name, "candidate")
+        self.assertEqual(Path(request["candidate_root"]).parent.parent, self.base / "state/updates")
+        self.assertEqual(request["candidate_manifest"], str(Path(request["candidate_root"]) / "candidate.json"))
+        snapshot_source = Path(request["candidate_root"]) / "source"
+        self.assertTrue(stat.S_IMODE(snapshot_source.stat().st_mode) & 0o050)
+
+    def test_packaged_candidate_is_prepared_as_desktop_user_from_pinned_checkout(self):
+        revision = "b" * 40
+        checkout = self.task_home / ".cache/omarchy-pi/checkouts" / revision
+        (checkout / "install/arm64").mkdir(parents=True)
+        (checkout / "migrations").mkdir()
+        (checkout / "install/arm64/migrations.allowlist").write_text("# reviewed\n", encoding="utf-8")
+        builder = checkout / "install/arm64/build-runtime-packages.py"
+        builder.write_text("# pinned builder\n", encoding="utf-8")
+        runtime = self.base / "packaged-runtime/install/arm64"
+        runtime.mkdir(parents=True)
+        (runtime / "update-source.py").write_text("# pinned source updater\n", encoding="utf-8")
+        candidate_root = self.task_home / ".cache/omarchy-pi/runtime-candidates" / revision
+        candidate = SimpleNamespace(root=candidate_root, source_revision=revision)
+        commands = []
+
+        def prepare(argv, *, home):
+            commands.append((list(argv), Path(home)))
+            if "update-source.py" in argv[1]:
+                return SimpleNamespace(stdout=json.dumps({"revision": revision, "checkout": str(checkout)}))
+            candidate_root.mkdir(parents=True)
+            return SimpleNamespace(stdout="")
+
+        with mock.patch.object(update, "require_packaged_runtime", return_value="stable"), \
+             mock.patch.object(update.pwd, "getpwuid", return_value=self.account), \
+             mock.patch.object(update, "PACKAGED_RUNTIME_ROOT", runtime.parent.parent), \
+             mock.patch.dict(update.os.environ, {"OMARCHY_PATH": str(runtime.parent.parent)}, clear=False), \
+             mock.patch.object(update, "_prepare_packaged_command", side_effect=prepare), \
+             mock.patch.object(update, "_prepare_packaged_source_archive", side_effect=lambda checkout, revision, destination, home: Path(destination).write_bytes(b"archive")), \
+             mock.patch.object(update.update_packages, "_pair_document", return_value={
+                 "schema_version": 1,
+                 "architecture": "aarch64",
+                 "channel": "stable",
+                 "source_revision": revision,
+                 "source": {"tree": "source", "archive": "source.tar", "archive_sha256": update.update_packages.hashlib.sha256(b"archive").hexdigest()},
+                 "packages": [],
+             }), \
+             mock.patch.object(update.update_packages, "load_candidate", return_value=candidate):
+            result = update.prepare_packaged_candidate()
+
+        self.assertEqual(result, candidate_root)
+        self.assertEqual(len(commands), 2)
+        self.assertIn("prepare", commands[0][0])
+        self.assertEqual(commands[1][0][1], str(builder))
+        self.assertEqual(commands[1][1], self.task_home)
+        self.assertTrue((candidate_root / "source/install/arm64/build-runtime-packages.py").is_file())
+
+    def test_packaged_worker_publishes_new_pair_for_next_offline_rollback(self):
+        rollback = self.base / "usr/share/omarchy-pi/rollback"
+        rollback.parent.mkdir(parents=True)
+        packages = []
+        for name in ("omarchy", "omarchy-settings"):
+            archive = self.base / f"{name}-2.0-1-aarch64.pkg.tar.zst"
+            self._native_archive(archive, name, "2.0-1", "b" * 40)
+            packages.append(update.update_packages.CandidatePackage(
+                name=name,
+                version="2.0-1",
+                architecture="aarch64",
+                archive=archive,
+                sha256=update.update_packages._digest(archive),
+                signature="optional",
+            ))
+        candidate = SimpleNamespace(packages=tuple(packages), source_revision="b" * 40)
+        def permissive_root_directory(path, mode=0o755, gid=0):
+            Path(path).mkdir(mode=mode, parents=True, exist_ok=True)
+            Path(path).chmod(mode)
+
+        with mock.patch.object(update, "PACKAGE_ROLLBACK_ROOT", rollback), \
+             mock.patch.object(update, "root_directory", side_effect=permissive_root_directory), \
+             mock.patch.object(update.os, "chown"):
+            manifest = update._retain_installed_package_pair(candidate)
+
+        self.assertEqual(manifest, rollback / "manifest.json")
+        retained = update.update_packages.load_installed_rollback(
+            ("omarchy", "omarchy-settings"), roots=(rollback,)
+        )
+        self.assertEqual({package.version for package in retained}, {"2.0-1"})
+        self.assertEqual(
+            json.loads((rollback / "manifest.json").read_text())["source_revision"],
+            "b" * 40,
+        )
+
+    def test_rollback_publication_keeps_old_pair_if_manifest_replace_is_interrupted(self):
+        rollback = self.base / "usr/share/omarchy-pi/rollback"
+        rollback.parent.mkdir(parents=True)
+
+        def candidate(version, revision):
+            packages = []
+            for name in ("omarchy", "omarchy-settings"):
+                archive = self.base / f"{name}-{version}-aarch64.pkg.tar.zst"
+                self._native_archive(archive, name, version, revision)
+                packages.append(update.update_packages.CandidatePackage(
+                    name=name,
+                    version=version,
+                    architecture="aarch64",
+                    archive=archive,
+                    sha256=update.update_packages._digest(archive),
+                    signature="optional",
+                ))
+            return SimpleNamespace(packages=tuple(packages), source_revision=revision)
+
+        old = candidate("1.0-1", "a" * 40)
+        new = candidate("2.0-1", "b" * 40)
+        with mock.patch.object(update, "PACKAGE_ROLLBACK_ROOT", rollback), \
+             mock.patch.object(update, "root_directory", side_effect=lambda path, mode=0o755, gid=0: Path(path).mkdir(mode=mode, parents=True, exist_ok=True)), \
+             mock.patch.object(update.os, "chown"):
+            update._retain_installed_package_pair(old)
+
+            original_replace = update.os.replace
+
+            def interrupt_manifest(source, destination):
+                if Path(destination).name == "manifest.json":
+                    raise OSError("simulated publication interruption")
+                return original_replace(source, destination)
+
+            with mock.patch.object(update.os, "replace", side_effect=interrupt_manifest):
+                with self.assertRaises(OSError):
+                    update._retain_installed_package_pair(new)
+            retained = update.update_packages.load_installed_rollback(
+                ("omarchy", "omarchy-settings"), roots=(rollback,)
+            )
+            self.assertEqual({package.version for package in retained}, {"1.0-1"})
 
     def test_worker_start_failure_persists_failed_result(self):
         commands = []

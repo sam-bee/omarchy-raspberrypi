@@ -11,6 +11,16 @@ stub_bin="$test_tmp/bin"
 git_log="$test_tmp/git.log"
 mkdir -p "$stub_bin"
 
+cat >"$stub_bin/uname" <<'SH'
+#!/bin/bash
+if [[ -n ${TEST_UNAME:-} ]]; then
+  printf '%s\n' "$TEST_UNAME"
+else
+  /usr/bin/uname "$@"
+fi
+SH
+chmod +x "$stub_bin/uname"
+
 cat >"$stub_bin/checkupdates" <<'SH'
 #!/bin/bash
 case "${TEST_CHECKUPDATES:-updates}" in
@@ -32,6 +42,15 @@ chmod +x "$stub_bin/checkupdates"
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
 case "$1" in
+  -Qo)
+    [[ ${TEST_PACKAGE_PROVENANCE:-} == stable ]] || exit 1
+    case "$3" in
+      */version) printf 'omarchy 4-1 owns %s\n' "$3" ;;
+      */config) printf 'omarchy-settings 4-1 owns %s\n' "$3" ;;
+      *) exit 1 ;;
+    esac
+    exit 0
+    ;;
   -Qq)
     case "${TEST_INSTALLED_PACKAGE:-omarchy}" in
       omarchy)
@@ -298,3 +317,96 @@ grep -Fx 'ALARM package update check failed' "$stdout" >/dev/null ||
   fail "update checker reports an ALARM package check failure" "$(cat "$stdout")"
 ! grep -Fx 'Omarchy is up to date' "$stdout" >/dev/null || fail "failed ALARM package check is not reported as up-to-date"
 pass "update checker surfaces ALARM package resolution failures"
+
+packaged_runtime="$test_tmp/packaged-runtime"
+mkdir -p "$packaged_runtime/config" "$packaged_runtime/install/arm64"
+touch "$packaged_runtime/version"
+printf '%s\n' '{"schema_version":1,"runtime_mode":"packaged","source_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' >"$packaged_runtime/.omarchy-pi-packaged.json"
+cp "$ROOT/install/arm64/update_packages.py" "$packaged_runtime/install/arm64/update_packages.py"
+candidate_root="$test_tmp/package-candidate"
+python3 - "$candidate_root" <<'PY'
+import hashlib
+import io
+import json
+from pathlib import Path
+import sys
+import tarfile
+
+root = Path(sys.argv[1])
+(root / "source/migrations").mkdir(parents=True)
+(root / "source/install/arm64").mkdir(parents=True)
+(root / "source/install/arm64/migrations.allowlist").write_text("# reviewed\n")
+(root / "source/.omarchy-pi-source-commit").write_text("b" * 40 + "\n")
+
+source_archive = root / "source.tar"
+with tarfile.open(source_archive, "w") as stream:
+    for path in sorted((root / "source").rglob("*")):
+        if path.name == ".omarchy-pi-source-commit":
+            continue
+        stream.add(path, arcname=path.relative_to(root / "source").as_posix(), recursive=False)
+source_sha256 = hashlib.sha256(source_archive.read_bytes()).hexdigest()
+
+def archive(directory, name, package_name, version, revision, package_sha256):
+    path = root / directory / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    settings = "omarchy-settings"
+    metadata = f"pkgname = {package_name}\npkgver = {version}\narch = aarch64\n"
+    if package_name == "omarchy":
+        metadata += f"depend = {settings}={version}\n"
+    marker = json.dumps({
+        "schema_version": 1,
+        "layout": "packaged",
+        "runtime_mode": "packaged",
+        "channel": "stable",
+        "version": version,
+        "source_revision": revision,
+        "source_sha256": package_sha256,
+    }, sort_keys=True).encode() + b"\n"
+    with tarfile.open(path, "w") as stream:
+        def add(member, body):
+            info = tarfile.TarInfo(member)
+            info.size = len(body)
+            info.mode = 0o644
+            stream.addfile(info, io.BytesIO(body))
+        add(".PKGINFO", metadata.encode())
+        add("usr/share/omarchy/.omarchy-pi-source-commit", (revision + "\n").encode())
+        add("usr/share/omarchy/.omarchy-pi-packaged.json", marker)
+    return {
+        "name": package_name,
+        "version": version,
+        "architecture": "aarch64",
+        "filename": f"{directory}/{name}",
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "signature": "optional",
+    }
+
+packages = [archive("packages", f"{name}-1.0-1-aarch64.pkg.tar.zst", name, "1.0-1", "b" * 40, source_sha256) for name in ("omarchy", "omarchy-settings")]
+previous = [archive("previous", f"{name}-0.9-1-aarch64.pkg.tar.zst", name, "0.9-1", "a" * 40, "c" * 64) for name in ("omarchy", "omarchy-settings")]
+(root / "candidate.json").write_text(json.dumps({
+    "schema_version": 1,
+    "architecture": "aarch64",
+    "channel": "stable",
+    "source_revision": "b" * 40,
+    "source": {"tree": "source", "archive": "source.tar", "archive_sha256": source_sha256},
+    "packages": packages,
+    "previous_packages": previous,
+}))
+PY
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_UNAME=aarch64 \
+  TEST_PACKAGE_PROVENANCE=stable \
+  TEST_CHECKUPDATES=fail \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$packaged_runtime" \
+  OMARCHY_PI_TESTING=1 \
+  OMARCHY_PI_TEST_RUNTIME_ROOT="$packaged_runtime" \
+  OMARCHY_PI_TEST_CANDIDATE_ROOT="$candidate_root"; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker detects a reviewed packaged ARM candidate" "$(cat "$stdout" "$stderr")"
+grep -Fx "omarchy-stable-candidate $(printf 'b%.0s' {1..40}) available" "$stdout" >/dev/null ||
+  fail "update checker reports packaged candidate provenance" "$(cat "$stdout")"
+pass "update checker detects a reviewed packaged ARM candidate"

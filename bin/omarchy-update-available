@@ -6,17 +6,57 @@ set -euo pipefail
 
 updates=()
 pi_source_mode=0
+packaged_arm_mode=0
+omarchy_path=${OMARCHY_PATH:-}
+
+packaged_arm_runtime() {
+  [[ $(uname -m) == "aarch64" ]] || return 1
+  local runtime_root="/usr/share/omarchy"
+  if [[ ${OMARCHY_PI_TESTING:-0} == 1 && -n ${OMARCHY_PI_TEST_RUNTIME_ROOT:-} ]]; then
+    runtime_root=$OMARCHY_PI_TEST_RUNTIME_ROOT
+  fi
+  [[ ${OMARCHY_PATH:-$runtime_root} == "$runtime_root" ]] || return 1
+  [[ -f "$runtime_root/version" && -f "$runtime_root/.omarchy-pi-packaged.json" && -d "$runtime_root/config" && -f "$runtime_root/install/arm64/update_packages.py" ]] || return 1
+  local runtime_owner settings_owner
+  runtime_owner=$(pacman -Qo -- "$runtime_root/version" 2>/dev/null | awk 'NR == 1 {print $1}')
+  settings_owner=$(pacman -Qo -- "$runtime_root/config" 2>/dev/null | awk 'NR == 1 {print $1}')
+  [[ $runtime_owner == "omarchy" && $settings_owner == "omarchy-settings" ||
+     $runtime_owner == "omarchy-dev" && $settings_owner == "omarchy-settings-dev" ]]
+}
+
+if packaged_arm_runtime; then
+  packaged_arm_mode=1
+  packaged_runtime_root="/usr/share/omarchy"
+  if [[ ${OMARCHY_PI_TESTING:-0} == 1 && -n ${OMARCHY_PI_TEST_RUNTIME_ROOT:-} ]]; then
+    packaged_runtime_root=$OMARCHY_PI_TEST_RUNTIME_ROOT
+  fi
+  candidate_output=""
+  candidate_status=0
+  set +e
+  candidate_args=(check)
+  if [[ ${OMARCHY_PI_TESTING:-0} == 1 && -n ${OMARCHY_PI_TEST_CANDIDATE_ROOT:-} ]]; then
+    candidate_args+=(--root "$OMARCHY_PI_TEST_CANDIDATE_ROOT")
+  fi
+  candidate_output=$(/usr/bin/python3 "$packaged_runtime_root/install/arm64/update_packages.py" "${candidate_args[@]}" 2>/dev/null)
+  candidate_status=$?
+  set -e
+  if (( candidate_status == 0 )); then
+    updates+=("$candidate_output")
+  elif (( candidate_status != 1 )); then
+    updates+=("omarchy package candidate unavailable")
+  fi
+fi
 
 # Pi source releases are user-owned and intentionally independent of the
 # package-backed Omarchy channel.  The helper performs a fresh HTTPS
 # resolution; an unavailable check is surfaced as actionable state instead of
 # being mistaken for an up-to-date source.
-if [[ -f "$OMARCHY_PATH/.omarchy-pi-source-commit" && -x "$OMARCHY_PATH/install/arm64/update-source.py" ]]; then
+if (( packaged_arm_mode == 0 )) && [[ -n $omarchy_path && -f "$omarchy_path/.omarchy-pi-source-commit" && -x "$omarchy_path/install/arm64/update-source.py" ]]; then
   pi_source_mode=1
   pi_source_output=""
   pi_source_status=0
   set +e
-  pi_source_output=$(HOME="${HOME:-}" "$OMARCHY_PATH/install/arm64/update-source.py" check 2>/dev/null)
+  pi_source_output=$(HOME="${HOME:-}" "$omarchy_path/install/arm64/update-source.py" check 2>/dev/null)
   pi_source_status=$?
   set -e
   if (( pi_source_status == 0 )); then
@@ -52,12 +92,12 @@ if (( pi_source_mode == 1 )); then
   fi
 fi
 
-if [[ $OMARCHY_PATH != "/usr/share/omarchy" ]]; then
-  upstream=$(git -C "$OMARCHY_PATH" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+if (( packaged_arm_mode == 0 )) && [[ -n $omarchy_path && $omarchy_path != "/usr/share/omarchy" ]]; then
+  upstream=$(git -C "$omarchy_path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
   if [[ -n $upstream ]]; then
-    GIT_TERMINAL_PROMPT=0 timeout 10 git -C "$OMARCHY_PATH" fetch --quiet 2>/dev/null || true
+    GIT_TERMINAL_PROMPT=0 timeout 10 git -C "$omarchy_path" fetch --quiet 2>/dev/null || true
 
-    behind=$(git -C "$OMARCHY_PATH" rev-list --count "HEAD..$upstream" 2>/dev/null || echo 0)
+    behind=$(git -C "$omarchy_path" rev-list --count "HEAD..$upstream" 2>/dev/null || echo 0)
     if (( behind > 0 )); then
       commit_label=commits
       (( behind == 1 )) && commit_label=commit
@@ -73,7 +113,7 @@ elif pacman -Qq omarchy >/dev/null 2>&1; then
   package=omarchy
 fi
 
-if [[ -n $package ]]; then
+if (( packaged_arm_mode == 0 )) && [[ -n $package ]]; then
   update=$(checkupdates --nocolor 2>/dev/null | awk -v package="$package" '$1 == package { print; exit }' || true)
 fi
 
