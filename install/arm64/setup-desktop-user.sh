@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# Prepare the target user's Pi desktop from the staged Omarchy release.
-# Run this once the release pointer and desktop packages are ready.
+# Prepare the target user's Pi desktop from the staged Omarchy runtime.
+# Run this once the desktop packages are ready. Legacy source-release targets
+# remain supported; packaged targets use the system Omarchy path directly.
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0" >&2
+  echo "Usage: $0 [--runtime-layout legacy|packaged]" >&2
   exit 2
 }
 
@@ -14,17 +15,44 @@ die() {
   exit 1
 }
 
-(( $# == 0 )) || usage
+runtime_mode=${OMARCHY_PI_RUNTIME_MODE:-legacy}
+while (( $# )); do
+  case "$1" in
+    --runtime-mode|--runtime-layout)
+      (( $# >= 2 )) || usage
+      runtime_mode=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+case "$runtime_mode" in
+  legacy|packaged) ;;
+  *) die "unsupported runtime mode: $runtime_mode" ;;
+esac
 (( EUID != 0 )) || die "run setup-desktop-user.sh as the target user, not as root"
 
 [[ -n ${HOME:-} && $HOME == /* && -d $HOME && ! -L $HOME ]] ||
   die "HOME must be an absolute, real directory"
 
-pi_current="$HOME/.local/share/omarchy-pi/current"
-[[ -L $pi_current && -d $pi_current ]] ||
-  die "the Pi current release symlink is missing or invalid: $pi_current"
-
-export OMARCHY_PATH="$pi_current"
+if [[ $runtime_mode == packaged ]]; then
+  [[ ${OMARCHY_PATH:-/usr/share/omarchy} == /usr/share/omarchy ]] ||
+    die "packaged runtime requires OMARCHY_PATH=/usr/share/omarchy"
+  [[ -d /usr/share/omarchy && ! -L /usr/share/omarchy ]] ||
+    die "the packaged Omarchy runtime is missing or invalid: /usr/share/omarchy"
+  export OMARCHY_PATH=/usr/share/omarchy
+else
+  pi_current="$HOME/.local/share/omarchy-pi/current"
+  [[ -L $pi_current && -d $pi_current ]] ||
+    die "the Pi current release symlink is missing or invalid: $pi_current"
+  export OMARCHY_PATH="$pi_current"
+fi
+export OMARCHY_PI_RUNTIME_MODE="$runtime_mode"
 
 prepend_path() {
   case ":${PATH:-}:" in
@@ -33,11 +61,13 @@ prepend_path() {
   esac
 }
 
-# Keep the staged release ahead of the user-owned tools, followed by mise's
-# shims. This is the environment consumed by every leaf below.
+# Keep user-owned tools available, followed by mise's shims. Packaged Omarchy
+# commands are provided by /usr/bin; legacy commands remain in the release.
 prepend_path "$HOME/.local/share/mise/shims"
 prepend_path "$HOME/.local/bin"
-prepend_path "$OMARCHY_PATH/bin"
+if [[ $runtime_mode == legacy ]]; then
+  prepend_path "$OMARCHY_PATH/bin"
+fi
 export PATH
 
 for setup_leaf in \

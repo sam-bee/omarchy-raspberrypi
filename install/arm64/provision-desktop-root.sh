@@ -13,9 +13,15 @@ NETWORKD_PRESET_CONTENT=$'disable systemd-networkd*\n'
 usage() {
   cat >&2 <<'USAGE'
 Usage: provision-desktop-root.sh --rootfs ROOT --source-checkout DIR
-       [--payload-dir DIR] [--user NAME] [--home /absolute/path] [--dry-run]
+       [--payload-dir DIR] [--user NAME] [--home /absolute/path]
+       [--runtime-layout legacy|packaged] [--dry-run]
 
-Populate a fresh target root with the Omarchy source and Pi desktop helpers.
+Populate a fresh target root with the Omarchy Pi desktop helpers. The default
+legacy mode stages the clean source checkout under /usr/share/omarchy-pi and
+seeds a per-user release pointer. Packaged mode expects Omarchy to already be
+installed under /usr/share/omarchy with commands in /usr/bin; it stages only
+the Pi integration helpers under /usr/share/omarchy/install/arm64 and never
+copies the full source tree or creates a current/previous release pair.
 The source checkout must be a clean Git checkout. --payload-dir may contain
 packages/desktop-manifest.json (or desktop-manifest.json) from the package
 payload builder; it is copied into the target as provenance.
@@ -38,6 +44,7 @@ source_checkout=""
 payload_dir=""
 selected_user=""
 selected_home=""
+runtime_mode=legacy
 dry_run=0
 
 while (( $# )); do
@@ -67,6 +74,11 @@ while (( $# )); do
       selected_home=$2
       shift 2
       ;;
+    --runtime-mode|--runtime-layout)
+      (( $# >= 2 )) || usage
+      runtime_mode=$2
+      shift 2
+      ;;
     --dry-run)
       dry_run=1
       shift
@@ -80,6 +92,11 @@ while (( $# )); do
       ;;
   esac
 done
+
+case "$runtime_mode" in
+  legacy|packaged) ;;
+  *) die "unsupported runtime mode: $runtime_mode (expected legacy or packaged)" ;;
+esac
 
 (( EUID == 0 || dry_run )) || die "apply mode must run as root"
 [[ -n $rootfs && -n $source_checkout ]] || usage
@@ -137,6 +154,21 @@ require_target_root() {
   esac
   [[ -f $rootfs/etc/passwd ]] || die "target root is missing etc/passwd"
   [[ -f $rootfs/etc/group ]] || die "target root is missing etc/group"
+}
+
+require_runtime_layout() {
+  if [[ $runtime_mode == packaged ]]; then
+    require_real_directory "$(target_path /usr/share/omarchy)" "packaged Omarchy runtime"
+    require_real_directory "$(target_path /usr/bin)" "target executable directory"
+    local marker marker_revision
+    marker=$(target_path /usr/share/omarchy/.omarchy-pi-source-commit)
+    require_regular_file "$marker" "packaged Omarchy source marker"
+    marker_revision=$(<"$marker")
+    [[ $marker_revision =~ ^[0-9a-f]{40}$ ]] ||
+      die "packaged Omarchy source marker is not a full Git revision: $marker"
+    [[ $marker_revision == "$SOURCE_REVISION" ]] ||
+      die "packaged Omarchy source marker does not match the Pi checkout: $marker"
+  fi
 }
 
 require_source_checkout() {
@@ -340,6 +372,50 @@ stage_source_tree() {
   install_text "$destination/.source-revision" 0644 0 0 "$SOURCE_REVISION"$'\n'
 }
 
+stage_packaged_pi_helpers() {
+  [[ $runtime_mode == packaged ]] || return 0
+  local source_root="$source_checkout/install/arm64"
+  local destination_root
+  destination_root=$(target_path /usr/share/omarchy/install/arm64)
+  ensure_directory "$(target_path /usr/share/omarchy/install)" 0755 0 0
+  ensure_directory "$destination_root" 0755 0 0
+  ensure_directory "$(target_path /usr/share/omarchy/install/arm64/session)" 0755 0 0
+  ensure_directory "$(target_path /usr/share/omarchy/install/arm64/session/systemd)" 0755 0 0
+
+  local relative
+  for relative in \
+    setup-desktop-user.sh \
+    setup-desktop-theme.sh \
+    setup-desktop-images.sh \
+    setup-mise.sh \
+    setup-user-agents.sh \
+    session/90-omarchy-pi \
+    session/chromium-flags.conf \
+    session/ensure-headless-output.sh \
+    session/fresh-hyprland-prefix.lua \
+    session/portals.conf \
+    session/start-shell.sh \
+    session/xdg-terminals.list; do
+    install_file "$source_root/$relative" \
+      "$(target_path "/usr/share/omarchy/install/arm64/$relative")" \
+      0644
+  done
+  for relative in \
+    setup-desktop-user.sh \
+    setup-desktop-theme.sh \
+    setup-desktop-images.sh \
+    setup-mise.sh \
+    setup-user-agents.sh \
+    session/90-omarchy-pi \
+    session/ensure-headless-output.sh \
+    session/start-shell.sh; do
+    chmod_mode=0755
+    install_file "$source_root/$relative" \
+      "$(target_path "/usr/share/omarchy/install/arm64/$relative")" \
+      "$chmod_mode"
+  done
+}
+
 stage_system_assets() {
   local source_root="$source_checkout/install/arm64"
   local source
@@ -351,6 +427,28 @@ stage_system_assets() {
     "$source_root/session/fresh-hyprland-prefix.lua"; do
     require_regular_file "$source" "Pi session helper"
   done
+  if [[ $runtime_mode == packaged ]]; then
+    # The packaged Pi runtime owns its session helpers and units.  Requiring
+    # them here keeps package updates authoritative and avoids shadow copies
+    # under /usr/local; only the target PAM fragment remains provisioner data.
+    for destination in \
+      /usr/libexec/omarchy-pi/start-uwsm-session.sh \
+      /usr/libexec/omarchy-pi/verify-hypr-rdp-runtime.py \
+      /usr/libexec/omarchy-pi/ensure-headless-output.sh \
+      /usr/lib/systemd/system/omarchy-pi-uwsm-session@.service \
+      /usr/lib/systemd/user/omarchy-pi-hypr-rdp.service; do
+      require_regular_file "$(target_path "$destination")" "packaged Pi runtime asset"
+    done
+    for destination in \
+      "$rootfs/usr" \
+      "$rootfs/etc" \
+      "$rootfs/etc/pam.d"; do
+      ensure_directory "$destination" 0755 0 0
+    done
+    install_file "$source_root/session/omarchy-lock-password" \
+      "$(target_path /etc/pam.d/omarchy-lock-password)" 0644
+    return 0
+  fi
   for source in \
     "$rootfs/usr" \
     "$rootfs/usr/local" \
@@ -458,7 +556,30 @@ stage_user_defaults() {
   install_file "$source_checkout/install/arm64/session/xdg-terminals.list" \
     "$rootfs/etc/skel/.config/xdg-terminals.list" 0644
   local env_content
-  env_content=$(cat <<'EOF'
+  env_content=$(runtime_env_content)
+  # install_text compares an existing package-owned file and refuses a
+  # differing value; it never silently replaces the packaged default.
+  install_text "$rootfs/etc/skel/.config/uwsm/env.d/90-omarchy-pi" 0644 0 0 "$env_content"$'\n'
+}
+
+runtime_env_content() {
+  if [[ $runtime_mode == packaged ]]; then
+    cat <<'EOF'
+# Omarchy Pi target environment. The Omarchy runtime is package-owned.
+export OMARCHY_PATH="/usr/share/omarchy"
+export OMARCHY_PI_RUNTIME_MODE=packaged
+case ":${PATH:-}:" in
+  *":$HOME/.local/share/mise/shims:"*) ;;
+  *) export PATH="${PATH:+$PATH:}$HOME/.local/share/mise/shims" ;;
+esac
+case ":${PATH:-}:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="${PATH:+$PATH:}$HOME/.local/bin" ;;
+esac
+export TERMINAL=xdg-terminal-exec
+EOF
+  else
+    cat <<'EOF'
 # Omarchy Pi target environment. The source tree is package-owned.
 export OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current"
 case ":$PATH:" in
@@ -475,8 +596,7 @@ case ":${PATH:-}:" in
 esac
 export TERMINAL=xdg-terminal-exec
 EOF
-)
-  install_text "$rootfs/etc/skel/.config/uwsm/env.d/90-omarchy-pi" 0644 0 0 "$env_content"$'\n'
+  fi
 }
 
 target_account_line() {
@@ -546,10 +666,16 @@ seed_selected_user() {
     "$home_in_target/.config/systemd/user/graphical-session.target.wants" \
     "$home_in_target/.local" \
     "$home_in_target/.local/share" \
-    "$home_in_target/.local/share/omarchy-pi" \
-    "$home_in_target/.local/share/omarchy-pi/releases"; do
+    "$home_in_target/.local/share"; do
     ensure_directory "$source" 0755 "$uid" "$gid"
   done
+  if [[ $runtime_mode == legacy ]]; then
+    for source in \
+      "$home_in_target/.local/share/omarchy-pi" \
+      "$home_in_target/.local/share/omarchy-pi/releases"; do
+      ensure_directory "$source" 0755 "$uid" "$gid"
+    done
+  fi
   for source in "$source_checkout"/config/hypr/*; do
     [[ -f $source && ! -L $source ]] || continue
     [[ $(basename -- "$source") == hyprland.lua ]] && continue
@@ -565,53 +691,45 @@ seed_selected_user() {
   install_file "$source_checkout/install/arm64/session/xdg-terminals.list" "$home_in_target/.config/xdg-terminals.list" 0644 "$uid" "$gid"
   local env_content
   if (( dry_run )); then
-    env_content=$(cat <<'EOF'
-# Omarchy Pi target environment. The source tree is package-owned.
-export OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current"
-case ":$PATH:" in
-  *":$OMARCHY_PATH/bin:"*) ;;
-  *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
-esac
-case ":${PATH:-}:" in
-  *":$HOME/.local/share/mise/shims:"*) ;;
-  *) export PATH="${PATH:+$PATH:}$HOME/.local/share/mise/shims" ;;
-esac
-case ":${PATH:-}:" in
-  *":$HOME/.local/bin:"*) ;;
-  *) export PATH="${PATH:+$PATH:}$HOME/.local/bin" ;;
-esac
-export TERMINAL=xdg-terminal-exec
-EOF
-)
+    env_content=$(runtime_env_content)
   else
     env_content=$(<"$rootfs/etc/skel/.config/uwsm/env.d/90-omarchy-pi")
   fi
   install_text "$home_in_target/.config/uwsm/env.d/90-omarchy-pi" 0644 "$uid" "$gid" "$env_content"$'\n'
-  local release_dir="$home_in_target/.local/share/omarchy-pi/releases/$SOURCE_REVISION"
-  if (( dry_run )); then
-    announce "copy Omarchy release $SOURCE_REVISION into $release_dir"
-  else
-    [[ ! -e $release_dir && ! -L $release_dir ]] || die "target user release already exists: $release_dir"
-    mkdir -p -- "$release_dir"
-    cp -a -- "$rootfs/usr/share/omarchy-pi/." "$release_dir/"
-    install_text "$release_dir/.omarchy-pi-source-commit" 0644 "$uid" "$gid" "$SOURCE_REVISION"$'\n'
-    chown -R "$uid:$gid" -- "$release_dir"
+  if [[ $runtime_mode == legacy ]]; then
+    local release_dir="$home_in_target/.local/share/omarchy-pi/releases/$SOURCE_REVISION"
+    if (( dry_run )); then
+      announce "copy Omarchy release $SOURCE_REVISION into $release_dir"
+    else
+      [[ ! -e $release_dir && ! -L $release_dir ]] || die "target user release already exists: $release_dir"
+      mkdir -p -- "$release_dir"
+      cp -a -- "$rootfs/usr/share/omarchy-pi/." "$release_dir/"
+      install_text "$release_dir/.omarchy-pi-source-commit" 0644 "$uid" "$gid" "$SOURCE_REVISION"$'\n'
+      chown -R "$uid:$gid" -- "$release_dir"
+    fi
+    install_symlink "releases/$SOURCE_REVISION" "$home_in_target/.local/share/omarchy-pi/current" "$uid" "$gid"
   fi
-  install_symlink "releases/$SOURCE_REVISION" "$home_in_target/.local/share/omarchy-pi/current" "$uid" "$gid"
-  install_symlink "/etc/systemd/user/omarchy-pi-hypr-rdp.service" \
+  local rdp_unit="/etc/systemd/user/omarchy-pi-hypr-rdp.service"
+  if [[ $runtime_mode == packaged ]]; then
+    rdp_unit="/usr/lib/systemd/user/omarchy-pi-hypr-rdp.service"
+  fi
+  install_symlink "$rdp_unit" \
     "$home_in_target/.config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service" \
     "$uid" "$gid"
-  local wants
+  local wants session_link="../omarchy-pi-uwsm-session@.service"
+  if [[ $runtime_mode == packaged ]]; then
+    session_link="/usr/lib/systemd/system/omarchy-pi-uwsm-session@.service"
+  fi
   wants=$(target_path "/etc/systemd/system/multi-user.target.wants/omarchy-pi-uwsm-session@${selected_user}.service")
   reject_symlink_components "$wants" 0
   if [[ -e $wants || -L $wants ]]; then
-    [[ -L $wants && $(readlink -- "$wants") == ../omarchy-pi-uwsm-session@.service ]] ||
+    [[ -L $wants && $(readlink -- "$wants") == "$session_link" ]] ||
       die "existing Pi UWSM enablement differs: $wants"
   else
     announce "enable Pi UWSM session for $selected_user"
     if (( ! dry_run )); then
       mkdir -p -- "$(dirname -- "$wants")"
-      ln -s -- ../omarchy-pi-uwsm-session@.service "$wants"
+      ln -s -- "$session_link" "$wants"
     fi
   fi
 }
@@ -629,8 +747,9 @@ write_provenance() {
   fi
   provenance=$(cat <<EOF
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_revision": "$SOURCE_REVISION",
+  "runtime_mode": "$runtime_mode",
   "target_user": $user_json,
   "target_home": $home_json,
   "package_manifest_sha256": "${package_digest:-}",
@@ -652,8 +771,12 @@ EOF
 require_target_root
 require_source_checkout
 require_payload
-stage_source_tree
+require_runtime_layout
+if [[ $runtime_mode == legacy ]]; then
+  stage_source_tree
+fi
 stage_system_assets
+stage_packaged_pi_helpers
 stage_target_services
 stage_user_defaults
 create_target_user
@@ -662,8 +785,9 @@ write_provenance
 
 if (( dry_run )); then
   echo "provision-desktop-root: dry-run complete (target unchanged)"
+  echo "provision-desktop-root: runtime mode: $runtime_mode"
 else
-  echo "provision-desktop-root: desktop payload staged at $rootfs"
+  echo "provision-desktop-root: desktop payload staged at $rootfs (runtime mode: $runtime_mode)"
   if [[ -n $selected_user ]]; then
     echo "provision-desktop-root: created target user $selected_user (password setup remains with the installer)"
   else

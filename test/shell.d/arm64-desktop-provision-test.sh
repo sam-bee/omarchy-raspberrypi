@@ -30,6 +30,34 @@ grep -Fq '/etc/pam.d/omarchy-lock-password' <<<"$dry_run_output" || fail "generi
 [[ ! -e $target/etc/skel ]] || fail "generic dry-run does not create skeleton files"
 pass "generic root provisioning dry-run is non-mutating"
 
+packaged_target="$test_tmp/packaged-root"
+mkdir -p "$packaged_target/etc" "$packaged_target/usr/bin" "$packaged_target/usr/share/omarchy" "$packaged_target/usr/libexec/omarchy-pi" "$packaged_target/usr/lib/systemd/system" "$packaged_target/usr/lib/systemd/user" "$packaged_target/var"
+printf 'root:x:0:0:root:/root:/bin/bash\n' >"$packaged_target/etc/passwd"
+printf 'root:x:0:\n' >"$packaged_target/etc/group"
+git -C "$test_checkout" rev-parse HEAD >"$packaged_target/usr/share/omarchy/.omarchy-pi-source-commit"
+for relative in \
+  usr/libexec/omarchy-pi/start-uwsm-session.sh \
+  usr/libexec/omarchy-pi/verify-hypr-rdp-runtime.py \
+  usr/libexec/omarchy-pi/ensure-headless-output.sh \
+  usr/lib/systemd/system/omarchy-pi-uwsm-session@.service \
+  usr/lib/systemd/user/omarchy-pi-hypr-rdp.service; do
+  printf 'packaged fixture\n' >"$packaged_target/$relative"
+done
+packaged_dry_run_output=$(bash "$ROOT/install/arm64/provision-desktop-root.sh" \
+  --rootfs "$packaged_target" --source-checkout "$test_checkout" \
+  --runtime-layout packaged --dry-run)
+grep -Fq '/usr/share/omarchy/install/arm64/setup-user-agents.sh' <<<"$packaged_dry_run_output" ||
+  fail "packaged dry-run stages the Pi helper extension under the package runtime"
+grep -Fq 'runtime mode: packaged' <<<"$packaged_dry_run_output" ||
+  fail "packaged dry-run identifies the selected runtime mode"
+if grep -Fq 'extract clean Omarchy source' <<<"$packaged_dry_run_output" ||
+  grep -Fq 'copy Omarchy release' <<<"$packaged_dry_run_output"; then
+  fail "packaged dry-run does not stage a source release"
+fi
+[[ ! -e $packaged_target/usr/share/omarchy/install ]] ||
+  fail "packaged dry-run does not mutate the package runtime"
+pass "packaged provisioning dry-run keeps the package-owned runtime and omits source releases"
+
 assert_mode() {
   local expected=$1 path=$2 actual
   actual=$(stat -c '%a' -- "$path")

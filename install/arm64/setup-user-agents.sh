@@ -6,7 +6,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0" >&2
+  echo "Usage: $0 [--runtime-layout legacy|packaged]" >&2
   exit 2
 }
 
@@ -15,27 +15,56 @@ die() {
   exit 1
 }
 
-(( $# == 0 )) || usage
+runtime_mode=${OMARCHY_PI_RUNTIME_MODE:-legacy}
+while (( $# )); do
+  case "$1" in
+    --runtime-mode|--runtime-layout)
+      (( $# >= 2 )) || usage
+      runtime_mode=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+case "$runtime_mode" in
+  legacy|packaged) ;;
+  *) die "unsupported runtime mode: $runtime_mode" ;;
+esac
 (( EUID != 0 )) || die "run setup-user-agents.sh as the target user, not as root"
 
 [[ -n ${HOME:-} && $HOME == /* && -d $HOME && ! -L $HOME ]] ||
   die "HOME must be an absolute, real directory"
 
-pi_root="$HOME/.local/share/omarchy-pi"
-pi_current="$pi_root/current"
-if [[ -n ${OMARCHY_PATH:-} && ${OMARCHY_PATH%/} != "$pi_current" ]]; then
-  die "OMARCHY_PATH must be the Pi current release symlink: $pi_current"
+if [[ $runtime_mode == packaged ]]; then
+  [[ ${OMARCHY_PATH:-/usr/share/omarchy} == /usr/share/omarchy ]] ||
+    die "packaged runtime requires OMARCHY_PATH=/usr/share/omarchy"
+  [[ -d /usr/share/omarchy && ! -L /usr/share/omarchy ]] ||
+    die "the packaged Omarchy runtime is missing or invalid: /usr/share/omarchy"
+  export OMARCHY_PATH=/usr/share/omarchy
+else
+  pi_root="$HOME/.local/share/omarchy-pi"
+  pi_current="$pi_root/current"
+  if [[ -n ${OMARCHY_PATH:-} && ${OMARCHY_PATH%/} != "$pi_current" ]]; then
+    die "OMARCHY_PATH must be the Pi current release symlink: $pi_current"
+  fi
+  [[ -L $pi_current && -d $pi_current ]] ||
+    die "the Pi current release symlink is missing or invalid: $pi_current"
+  export OMARCHY_PATH="$pi_current"
 fi
-[[ -L $pi_current && -d $pi_current ]] ||
-  die "the Pi current release symlink is missing or invalid: $pi_current"
-
-export OMARCHY_PATH="$pi_current"
+export OMARCHY_PI_RUNTIME_MODE="$runtime_mode"
 export OMARCHY_INSTALL="$OMARCHY_PATH/install"
 export OMARCHY_SETUP_CONTEXT=runtime
-case ":${PATH:-}:" in
-  *":$OMARCHY_PATH/bin:"*) ;;
-  *) PATH="$OMARCHY_PATH/bin${PATH:+:$PATH}" ;;
-esac
+if [[ $runtime_mode == legacy ]]; then
+  case ":${PATH:-}:" in
+    *":$OMARCHY_PATH/bin:"*) ;;
+    *) PATH="$OMARCHY_PATH/bin${PATH:+:$PATH}" ;;
+  esac
+fi
 case ":${PATH:-}:" in
   *":$HOME/.local/share/mise/shims:"*) ;;
   *) PATH="${PATH:+$PATH:}$HOME/.local/share/mise/shims" ;;
@@ -77,7 +106,34 @@ else
     rm -f -- "$fragment_tmp"
   }
   trap cleanup_fragment_tmp EXIT
-  cat >"$fragment_tmp" <<'EOF'
+  if [[ $runtime_mode == packaged ]]; then
+    cat >"$fragment_tmp" <<'EOF'
+# Omarchy Pi agent shell setup (managed)
+# Keep this fragment narrow: the full desktop bash setup is not available on
+# every Pi image, while these paths are needed by login and interactive shells.
+export OMARCHY_PATH="/usr/share/omarchy"
+export OMARCHY_PI_RUNTIME_MODE=packaged
+
+case ":${PATH:-}:" in
+  *":$HOME/.local/share/mise/shims:"*) ;;
+  *) PATH="${PATH:+$PATH:}$HOME/.local/share/mise/shims" ;;
+esac
+case ":${PATH:-}:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) PATH="${PATH:+$PATH:}$HOME/.local/bin" ;;
+esac
+export PATH
+
+if [[ $- == *i* ]] && command -v mise >/dev/null 2>&1; then
+  eval "$(mise activate bash)"
+  alias a='omarchy-agent --inline'
+  alias c='opencode --auto'
+  alias cx='printf "\033[2J\033[3J\033[H" && claude --permission-mode auto'
+  alias cy='codex --approve-for-me'
+fi
+EOF
+  else
+    cat >"$fragment_tmp" <<'EOF'
 # Omarchy Pi agent shell setup (managed)
 # Keep this fragment narrow: the full desktop bash setup is not available on
 # every Pi image, while these paths are needed by login and interactive shells.
@@ -105,6 +161,7 @@ if [[ $- == *i* ]] && command -v mise >/dev/null 2>&1; then
   alias cy='codex --approve-for-me'
 fi
 EOF
+  fi
   chmod 644 -- "$fragment_tmp"
   mv -T -- "$fragment_tmp" "$fragment"
   trap - EXIT

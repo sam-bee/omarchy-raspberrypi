@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Prepare the first bounded Pi desktop theme without starting shell services.
-# Run as the target user after the minimal session release has been staged.
+# Run as the target user after the Omarchy runtime has been installed.
 set -euo pipefail
 
 usage() {
@@ -32,19 +32,25 @@ foot_config="$foot_dir/foot.ini"
 active_theme=""
 fresh_render=0
 
-: "${OMARCHY_PATH:?OMARCHY_PATH must point at the staged Omarchy release}"
+: "${OMARCHY_PATH:?OMARCHY_PATH must point at the Omarchy runtime}"
 [[ $OMARCHY_PATH == /* && -d $OMARCHY_PATH ]] || {
-  echo "OMARCHY_PATH must point at a staged release" >&2
+  echo "OMARCHY_PATH must point at an Omarchy runtime" >&2
   exit 1
 }
-theme_set="$OMARCHY_PATH/bin/omarchy-theme-set"
 foot_template="$OMARCHY_PATH/config/foot/foot.ini"
+if [[ ${OMARCHY_PI_RUNTIME_MODE:-legacy} == packaged ]]; then
+  theme_set=/usr/bin/omarchy-theme-set
+else
+  theme_set="$OMARCHY_PATH/bin/omarchy-theme-set"
+fi
 [[ -x $theme_set ]] || { echo "Missing theme renderer: $theme_set" >&2; exit 1; }
 [[ -f $foot_template && ! -L $foot_template ]] || {
   echo "Missing Foot template: $foot_template" >&2
   exit 1
 }
-export PATH="$OMARCHY_PATH/bin:$PATH"
+if [[ ${OMARCHY_PI_RUNTIME_MODE:-legacy} != packaged ]]; then
+  export PATH="$OMARCHY_PATH/bin:$PATH"
+fi
 
 path_exists() {
   [[ -e $1 || -L $1 ]]

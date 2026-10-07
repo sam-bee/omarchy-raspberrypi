@@ -26,9 +26,9 @@ if [[ -n ${XDG_CONFIG_HOME:-} && ${XDG_CONFIG_HOME%/} != "$HOME/.config" ]]; the
   exit 2
 fi
 
-: "${OMARCHY_PATH:?OMARCHY_PATH must point at the staged Omarchy release}"
+: "${OMARCHY_PATH:?OMARCHY_PATH must point at the Omarchy runtime}"
 [[ $OMARCHY_PATH == /* && -d $OMARCHY_PATH ]] || {
-  echo "OMARCHY_PATH must point at a staged release" >&2
+  echo "OMARCHY_PATH must point at an Omarchy runtime" >&2
   exit 1
 }
 
@@ -39,7 +39,11 @@ theme_name_path="$theme_state/theme.name"
 theme_backgrounds="$config_home/omarchy/backgrounds"
 imv_config_dir="$config_home/imv"
 imv_config="$imv_config_dir/config"
-theme_bg_set="$OMARCHY_PATH/bin/omarchy-theme-bg-set"
+if [[ ${OMARCHY_PI_RUNTIME_MODE:-legacy} == packaged ]]; then
+  theme_bg_set=/usr/bin/omarchy-theme-bg-set
+else
+  theme_bg_set="$OMARCHY_PATH/bin/omarchy-theme-bg-set"
+fi
 
 [[ -x $theme_bg_set ]] || {
   echo "Missing background helper: $theme_bg_set" >&2

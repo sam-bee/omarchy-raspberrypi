@@ -1,10 +1,14 @@
-# Loaded by UWSM for this user's graphical session. The current symlink is
-# changed only by a separately reviewed release switch.
-export OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current"
-case ":$PATH:" in
-  *":$OMARCHY_PATH/bin:"*) ;;
-  *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
-esac
+# Loaded by UWSM for this user's graphical session. Packaged targets use the
+# system Omarchy runtime; legacy targets retain the reviewed release pointer.
+if [[ ${OMARCHY_PI_RUNTIME_MODE:-legacy} == packaged ]]; then
+  export OMARCHY_PATH="/usr/share/omarchy"
+else
+  export OMARCHY_PATH="$HOME/.local/share/omarchy-pi/current"
+  case ":$PATH:" in
+    *":$OMARCHY_PATH/bin:"*) ;;
+    *) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
+  esac
+fi
 # Match upstream's non-interactive lookup of mise shims and lazy launchers.
 for tool_path in "$HOME/.local/share/mise/shims" "$HOME/.local/bin"; do
   case ":$PATH:" in
@@ -14,4 +18,6 @@ for tool_path in "$HOME/.local/share/mise/shims" "$HOME/.local/bin"; do
 done
 unset tool_path
 export TERMINAL=xdg-terminal-exec
-export OMARCHY_PI_MINIMAL_SESSION=1
+if [[ ${OMARCHY_PI_RUNTIME_MODE:-legacy} != packaged ]]; then
+  export OMARCHY_PI_MINIMAL_SESSION=1
+fi
