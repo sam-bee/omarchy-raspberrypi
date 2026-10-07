@@ -17,6 +17,13 @@ import desktop_payload as payload
 
 
 class PayloadTests(unittest.TestCase):
+    @staticmethod
+    def mtree_path(name):
+        return ''.join(
+            f'\\{byte:03o}' if byte <= 0x20 or byte == 0x5C or byte >= 0x7F else chr(byte)
+            for byte in name.encode('utf-8')
+        )
+
     def runtime_package(self, directory, package, revision, files):
         raw = Path(directory) / f"{package}-1.0-1-aarch64.pkg.tar"
         with tarfile.open(raw, 'w') as stream:
@@ -29,7 +36,7 @@ class PayloadTests(unittest.TestCase):
                 f"xdata = source-revision={revision}\n"
             ).encode()
             ownership = '#mtree\n. type=dir time=0 uid=0 gid=0 mode=0755\n' + ''.join(
-                f'./{name} type={"link" if isinstance(data, str) else "file"}\n'
+                f'./{self.mtree_path(name)} type={"link" if isinstance(data, str) else "file"}\n'
                 for name, data in files.items()
             )
             for name, data in (
@@ -191,6 +198,19 @@ class PayloadTests(unittest.TestCase):
             info = payload.inspect_bundle(bundle, digest)
             self.assertEqual(info['runtime']['layout'], 'packaged')
             self.assertEqual(info['runtime']['source_revision'], 'a' * 40)
+
+    def test_mtree_octal_paths_match_owned_paths_with_spaces_and_backslashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            revision = 'a' * 40
+            files = {
+                'usr/share/omarchy/Disk Usage.desktop': b'desktop entry',
+                r'usr/share/omarchy/back\slash': b'backslash path',
+                'usr/share/omarchy/café.desktop': b'non-ascii path',
+            }
+            archive = self.runtime_package(directory, 'omarchy-settings', revision, files)
+            native, owned = payload._package_contents(archive.read_bytes())
+            self.assertEqual(native['pkgname'], 'omarchy-settings')
+            self.assertEqual(owned, set(files))
 
     def test_non_runtime_package_bytes_are_not_retained(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -305,14 +305,17 @@ class CandidateTests(unittest.TestCase):
         (runtime / "config").mkdir(parents=True)
         (runtime / "version").write_text("4\n", encoding="utf-8")
         (runtime / packages.PACKAGED_MARKER).write_text(json.dumps({"schema_version": 1, "runtime_mode": "packaged", "channel": "stable", "source_revision": "a" * 40}), encoding="utf-8")
+        queries = []
 
         def owner(command, **kwargs):
+            queries.append(command)
             path = command[-1]
             package = "omarchy" if path.endswith("version") else "omarchy-settings"
-            return mock.Mock(returncode=0, stdout=f"{package} 4-1 owns {path}\n")
+            return mock.Mock(returncode=0, stdout=f"{package}\n")
 
         with mock.patch.object(packages, "RUNTIME_ROOT", runtime):
             self.assertEqual(packages.package_provenance(runtime, runner=owner), "stable")
+        self.assertEqual([query[1:3] for query in queries], [["-Qo", "--quiet"], ["-Qo", "--quiet"]])
 
     def test_installed_rollback_loads_and_hashes_pair_outside_candidate(self) -> None:
         rollback = self.root / "rollback"

@@ -600,6 +600,26 @@ def _pkginfo(spec: PackageSpec, version: str, source_revision: str, file_size: i
     )).encode()
 
 
+def _mtree_escape(value: str | os.PathLike[str]) -> str:
+    """Escape an mtree path or link value using libarchive's octal form.
+
+    Native Arch package ``.MTREE`` files encode spaces as ``\\040`` and use
+    the same byte-oriented octal form for backslashes, controls, and UTF-8
+    bytes outside printable ASCII.  Keeping the path token free of literal
+    whitespace is required by pacman and by the payload ownership validator;
+    the validator decodes these tokens back to the tar member names.
+    """
+
+    raw = os.fspath(value).encode("utf-8", errors="surrogateescape")
+    escaped: list[str] = []
+    for byte in raw:
+        if byte <= 0x20 or byte == 0x5C or byte >= 0x7F:
+            escaped.append(f"\\{byte:03o}")
+        else:
+            escaped.append(chr(byte))
+    return "".join(escaped)
+
+
 def _mtree(staging: Path, paths: Iterable[str]) -> bytes:
     lines = ["#mtree", ". type=dir time=0 uid=0 gid=0 mode=0755"]
     # The archive contains every directory below staging (tarfile adds the
@@ -617,15 +637,16 @@ def _mtree(staging: Path, paths: Iterable[str]) -> bytes:
         if stat.S_ISDIR(info.st_mode):
             directories.append(candidate.relative_to(staging).as_posix())
     for relative in sorted(directories):
-        lines.append(f"./{relative} type=dir time=0 uid=0 gid=0 mode=0755")
+        lines.append(f"./{_mtree_escape(relative)} type=dir time=0 uid=0 gid=0 mode=0755")
     for relative in sorted(paths):
         path = staging / relative
+        escaped = _mtree_escape(relative)
         if path.is_symlink():
-            lines.append(f"./{relative} type=link link={path.readlink()!s} uid=0 gid=0 mode=0777")
+            lines.append(f"./{escaped} type=link link={_mtree_escape(path.readlink())} time=0 uid=0 gid=0 mode=0777")
         elif path.is_file():
             digest = _sha256(path)
             mode = stat.S_IMODE(path.stat().st_mode)
-            lines.append(f"./{relative} type=file size={path.stat().st_size} sha256digest={digest} uid=0 gid=0 mode={mode:04o}")
+            lines.append(f"./{escaped} type=file time=0 size={path.stat().st_size} sha256digest={digest} uid=0 gid=0 mode={mode:04o}")
     return gzip.compress(("\n".join(lines) + "\n").encode(), mtime=0)
 
 

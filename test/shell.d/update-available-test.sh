@@ -44,9 +44,9 @@ cat >"$stub_bin/pacman" <<'SH'
 case "$1" in
   -Qo)
     [[ ${TEST_PACKAGE_PROVENANCE:-} == stable ]] || exit 1
-    case "$3" in
-      */version) printf 'omarchy 4-1 owns %s\n' "$3" ;;
-      */config) printf 'omarchy-settings 4-1 owns %s\n' "$3" ;;
+    case "${4:-$3}" in
+      */version) printf 'omarchy\n' ;;
+      */config) printf 'omarchy-settings\n' ;;
       *) exit 1 ;;
     esac
     exit 0

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import io
 import json
 import os
 import gzip
@@ -11,6 +13,7 @@ import posixpath
 from pathlib import Path
 import stat
 import subprocess
+import tarfile
 import sys
 import tempfile
 import unittest
@@ -23,8 +26,21 @@ builder = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = builder
 SPEC.loader.exec_module(builder)
 
+PAYLOAD_MODULE_PATH = MODULE_PATH.parent / "installer-image/desktop_payload.py"
+PAYLOAD_SPEC = importlib.util.spec_from_file_location("omarchy_pi_desktop_payload", PAYLOAD_MODULE_PATH)
+assert PAYLOAD_SPEC and PAYLOAD_SPEC.loader
+payload_decoder = importlib.util.module_from_spec(PAYLOAD_SPEC)
+sys.modules[PAYLOAD_SPEC.name] = payload_decoder
+PAYLOAD_SPEC.loader.exec_module(payload_decoder)
+
 
 class RuntimePackageTests(unittest.TestCase):
+    def test_mtree_escape_uses_byte_octal_tokens(self) -> None:
+        self.assertEqual(
+            builder._mtree_escape("a\\b c\té"),
+            r"a\134b\040c\011\303\251",
+        )
+
     def make_source(self, root: Path) -> tuple[Path, str]:
         files = {
             "version": "4.0.0.alpha\n",
@@ -45,6 +61,7 @@ class RuntimePackageTests(unittest.TestCase):
             "etc/fastfetch/config.jsonc": "{}\n",
             "etc/profile.d/omarchy.sh": "export OMARCHY_PATH=/usr/share/omarchy\n",
             "applications/terminal.desktop": "[Desktop Entry]\nName=Terminal\n",
+            "applications/Disk Usage.desktop": "[Desktop Entry]\nName=Disk Usage\nIcon=disk-usage\n",
             "applications/icons/terminal.png": "not-a-real-png\n",
             "applications/icons/Disk Usage.png": "not-a-real-png\n",
             "shell/Ui/Main.qml": "Item {}\n",
@@ -102,6 +119,13 @@ class RuntimePackageTests(unittest.TestCase):
             ))
             self.assertTrue(settings.is_file())
             self.assertTrue(runtime.is_file())
+            # Exercise the same ownership decoder used at the desktop payload
+            # input boundary.  The real source has filenames containing
+            # spaces (for example ``Disk Usage.desktop``); mtree octal
+            # escaping must round-trip those names to the tar members.
+            package_metadata, package_owned = payload_decoder._package_contents(settings.read_bytes())
+            self.assertEqual(package_metadata["pkgname"], "omarchy-settings")
+            self.assertIn("etc/skel/.local/share/applications/Disk Usage.desktop", package_owned)
             settings_names = {member.name for member in builder._archive_members(settings)}
             runtime_names = {member.name for member in builder._archive_members(runtime)}
             self.assertIn("etc/skel/.config/hypr/hyprland.lua", settings_names)
@@ -189,8 +213,56 @@ class RuntimePackageTests(unittest.TestCase):
             }
             for member in builder._archive_members(settings):
                 if member.isdir():
-                    expected = "." if member.name == "." else f"./{member.name}"
+                    expected = "." if member.name == "." else f"./{builder._mtree_escape(member.name)}"
                     self.assertIn(expected, mtree_entries, member.name)
+            # Compare every non-metadata tar member with its native mtree
+            # record, including uid/gid, mode, timestamp, size, digest, and
+            # symlink target.  Directory names alone are insufficient for
+            # pacman -Qkk to establish archive integrity.
+            for archive_path in (settings, runtime):
+                raw_archive = subprocess.run(
+                    ["zstd", "-q", "-d", "-c", os.fspath(archive_path)],
+                    check=True,
+                    capture_output=True,
+                ).stdout
+                with tarfile.open(fileobj=io.BytesIO(raw_archive), mode="r:") as archive_stream:
+                    archive_mtree = gzip.decompress(
+                        archive_stream.extractfile(".MTREE").read()
+                    ).decode().splitlines()
+                    mtree_records: dict[str, dict[str, str]] = {}
+                    for line in archive_mtree:
+                        if line.startswith("."):
+                            fields = line.split()
+                            encoded_path = fields[0]
+                            path = "." if encoded_path == "." else payload_decoder._decode_mtree_path(encoded_path[2:])
+                            mtree_records[path] = {
+                                key: value
+                                for key, value in (field.split("=", 1) for field in fields[1:] if "=" in field)
+                            }
+                    for member in archive_stream:
+                        if member.name.startswith(".") and member.name != ".":
+                            continue
+                        record = mtree_records.get(member.name)
+                        self.assertIsNotNone(record, f"{archive_path.name}: {member.name}")
+                        assert record is not None
+                        expected_type = "dir" if member.isdir() else "link" if member.issym() else "file"
+                        self.assertEqual(record.get("type"), expected_type, member.name)
+                        self.assertEqual(record.get("uid"), "0", member.name)
+                        self.assertEqual(record.get("gid"), "0", member.name)
+                        self.assertEqual(int(record["mode"], 8), stat.S_IMODE(member.mode), member.name)
+                        self.assertEqual(record.get("time"), "0", member.name)
+                        if member.isreg():
+                            data = archive_stream.extractfile(member)
+                            self.assertIsNotNone(data, member.name)
+                            content = data.read() if data is not None else b""
+                            self.assertEqual(int(record["size"]), len(content), member.name)
+                            self.assertEqual(record["sha256digest"], hashlib.sha256(content).hexdigest(), member.name)
+                        elif member.issym():
+                            self.assertEqual(
+                                payload_decoder._decode_mtree_path(record["link"]),
+                                member.linkname,
+                                member.name,
+                            )
             # Source-relative links in defaults must resolve within the same
             # package tree.  This catches a relocated icon becoming dangling.
             settings_members = builder._archive_members(settings)

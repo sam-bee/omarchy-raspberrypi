@@ -382,7 +382,12 @@ stage_packaged_pi_helpers() {
   ensure_directory "$(target_path /usr/share/omarchy/install/arm64/session)" 0755 0 0
   ensure_directory "$(target_path /usr/share/omarchy/install/arm64/session/systemd)" 0755 0 0
 
-  local relative
+  # The packaged runtime owns this complete install tree.  Check that the
+  # selected setup/session helpers are present and byte-identical to the
+  # source revision used to build the package, but leave their package modes
+  # untouched.  Copying or chmod-ing them here would create an untracked
+  # shadow of package state and can make pacman report files as altered.
+  local relative source destination
   for relative in \
     setup-desktop-user.sh \
     setup-desktop-theme.sh \
@@ -396,23 +401,12 @@ stage_packaged_pi_helpers() {
     session/portals.conf \
     session/start-shell.sh \
     session/xdg-terminals.list; do
-    install_file "$source_root/$relative" \
-      "$(target_path "/usr/share/omarchy/install/arm64/$relative")" \
-      0644
-  done
-  for relative in \
-    setup-desktop-user.sh \
-    setup-desktop-theme.sh \
-    setup-desktop-images.sh \
-    setup-mise.sh \
-    setup-user-agents.sh \
-    session/90-omarchy-pi \
-    session/ensure-headless-output.sh \
-    session/start-shell.sh; do
-    chmod_mode=0755
-    install_file "$source_root/$relative" \
-      "$(target_path "/usr/share/omarchy/install/arm64/$relative")" \
-      "$chmod_mode"
+    source="$source_root/$relative"
+    destination="$(target_path "/usr/share/omarchy/install/arm64/$relative")"
+    require_regular_file "$source" "source packaged helper"
+    require_regular_file "$destination" "packaged helper"
+    cmp -s -- "$source" "$destination" ||
+      die "packaged helper differs from source revision: $destination"
   done
 }
 

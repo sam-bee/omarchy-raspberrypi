@@ -27,6 +27,7 @@ ARCHIVE_READ_CHUNK = 4 * MIB
 RUNTIME_ARCHIVE_NAME = re.compile(
     r'(?:omarchy-settings|omarchy)-.+-aarch64\.pkg\.tar\.[A-Za-z0-9]+\Z'
 )
+MTREE_OCTAL_ESCAPE = re.compile(r'\\([0-7]{3})')
 
 
 class PayloadError(RuntimeError):
@@ -77,6 +78,23 @@ def _hash_member(stream, *, retain: bool) -> tuple[str, bytes | None]:
     return digest.hexdigest(), retained.getvalue() if retained is not None else None
 
 
+def _decode_mtree_path(path: str) -> str:
+    """Decode the byte-oriented octal escapes used by BSD mtree paths."""
+
+    # libarchive writes non-ASCII path bytes as individual octal escapes.  Do
+    # not convert each escape directly to a Unicode code point: ``\303\251``
+    # represents UTF-8 ``é``, rather than the two characters U+00C3/U+00A9.
+    decoded = bytearray()
+    offset = 0
+    for match in MTREE_OCTAL_ESCAPE.finditer(path):
+        literal = path[offset:match.start()]
+        decoded.extend(literal.encode('utf-8', errors='surrogateescape'))
+        decoded.append(int(match.group(1), 8))
+        offset = match.end()
+    decoded.extend(path[offset:].encode('utf-8', errors='surrogateescape'))
+    return decoded.decode('utf-8', errors='surrogateescape')
+
+
 def _package_contents(data: bytes) -> tuple[dict[str, str], set[str]]:
     """Return native package metadata and its owned non-directory paths."""
 
@@ -121,7 +139,7 @@ def _package_contents(data: bytes) -> tuple[dict[str, str], set[str]]:
                             continue
                         path, attributes = line.split(' ', 1)
                         if 'type=dir' not in attributes:
-                            mtree_owned.add(path[2:])
+                            mtree_owned.add(_decode_mtree_path(path[2:]))
                 except (OSError, UnicodeDecodeError) as exc:
                     raise PayloadError('runtime package ownership metadata is malformed') from exc
             elif member.name.startswith('.'):

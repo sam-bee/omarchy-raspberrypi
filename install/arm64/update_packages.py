@@ -187,6 +187,15 @@ def _pkginfo(data: bytes, archive: Path) -> dict[str, list[str]]:
     return fields
 
 
+def _pacman_owner(output: str) -> str | None:
+    """Extract the package name from pacman's quiet owner query."""
+
+    fields = output.split()
+    if len(fields) == 1 and fields[0] in set(PACKAGE_PAIRS["stable"] + PACKAGE_PAIRS["dev"]):
+        return fields[0]
+    return None
+
+
 def _validate_native_package(
     package: CandidatePackage,
     channel: str,
@@ -662,10 +671,13 @@ def package_provenance(
     try:
         owners: list[str] = []
         for path in (runtime / "version", runtime / "config"):
-            result = runner([pacman, "-Qo", "--", str(path)], check=False, capture_output=True, text=True)
+            result = runner([pacman, "-Qo", "--quiet", "--", str(path)], check=False, capture_output=True, text=True)
             if result.returncode != 0 or not result.stdout.strip():
                 return None
-            owners.append(result.stdout.split()[0])
+            owner = _pacman_owner(result.stdout)
+            if owner is None:
+                return None
+            owners.append(owner)
     except OSError:
         return None
     channel = None

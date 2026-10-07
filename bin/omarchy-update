@@ -15,8 +15,8 @@ packaged_arm_runtime() {
   [[ ${OMARCHY_PATH:-$runtime_root} == "$runtime_root" ]] || return 1
   [[ -f "$runtime_root/version" && -f "$runtime_root/.omarchy-pi-packaged.json" && -d "$runtime_root/config" && -f "$runtime_root/install/arm64/update.py" ]] || return 1
   local runtime_owner settings_owner
-  runtime_owner=$(pacman -Qo -- "$runtime_root/version" 2>/dev/null | awk 'NR == 1 {print $1}')
-  settings_owner=$(pacman -Qo -- "$runtime_root/config" 2>/dev/null | awk 'NR == 1 {print $1}')
+  runtime_owner=$(pacman -Qo --quiet -- "$runtime_root/version" 2>/dev/null || true)
+  settings_owner=$(pacman -Qo --quiet -- "$runtime_root/config" 2>/dev/null || true)
   [[ $runtime_owner == "omarchy" && $settings_owner == "omarchy-settings" ||
      $runtime_owner == "omarchy-dev" && $settings_owner == "omarchy-settings-dev" ]]
 }
