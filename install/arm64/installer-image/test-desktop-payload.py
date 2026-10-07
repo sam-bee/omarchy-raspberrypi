@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import hashlib
+import gzip
 import io
 import json
 import os
@@ -16,6 +17,109 @@ import desktop_payload as payload
 
 
 class PayloadTests(unittest.TestCase):
+    def runtime_package(self, directory, package, revision, files):
+        raw = Path(directory) / f"{package}-1.0-1-aarch64.pkg.tar"
+        with tarfile.open(raw, 'w') as stream:
+            metadata = (
+                f"pkgname = {package}\n"
+                f"pkgbase = {package}\n"
+                "pkgver = 1.0-1\n"
+                "arch = aarch64\n"
+                "xdata = pkgtype=pkg\n"
+                f"xdata = source-revision={revision}\n"
+            ).encode()
+            ownership = '#mtree\n. type=dir time=0 uid=0 gid=0 mode=0755\n' + ''.join(
+                f'./{name} type={"link" if isinstance(data, str) else "file"}\n'
+                for name, data in files.items()
+            )
+            for name, data in (
+                ('.PKGINFO', metadata),
+                ('.BUILDINFO', b'fixture\n'),
+                ('.MTREE', gzip.compress(ownership.encode())),
+            ):
+                entry = tarfile.TarInfo(name)
+                entry.size = len(data)
+                stream.addfile(entry, io.BytesIO(data))
+            for name, data in files.items():
+                entry = tarfile.TarInfo(name)
+                if isinstance(data, str):
+                    entry.type = tarfile.SYMTYPE
+                    entry.linkname = data
+                    stream.addfile(entry)
+                else:
+                    entry.size = len(data)
+                    stream.addfile(entry, io.BytesIO(data))
+        archive = raw.with_suffix(raw.suffix + '.zst')
+        subprocess.run(['zstd', '-q', '-o', str(archive), str(raw)], check=True)
+        return archive
+
+    def packaged_bundle(self, directory, *, stale_marker=False):
+        revision = 'a' * 40
+        source_sha256 = 'b' * 64
+        settings_files = {'usr/share/omarchy/config/fixture': b'settings'}
+        runtime_files = {
+            'usr/share/omarchy/.omarchy-pi-source-commit': (('c' if stale_marker else 'a') * 40).encode(),
+            'usr/bin/omarchy': b'#!/bin/bash\n',
+        }
+        settings = self.runtime_package(directory, 'omarchy-settings', revision, settings_files)
+        runtime = self.runtime_package(directory, 'omarchy', revision, runtime_files)
+        generic = Path(directory) / 'glibc-2.0-1-aarch64.pkg.tar.zst'
+        generic.write_bytes(b'generic package bytes')
+        records = []
+        for package, archive, files in (
+            ('omarchy-settings', settings, settings_files),
+            ('omarchy', runtime, runtime_files),
+        ):
+            records.append({
+                'name': package,
+                'package': package,
+                'version': '1.0-1',
+                'architecture': 'aarch64',
+                'filename': archive.name,
+                'sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                'source_revision': revision,
+                'source_sha256': source_sha256,
+                'files': sorted(files),
+                'package_signature': 'unsigned',
+                'signature': None,
+                'signature_sha256': None,
+            })
+        manifest = {
+            'schema_version': 1,
+            'source': {'revision': revision},
+            'target': {'architecture': 'aarch64', 'profile': 'rpi5'},
+            'runtime': {
+                'layout': 'packaged',
+                'path': '/usr/share/omarchy',
+                'source_revision': revision,
+                'packages': records,
+            },
+        }
+        archive_path = Path(directory) / 'packaged.tar'
+        with tarfile.open(archive_path, 'w') as stream:
+            for name in ('bundle', 'bundle/rootfs', 'bundle/rootfs/etc', 'bundle/rootfs/usr/share/omarchy', 'bundle/source', 'bundle/source/.git', 'bundle/packages'):
+                entry = tarfile.TarInfo(name)
+                entry.type = tarfile.DIRTYPE
+                stream.addfile(entry)
+            files = {
+                'bundle/desktop-manifest.json': json.dumps(manifest).encode(),
+                'bundle/rootfs/etc/passwd': b'root:x:0:0:root:/root:/bin/bash\n',
+                'bundle/rootfs/usr/share/omarchy/.omarchy-pi-source-commit': (('c' if stale_marker else 'a') * 40 + '\n').encode(),
+                'bundle/source/.git/HEAD': b'fake-source',
+            }
+            for name, data in files.items():
+                entry = tarfile.TarInfo(name)
+                entry.size = len(data)
+                stream.addfile(entry, io.BytesIO(data))
+            for package in (settings, runtime, generic):
+                data = package.read_bytes()
+                entry = tarfile.TarInfo(f'bundle/packages/{package.name}')
+                entry.size = len(data)
+                stream.addfile(entry, io.BytesIO(data))
+        bundle = archive_path.with_suffix('.tar.zst')
+        subprocess.run(['zstd', '-q', '-o', str(bundle), str(archive_path)], check=True)
+        return bundle, hashlib.sha256(bundle.read_bytes()).hexdigest()
+
     def bundle(self, directory, *, unsafe=False, symlink_child=False):
         archive = Path(directory) / 'payload.tar'
         manifest = {'schema_version': 1, 'source': {'revision': 'a' * 40},
@@ -80,6 +184,65 @@ class PayloadTests(unittest.TestCase):
             descriptor.write_text(json.dumps(info))
             with self.assertRaises(payload.PayloadError):
                 payload.payload_metadata(bundle, descriptor)
+
+    def test_packaged_runtime_pair_and_ownership_records_are_verified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, digest = self.packaged_bundle(directory)
+            info = payload.inspect_bundle(bundle, digest)
+            self.assertEqual(info['runtime']['layout'], 'packaged')
+            self.assertEqual(info['runtime']['source_revision'], 'a' * 40)
+
+    def test_non_runtime_package_bytes_are_not_retained(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, digest = self.packaged_bundle(directory)
+            retained = {}
+
+            def capture(manifest, package_archives):
+                retained.update(package_archives)
+                return manifest['runtime']
+
+            with mock.patch.object(payload, '_validate_runtime_manifest', side_effect=capture):
+                payload.inspect_bundle(bundle, digest)
+            self.assertEqual(
+                set(retained),
+                {'omarchy-settings-1.0-1-aarch64.pkg.tar.zst', 'omarchy-1.0-1-aarch64.pkg.tar.zst'},
+            )
+            self.assertNotIn('glibc-2.0-1-aarch64.pkg.tar.zst', retained)
+
+    def test_runtime_archive_retention_is_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, digest = self.packaged_bundle(directory)
+            original = payload.RUNTIME_ARCHIVE_MAX_BYTES
+            payload.RUNTIME_ARCHIVE_MAX_BYTES = 8
+            self.addCleanup(setattr, payload, 'RUNTIME_ARCHIVE_MAX_BYTES', original)
+            with self.assertRaisesRegex(payload.PayloadError, '256 MiB validation limit'):
+                payload.inspect_bundle(bundle, digest)
+
+    def test_archive_hashing_reads_in_fixed_chunks_without_retaining_generic_data(self):
+        class Reader:
+            def __init__(self, data):
+                self.data = data
+                self.offset = 0
+                self.requests = []
+
+            def read(self, size):
+                self.requests.append(size)
+                block = self.data[self.offset:self.offset + size]
+                self.offset += len(block)
+                return block
+
+        reader = Reader(b'generic archive bytes')
+        digest, retained = payload._hash_member(reader, retain=False)
+        self.assertEqual(digest, hashlib.sha256(b'generic archive bytes').hexdigest())
+        self.assertIsNone(retained)
+        self.assertTrue(reader.requests)
+        self.assertTrue(all(size == payload.ARCHIVE_READ_CHUNK for size in reader.requests))
+
+    def test_packaged_runtime_stale_marker_is_rejected_before_staging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, digest = self.packaged_bundle(directory, stale_marker=True)
+            with self.assertRaisesRegex(payload.PayloadError, 'source marker'):
+                payload.inspect_bundle(bundle, digest)
 
     def test_preparation_returns_verified_metadata_and_recheck_detects_changed_bytes(self):
         with tempfile.TemporaryDirectory() as directory:

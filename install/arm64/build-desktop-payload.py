@@ -42,6 +42,7 @@ PACKAGE_ARCHIVE = re.compile(r".+\.pkg\.tar\.[A-Za-z0-9]+(?:\.sig)?\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 PACKAGE_NAME = re.compile(r"[A-Za-z0-9@_+][A-Za-z0-9@._+:-]*\Z")
+RUNTIME_PACKAGE_NAMES = ("omarchy-settings", "omarchy")
 
 
 class DesktopPayloadError(RuntimeError):
@@ -282,6 +283,126 @@ def _validate_custom_archive_metadata(
         )
 
 
+def _runtime_package_records(path: Path | None, *, source_revision: str) -> dict[str, dict[str, Any]]:
+    """Read the JSON package-pair manifest emitted by build-runtime-packages."""
+
+    if path is None:
+        return {}
+    manifest = _regular_file(path, name="runtime package manifest")
+    try:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DesktopPayloadError("runtime package manifest is not valid JSON") from exc
+    if not isinstance(document, dict):
+        raise DesktopPayloadError("runtime package manifest must be an object")
+    manifest_revision = document.get("source_revision")
+    if manifest_revision is None and isinstance(document.get("source"), dict):
+        manifest_revision = document["source"].get("revision")
+    if not isinstance(manifest_revision, str) or not REVISION.fullmatch(manifest_revision):
+        raise DesktopPayloadError("runtime package manifest source revision is invalid")
+    if manifest_revision != source_revision:
+        raise DesktopPayloadError(
+            "runtime package source revision differs from the desktop source: "
+            f"{manifest_revision} != {source_revision}"
+        )
+    rows = document.get("packages")
+    if not isinstance(rows, list):
+        raise DesktopPayloadError("runtime package manifest has no package records")
+    records: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise DesktopPayloadError("runtime package manifest has a malformed package record")
+        package = row.get("package") or row.get("name")
+        filename = row.get("filename") or row.get("name")
+        version = row.get("version")
+        architecture = row.get("architecture")
+        package_sha256 = row.get("sha256") or row.get("package_sha256")
+        if not isinstance(package, str) or not PACKAGE_NAME.fullmatch(package):
+            raise DesktopPayloadError("runtime package manifest has an invalid package name")
+        if package in records:
+            raise DesktopPayloadError(f"runtime package manifest repeats {package}")
+        if package not in RUNTIME_PACKAGE_NAMES:
+            raise DesktopPayloadError(f"runtime package is not part of the Omarchy pair: {package}")
+        if not isinstance(filename, str) or Path(filename).name != filename or not PACKAGE_ARCHIVE.fullmatch(filename):
+            raise DesktopPayloadError(f"invalid runtime package filename: {filename!r}")
+        if not isinstance(version, str) or not version or any(character.isspace() for character in version):
+            raise DesktopPayloadError(f"invalid runtime package version: {package}")
+        if architecture != "aarch64":
+            raise DesktopPayloadError(f"runtime package {package} is not an aarch64 archive")
+        if not isinstance(package_sha256, str) or not SHA256.fullmatch(package_sha256):
+            raise DesktopPayloadError(f"runtime package {package} has an invalid archive hash")
+        row_revision = row.get("source_revision", manifest_revision)
+        if row_revision != source_revision:
+            raise DesktopPayloadError(f"runtime package {package} has a mismatching source revision")
+        signature = row.get("signature")
+        signature_sha256 = row.get("signature_sha256")
+        package_signature = row.get("package_signature", "unsigned")
+        if package_signature not in {"unsigned", "provided"}:
+            raise DesktopPayloadError(f"runtime package {package} has an invalid signature policy")
+        if package_signature == "unsigned":
+            if signature is not None or signature_sha256 is not None:
+                raise DesktopPayloadError(f"unsigned runtime package {package} has signature metadata")
+        else:
+            if not isinstance(signature, str) or Path(signature).name != signature or not signature.endswith(".sig"):
+                raise DesktopPayloadError(f"runtime package {package} has an invalid signature filename")
+            if not isinstance(signature_sha256, str) or not SHA256.fullmatch(signature_sha256):
+                raise DesktopPayloadError(f"runtime package {package} has an invalid signature hash")
+        files = row.get("files")
+        if not isinstance(files, list) or not files or any(
+            not isinstance(item, str) or Path(item).is_absolute() or ".." in Path(item).parts
+            for item in files
+        ):
+            raise DesktopPayloadError(f"runtime package {package} has invalid ownership records")
+        source_sha256 = row.get("source_sha256", document.get("source_sha256"))
+        if not isinstance(source_sha256, str) or not SHA256.fullmatch(source_sha256):
+            raise DesktopPayloadError(f"runtime package {package} has an invalid source archive hash")
+        records[package] = {
+            "package": package,
+            "name": package,
+            "version": version,
+            "architecture": architecture,
+            "source_revision": source_revision,
+            "source_sha256": source_sha256,
+            "filename": filename,
+            "sha256": package_sha256,
+            "package_sha256": package_sha256,
+            "package_signature": package_signature,
+            "signature": signature,
+            "signature_sha256": signature_sha256,
+            "files": files,
+        }
+    if tuple(records) != RUNTIME_PACKAGE_NAMES:
+        raise DesktopPayloadError("runtime package manifest must contain omarchy-settings followed by omarchy")
+    versions = {record["version"] for record in records.values()}
+    if len(versions) != 1:
+        raise DesktopPayloadError("runtime package pair has incompatible versions")
+    source_hashes = {record["source_sha256"] for record in records.values()}
+    if len(source_hashes) != 1:
+        raise DesktopPayloadError("runtime package pair has incompatible source hashes")
+    return records
+
+
+def _validate_runtime_archive_metadata(
+    pacman: str,
+    archive: Path,
+    record: dict[str, Any],
+) -> None:
+    """Require the archive's native pacman metadata to match its pair record."""
+
+    result = _run([pacman, "--query", "--info", "--file", os.fspath(archive)])
+    fields: dict[str, str] = {}
+    for line in result.stdout.decode(errors="replace").splitlines():
+        if " : " in line:
+            key, value = line.split(" : ", 1)
+            fields[key.strip().lower()] = value.strip()
+    if fields.get("name") != record["package"] or fields.get("version") != record["version"]:
+        raise DesktopPayloadError(
+            f"native runtime package metadata differs from manifest: {archive.name}"
+        )
+    if fields.get("architecture") != "aarch64":
+        raise DesktopPayloadError(f"runtime package archive is not native aarch64: {archive.name}")
+
+
 def _validate_installed_custom_packages(
     installed: Sequence[dict[str, str]],
     custom: Sequence[Path],
@@ -294,6 +415,19 @@ def _validate_installed_custom_packages(
             raise DesktopPayloadError(
                 f"installed custom package differs from manifest: {record['package']} "
                 f"{by_name.get(record['package'], '<missing>')} (expected {record['version']})"
+            )
+
+
+def _validate_installed_runtime_packages(
+    installed: Sequence[dict[str, str]],
+    records: dict[str, dict[str, Any]],
+) -> None:
+    by_name = {item["name"]: item["version"] for item in installed}
+    for package, record in records.items():
+        if by_name.get(package) != record["version"]:
+            raise DesktopPayloadError(
+                f"installed runtime package differs from manifest: {package} "
+                f"{by_name.get(package, '<missing>')} (expected {record['version']})"
             )
 
 
@@ -625,6 +759,110 @@ def _copy_tree_without_cache(source: Path, destination: Path) -> None:
                 shutil.copystat(original, copied, follow_symlinks=False)
 
 
+def _seed_packaged_runtime_state(
+    target: Path,
+    runtime: Sequence[Path],
+    records: dict[str, dict[str, Any]],
+    *,
+    source_revision: str,
+) -> None:
+    """Retain the installed pair and marker needed for first update rollback."""
+
+    runtime_root = target / "usr/share/omarchy"
+    if runtime_root.is_symlink() or not runtime_root.is_dir():
+        raise DesktopPayloadError("packaged Omarchy runtime is missing from the target")
+    marker = runtime_root / ".omarchy-pi-packaged.json"
+    marker_document = {
+        "schema_version": 1,
+        "runtime_mode": "packaged",
+        "source_revision": source_revision,
+        "packages": [
+            {
+                "name": record["package"],
+                "version": record["version"],
+                "architecture": record["architecture"],
+                "filename": record["filename"],
+                "sha256": record["sha256"],
+                "package_signature": record["package_signature"],
+            }
+            for record in records.values()
+        ],
+    }
+    marker_text = json.dumps(marker_document, indent=2, sort_keys=True) + "\n"
+    if marker.exists() or marker.is_symlink():
+        try:
+            existing_marker = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DesktopPayloadError("packaged runtime marker is not valid JSON") from exc
+        if (
+            marker.is_symlink()
+            or not isinstance(existing_marker, dict)
+            or existing_marker.get("runtime_mode", existing_marker.get("mode")) != "packaged"
+            or existing_marker.get("source_revision") != source_revision
+        ):
+            raise DesktopPayloadError("packaged runtime marker differs from the selected package pair")
+    else:
+        marker.write_text(marker_text, encoding="utf-8")
+        marker.chmod(0o644)
+    if os.geteuid() == 0:
+        os.chown(marker, 0, 0)
+
+    rollback = target / "usr/share/omarchy-pi/rollback"
+    _reject_symlink_components(rollback, include_leaf=False)
+    if rollback.exists() or rollback.is_symlink():
+        if rollback.is_symlink() or not rollback.is_dir():
+            raise DesktopPayloadError("packaged runtime rollback directory is unsafe")
+    else:
+        rollback.mkdir(mode=0o750, parents=True)
+    rollback_records: list[dict[str, Any]] = []
+    records_by_filename = {record["filename"]: record for record in records.values()}
+    for archive in runtime:
+        record = records_by_filename[archive.name]
+        destination = rollback / archive.name
+        if destination.exists() or destination.is_symlink():
+            if destination.is_symlink() or _sha256(destination) != record["sha256"]:
+                raise DesktopPayloadError(f"packaged runtime rollback archive differs: {archive.name}")
+        else:
+            shutil.copy2(archive, destination)
+            destination.chmod(0o640)
+        package_record = {
+            "name": record["package"],
+            "version": record["version"],
+            "architecture": record["architecture"],
+            "filename": archive.name,
+            "sha256": record["sha256"],
+            "signature": "required" if record["package_signature"] == "provided" else "optional",
+        }
+        if record["package_signature"] == "provided":
+            signature_source = archive.parent / record["signature"]
+            signature_destination = rollback / signature_source.name
+            if signature_destination.is_symlink() or (signature_destination.exists() and _sha256(signature_destination) != record["signature_sha256"]):
+                raise DesktopPayloadError(f"packaged runtime rollback signature differs: {signature_source.name}")
+            if not signature_destination.exists():
+                shutil.copy2(signature_source, signature_destination)
+                signature_destination.chmod(0o640)
+            package_record["signature_file"] = signature_source.name
+        rollback_records.append(package_record)
+    rollback_manifest = {
+        "schema_version": 1,
+        "architecture": "aarch64",
+        "version": next(iter(records.values()))["version"],
+        "source_revision": source_revision,
+        "packages": rollback_records,
+    }
+    manifest_path = rollback / "manifest.json"
+    manifest_text = json.dumps(rollback_manifest, indent=2, sort_keys=True) + "\n"
+    if manifest_path.exists() or manifest_path.is_symlink():
+        if manifest_path.is_symlink() or manifest_path.read_text(encoding="utf-8") != manifest_text:
+            raise DesktopPayloadError("packaged runtime rollback manifest differs from the selected pair")
+    else:
+        manifest_path.write_text(manifest_text, encoding="utf-8")
+        manifest_path.chmod(0o640)
+    if os.geteuid() == 0:
+        for path in (rollback, *rollback.iterdir()):
+            os.chown(path, 0, 0)
+
+
 def _clone_source(source: Path, destination: Path, revision: str) -> None:
     """Bundle a shallow, origin-free checkout without host Git metadata."""
 
@@ -664,6 +902,8 @@ def build_payload(
     source_revision: str | None,
     custom_packages: Sequence[Path] = (),
     custom_package_manifest: Path | None = None,
+    runtime_packages: Sequence[Path] = (),
+    runtime_package_manifest: Path | None = None,
     provisioner: Path | None = None,
     repo_server: str = "https://ca.us.mirror.archlinuxarm.org/$arch/$repo",
     pacman: str = "pacman",
@@ -697,6 +937,34 @@ def build_payload(
         if record is None or record["sha256"] != _sha256(archive):
             raise DesktopPayloadError(f"custom package is not recorded with its expected hash: {archive.name}")
         _validate_custom_archive_metadata(pacman, archive, record)
+    runtime = [_regular_file(path, name="runtime package archive") for path in runtime_packages]
+    runtime_records = _runtime_package_records(runtime_package_manifest, source_revision=revision)
+    if runtime and not runtime_records:
+        raise DesktopPayloadError("runtime package archives require --runtime-package-manifest")
+    if runtime_records and not runtime:
+        raise DesktopPayloadError("runtime package manifest requires --runtime-package archives")
+    runtime_by_filename = {record["filename"]: record for record in runtime_records.values()}
+    runtime_by_package = {record["package"]: record for record in runtime_records.values()}
+    if len(runtime) != len(runtime_records):
+        raise DesktopPayloadError("runtime package archives must contain exactly the manifest pair")
+    for archive in runtime:
+        record = runtime_by_filename.get(archive.name)
+        if record is None:
+            raise DesktopPayloadError(f"runtime package is absent from its manifest: {archive.name}")
+        if record["sha256"] != _sha256(archive):
+            raise DesktopPayloadError(f"runtime package is not recorded with its expected hash: {archive.name}")
+        _validate_runtime_archive_metadata(pacman, archive, record)
+        if record["package_signature"] == "provided":
+            signature = archive.parent / record["signature"]
+            _regular_file(signature, name=f"signature for {record['package']}")
+            if _sha256(signature) != record["signature_sha256"]:
+                raise DesktopPayloadError(f"runtime package signature hash differs from manifest: {signature.name}")
+    if set(runtime_by_package) != set(RUNTIME_PACKAGE_NAMES):
+        raise DesktopPayloadError("runtime package manifest must contain the complete Omarchy pair")
+    all_custom = [*custom, *runtime]
+    all_custom_names = [archive.name for archive in all_custom]
+    if len(set(all_custom_names)) != len(all_custom_names):
+        raise DesktopPayloadError("custom and runtime package archives contain a duplicate filename")
     selected_profiles = profiles or ("full-desktop",)
     if "full-desktop" in selected_profiles:
         required_custom = {"hypr-rdp", "ttfx"}
@@ -770,9 +1038,9 @@ def build_payload(
             apply_command = _pacman_base(pacman, target, dbpath, cache, log, config, gpgdir, hookdir)
             apply_command.extend(["--sync", "--refresh", "--needed", "--noconfirm", *roots])
             _run(apply_command)
-            if custom:
+            if all_custom:
                 custom_command = _pacman_base(pacman, target, dbpath, cache, log, config, gpgdir, hookdir)
-                custom_command.extend(["--upgrade", "--needed", "--noconfirm", *(os.fspath(path) for path in custom)])
+                custom_command.extend(["--upgrade", "--needed", "--noconfirm", *(os.fspath(path) for path in all_custom)])
                 _run(custom_command)
             provisioner_path = _regular_file(provisioner, name="desktop provisioner")
             provision_command = [
@@ -782,6 +1050,8 @@ def build_payload(
                 "--source-checkout",
                 os.fspath(source_checkout),
             ]
+            if runtime_records:
+                provision_command.extend(["--runtime-layout", "packaged"])
             if not os.access(provisioner_path, os.X_OK):
                 provision_command.insert(0, "bash")
             _run(provision_command)
@@ -789,6 +1059,14 @@ def build_payload(
             query_command.extend(["--query", "--info"])
             installed = _parse_info(_run(query_command).stdout)
             _validate_installed_custom_packages(installed, custom, custom_records)
+            _validate_installed_runtime_packages(installed, runtime_records)
+            if runtime_records:
+                _seed_packaged_runtime_state(
+                    target,
+                    runtime,
+                    runtime_records,
+                    source_revision=revision,
+                )
 
         manifest: dict[str, Any] = {
             "schema_version": 1,
@@ -806,6 +1084,9 @@ def build_payload(
                 "custom_archives": [
                     {"name": path.name, **custom_records[path.name]} for path in custom
                 ],
+                "runtime_archives": [
+                    {**runtime_by_filename[path.name]} for path in runtime
+                ],
             },
             "payload": {
                 "rootfs": "rootfs",
@@ -817,10 +1098,34 @@ def build_payload(
             },
             "policy": {"baseline": plan_document["baseline"], "plan_schema_version": plan_document["schema_version"]},
         }
+        if runtime_records:
+            manifest["runtime"] = {
+                "layout": "packaged",
+                "path": "/usr/share/omarchy",
+                "source_revision": revision,
+                "packages": [
+                    {
+                        "name": record["package"],
+                        "package": record["package"],
+                        "version": record["version"],
+                        "architecture": record["architecture"],
+                        "filename": record["filename"],
+                        "sha256": record["sha256"],
+                        "source_revision": record["source_revision"],
+                        "source_sha256": record["source_sha256"],
+                        "package_signature": record["package_signature"],
+                        "signature": record["signature"],
+                        "signature_sha256": record["signature_sha256"],
+                        "files": record["files"],
+                    }
+                    for record in runtime_records.values()
+                ],
+            }
         manifest["policy"]["signature_policy"] = {
             "repository_packages": "Required",
             "repository_databases": "Optional",
             "custom_archives": "Unsigned; accepted only after manifest SHA-256/source pin validation",
+            "runtime_archives": "LocalFileSigLevel Optional; package pair/source/hash validation is mandatory",
         }
         if not apply:
             return manifest
@@ -829,12 +1134,12 @@ def build_payload(
         _validate_generic_root(target)
         _validate_generic_accounts(target)
         _validate_tree(target)
-        archives = _archive_files(cache, custom)
+        archives = _archive_files(cache, all_custom)
         destination.mkdir(mode=0o755)
         package_dir = destination / "packages"
         package_dir.mkdir()
         archive_manifest: list[dict[str, Any]] = []
-        custom_paths = set(custom)
+        custom_paths = set(all_custom)
         for source, origin in archives:
             destination_archive = package_dir / source.name
             shutil.copy2(source, destination_archive)
@@ -844,6 +1149,26 @@ def build_payload(
                     "bytes": destination_archive.stat().st_size,
                     "sha256": _sha256(destination_archive),
                     "origin": "custom" if source in custom_paths else origin,
+                }
+            )
+        for record in runtime_records.values():
+            if record["package_signature"] != "provided":
+                continue
+            signature_source = next(
+                archive.parent / record["signature"] for archive in runtime if archive.name == record["filename"]
+            )
+            signature_destination = package_dir / signature_source.name
+            if signature_destination.exists():
+                if _sha256(signature_destination) != record["signature_sha256"]:
+                    raise DesktopPayloadError(f"runtime package signature collision: {signature_destination.name}")
+                continue
+            shutil.copy2(signature_source, signature_destination)
+            archive_manifest.append(
+                {
+                    "name": signature_destination.name,
+                    "bytes": signature_destination.stat().st_size,
+                    "sha256": _sha256(signature_destination),
+                    "origin": "runtime-signature",
                 }
             )
         root_destination = destination / "rootfs"
@@ -867,6 +1192,8 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--source-revision", help="full 40-character source commit")
     parser.add_argument("--custom-package", action="append", default=[], type=Path, help="prebuilt .pkg.tar.* archive (repeatable)")
     parser.add_argument("--custom-package-manifest", type=Path, help="manifest recording custom archive hashes and package names")
+    parser.add_argument("--runtime-package", action="append", default=[], type=Path, help="Omarchy runtime package archive (repeatable)")
+    parser.add_argument("--runtime-package-manifest", type=Path, help="JSON manifest recording the matching Omarchy runtime package pair")
     parser.add_argument("--provisioner", type=Path, help="generic root provisioner (default: the one in --source-checkout)")
     parser.add_argument("--repo-server", default="https://ca.us.mirror.archlinuxarm.org/$arch/$repo")
     parser.add_argument("--pacman", default="pacman", help=argparse.SUPPRESS)
@@ -885,6 +1212,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_revision=args.source_revision,
             custom_packages=args.custom_package,
             custom_package_manifest=args.custom_package_manifest,
+            runtime_packages=args.runtime_package,
+            runtime_package_manifest=args.runtime_package_manifest,
             provisioner=args.provisioner,
             repo_server=args.repo_server,
             pacman=args.pacman,

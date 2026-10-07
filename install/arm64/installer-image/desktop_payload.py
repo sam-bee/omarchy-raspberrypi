@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 import importlib.util
 import json
 import os
@@ -13,12 +14,19 @@ import stat
 import subprocess
 import sys
 import tarfile
+from io import BytesIO
 
 PAYLOAD_DIRECTORY = Path('/usr/local/share/omarchy-pi/desktop')
 BUNDLE = PAYLOAD_DIRECTORY / 'desktop.tar.zst'
 DESCRIPTOR = PAYLOAD_DIRECTORY / 'bundle.json'
 WORK_DIRECTORY = Path('/var/lib/omarchy-pi/installer/payload')
 MIB = 1024 * 1024
+RUNTIME_PACKAGES = ('omarchy-settings', 'omarchy')
+RUNTIME_ARCHIVE_MAX_BYTES = 256 * MIB
+ARCHIVE_READ_CHUNK = 4 * MIB
+RUNTIME_ARCHIVE_NAME = re.compile(
+    r'(?:omarchy-settings|omarchy)-.+-aarch64\.pkg\.tar\.[A-Za-z0-9]+\Z'
+)
 
 
 class PayloadError(RuntimeError):
@@ -44,6 +52,173 @@ def digest_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _is_runtime_archive(name: str) -> bool:
+    """Recognize the two conventional aarch64 Omarchy package filenames."""
+
+    return bool(RUNTIME_ARCHIVE_NAME.fullmatch(name))
+
+
+def _hash_member(stream, *, retain: bool) -> tuple[str, bytes | None]:
+    """Hash a tar member incrementally, retaining only bounded runtime data."""
+
+    digest = hashlib.sha256()
+    retained = BytesIO() if retain else None
+    total = 0
+    while True:
+        block = stream.read(ARCHIVE_READ_CHUNK)
+        if not block:
+            break
+        total += len(block)
+        if retained is not None:
+            if total > RUNTIME_ARCHIVE_MAX_BYTES:
+                raise PayloadError('runtime package archive exceeds the 256 MiB validation limit')
+            retained.write(block)
+        digest.update(block)
+    return digest.hexdigest(), retained.getvalue() if retained is not None else None
+
+
+def _package_contents(data: bytes) -> tuple[dict[str, str], set[str]]:
+    """Return native package metadata and its owned non-directory paths."""
+
+    try:
+        result = subprocess.run(
+            ['zstd', '--decompress', '--stdout', '--'],
+            input=data,
+            check=True,
+            capture_output=True,
+        )
+        stream = tarfile.open(fileobj=BytesIO(result.stdout), mode='r:')
+    except (OSError, subprocess.CalledProcessError, tarfile.TarError) as exc:
+        raise PayloadError('runtime package archive is unreadable') from exc
+    metadata: dict[str, str] = {}
+    owned: set[str] = set()
+    mtree_owned: set[str] = set()
+    try:
+        for member in stream:
+            if member.name in {'.PKGINFO', '.BUILDINFO'}:
+                if not member.isreg() or member.size > MIB:
+                    raise PayloadError('runtime package metadata has an invalid member')
+                content = stream.extractfile(member)
+                if content is None:
+                    raise PayloadError('runtime package metadata is unreadable')
+                for line in content.read().decode('utf-8').splitlines():
+                    if ' = ' in line:
+                        key, value = line.split(' = ', 1)
+                        if key == 'xdata' and '=' in value:
+                            xdata_key, xdata_value = value.split('=', 1)
+                            metadata[xdata_key] = xdata_value
+                        else:
+                            metadata[key] = value
+            elif member.name == '.MTREE':
+                if not member.isreg() or member.size > MIB:
+                    raise PayloadError('runtime package ownership metadata has an invalid member')
+                content = stream.extractfile(member)
+                if content is None:
+                    raise PayloadError('runtime package ownership metadata is unreadable')
+                try:
+                    for line in gzip.decompress(content.read()).decode('utf-8').splitlines():
+                        if not line.startswith('./') or ' type=' not in line:
+                            continue
+                        path, attributes = line.split(' ', 1)
+                        if 'type=dir' not in attributes:
+                            mtree_owned.add(path[2:])
+                except (OSError, UnicodeDecodeError) as exc:
+                    raise PayloadError('runtime package ownership metadata is malformed') from exc
+            elif member.name.startswith('.'):
+                continue
+            elif member.name == '.' or member.isdir():
+                continue
+            else:
+                path = PurePosixPath(member.name)
+                if path.is_absolute() or '..' in path.parts or '.' in path.parts:
+                    raise PayloadError('runtime package owns an unsafe path')
+                owned.add(member.name)
+    except (UnicodeDecodeError, tarfile.TarError) as exc:
+        raise PayloadError('runtime package metadata is malformed') from exc
+    finally:
+        stream.close()
+    if not mtree_owned or mtree_owned != owned:
+        raise PayloadError('runtime package ownership metadata differs from its archive')
+    return metadata, owned
+
+
+def _validate_runtime_manifest(manifest: dict, package_archives: dict[str, tuple[str, bytes]]) -> dict:
+    runtime = manifest.get('runtime')
+    if not isinstance(runtime, dict) or runtime.get('layout') != 'packaged':
+        raise PayloadError('packaged desktop manifest has no runtime layout')
+    if runtime.get('path') != '/usr/share/omarchy':
+        raise PayloadError('packaged runtime path is not conventional')
+    revision = manifest.get('source', {}).get('revision')
+    if runtime.get('source_revision') != revision:
+        raise PayloadError('packaged runtime source revision differs from the desktop source')
+    records = runtime.get('packages')
+    if not isinstance(records, list) or [record.get('name') for record in records if isinstance(record, dict)] != list(RUNTIME_PACKAGES):
+        raise PayloadError('packaged runtime manifest must list the Omarchy pair in order')
+    seen: set[str] = set()
+    versions: set[str] = set()
+    source_hashes: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise PayloadError('packaged runtime package record is malformed')
+        package = record.get('name')
+        if package in seen or package not in RUNTIME_PACKAGES:
+            raise PayloadError('packaged runtime package names are invalid')
+        seen.add(package)
+        if record.get('package') != package or record.get('architecture') != 'aarch64':
+            raise PayloadError(f'packaged runtime metadata is invalid for {package}')
+        version = record.get('version')
+        if not isinstance(version, str) or not version or any(character.isspace() for character in version):
+            raise PayloadError(f'packaged runtime version is invalid for {package}')
+        versions.add(version)
+        filename = record.get('filename')
+        if not isinstance(filename, str) or PurePosixPath(filename).name != filename or filename not in package_archives:
+            raise PayloadError(f'packaged runtime archive is missing for {package}')
+        digest, data = package_archives[filename]
+        if record.get('sha256') != digest or not re.fullmatch(r'[0-9a-f]{64}', digest):
+            raise PayloadError(f'packaged runtime archive hash differs for {package}')
+        if record.get('source_revision') != revision:
+            raise PayloadError(f'packaged runtime source provenance differs for {package}')
+        source_sha256 = record.get('source_sha256')
+        if not isinstance(source_sha256, str) or not re.fullmatch(r'[0-9a-f]{64}', source_sha256):
+            raise PayloadError(f'packaged runtime source archive hash is invalid for {package}')
+        source_hashes.add(source_sha256)
+        files = record.get('files')
+        if not isinstance(files, list) or not files or any(
+            not isinstance(path, str) or PurePosixPath(path).is_absolute() or '..' in PurePosixPath(path).parts
+            for path in files
+        ):
+            raise PayloadError(f'packaged runtime ownership records are invalid for {package}')
+        native, owned = _package_contents(data)
+        if native.get('pkgname') != package or native.get('pkgver') != version or native.get('arch') != 'aarch64':
+            raise PayloadError(f'packaged runtime native metadata differs for {package}')
+        if native.get('pkgtype') != 'pkg' or native.get('source-revision') != revision:
+            raise PayloadError(f'packaged runtime native provenance differs for {package}')
+        if set(files) != owned:
+            raise PayloadError(f'packaged runtime ownership records differ for {package}')
+        if package == 'omarchy':
+            marker = 'usr/share/omarchy/.omarchy-pi-source-commit'
+            if marker not in owned:
+                raise PayloadError('omarchy package has no source provenance marker')
+            marker_data = None
+            try:
+                package_stream = tarfile.open(fileobj=BytesIO(subprocess.run(
+                    ['zstd', '--decompress', '--stdout', '--'], input=data, check=True, capture_output=True
+                ).stdout), mode='r:')
+                marker_member = package_stream.getmember(marker)
+                marker_file = package_stream.extractfile(marker_member)
+                marker_data = marker_file.read().decode('utf-8').strip() if marker_file else None
+                package_stream.close()
+            except (OSError, subprocess.CalledProcessError, KeyError, tarfile.TarError, UnicodeDecodeError):
+                raise PayloadError('omarchy package source marker is unreadable') from None
+            if marker_data != revision:
+                raise PayloadError('omarchy package source marker differs from the desktop source')
+    if len(versions) != 1:
+        raise PayloadError('packaged runtime pair has incompatible versions')
+    if len(source_hashes) != 1:
+        raise PayloadError('packaged runtime pair has incompatible source hashes')
+    return {'layout': 'packaged', 'path': '/usr/share/omarchy', 'source_revision': revision, 'packages': records}
+
+
 def inspect_bundle(bundle: Path, expected_sha256: str) -> dict:
     if not re.fullmatch(r'[0-9a-f]{64}', expected_sha256):
         raise PayloadError('desktop SHA-256 must be 64 lowercase hex characters')
@@ -56,6 +231,7 @@ def inspect_bundle(bundle: Path, expected_sha256: str) -> dict:
     seen: set[str] = set()
     links: set[str] = set()
     root_bytes = source_bytes = boot_bytes = 0
+    package_archives: dict[str, tuple[str, bytes]] = {}
     try:
         with tarfile.open(fileobj=process.stdout, mode='r|') as archive:
             for member in archive:
@@ -87,6 +263,19 @@ def inspect_bundle(bundle: Path, expected_sha256: str) -> dict:
                             root_bytes += member.size
                     elif parts[1] == 'source':
                         source_bytes += member.size
+                    elif parts[1] == 'packages':
+                        if len(parts) != 3:
+                            raise PayloadError('desktop package payload has an invalid path')
+                        package_name = parts[2]
+                        retain = _is_runtime_archive(package_name)
+                        if retain and member.size > RUNTIME_ARCHIVE_MAX_BYTES:
+                            raise PayloadError('runtime package archive exceeds the 256 MiB validation limit')
+                        content = archive.extractfile(member)
+                        if content is None:
+                            raise PayloadError('desktop package payload is unreadable')
+                        digest, data = _hash_member(content, retain=retain)
+                        if data is not None:
+                            package_archives[package_name] = (digest, data)
                     elif parts[1] == 'desktop-manifest.json':
                         if len(parts) != 2 or member.size > MIB:
                             raise PayloadError('desktop manifest has an invalid size/path')
@@ -115,13 +304,19 @@ def inspect_bundle(bundle: Path, expected_sha256: str) -> dict:
         raise PayloadError('desktop source revision is invalid')
     if manifest.get('target', {}).get('architecture') != 'aarch64' or manifest.get('target', {}).get('profile') != 'rpi5':
         raise PayloadError('desktop payload is not for aarch64 Pi 5')
+    runtime = None
+    if 'runtime' in manifest:
+        runtime = _validate_runtime_manifest(manifest, package_archives)
     if not root_bytes or not source_bytes:
         raise PayloadError('desktop root/source is empty')
-    return {'schema_version': 1, 'sha256': expected_sha256, 'source_revision': revision,
+    metadata = {'schema_version': 1, 'sha256': expected_sha256, 'source_revision': revision,
             'archive_prefix': prefix, 'bundle_bytes': bundle.stat().st_size,
             'root_bytes': root_bytes, 'source_bytes': source_bytes, 'boot_bytes': boot_bytes,
             'unpacked_bytes': root_bytes + source_bytes + boot_bytes,
             'required_target_bytes': root_bytes + source_bytes + 1024 * MIB}
+    if runtime is not None:
+        metadata['runtime'] = runtime
+    return metadata
 
 
 def stage_bundle(target: Path, bundle: Path, expected_sha256: str) -> dict:
@@ -176,6 +371,11 @@ def validate_generic(payload: Path, metadata: dict) -> None:
     result = subprocess.run(['git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all'], check=True, capture_output=True, text=True)
     if result.stdout.strip():
         raise PayloadError('desktop source checkout is modified')
+    runtime = metadata.get('runtime')
+    if runtime is not None:
+        marker = root / 'usr/share/omarchy/.omarchy-pi-source-commit'
+        if marker.is_symlink() or not marker.is_file() or marker.read_text(encoding='utf-8').strip() != metadata['source_revision']:
+            raise PayloadError('packaged Omarchy source marker differs from the desktop source')
 
 
 def prepare_payload(bundle: Path = BUNDLE, descriptor: Path = DESCRIPTOR, work: Path = WORK_DIRECTORY) -> tuple[Path, dict]:

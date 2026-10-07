@@ -624,6 +624,38 @@ def _source_and_script(payload: Path, root: Path) -> tuple[Path, Path, Path]:
     return source, payload, script
 
 
+def _payload_runtime_layout(payload: Path, source: Path) -> str:
+    """Select the target layout from the already verified desktop manifest."""
+
+    manifest_path = payload / "desktop-manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        return "legacy"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        raise _error("desktop manifest is unreadable") from None
+    runtime = manifest.get("runtime") if isinstance(manifest, dict) else None
+    if runtime is None:
+        return "legacy"
+    if not isinstance(runtime, Mapping) or runtime.get("layout") != "packaged" or runtime.get("path") != "/usr/share/omarchy":
+        raise _error("desktop runtime layout is invalid")
+    revision = runtime.get("source_revision")
+    if not isinstance(revision, str) or not _SOURCE_REVISION.fullmatch(revision):
+        raise _error("desktop runtime source revision is invalid")
+    try:
+        actual = subprocess.run(
+            ["git", "-C", os.fspath(source), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        raise _error("desktop runtime source revision cannot be verified") from None
+    if actual != revision:
+        raise _error("desktop runtime source revision differs from the payload source")
+    return "packaged"
+
+
 def _account_from_target(root: Path, username: str) -> Account:
     try:
         lines = (root / "etc/passwd").read_text(encoding="utf-8").splitlines()
@@ -885,13 +917,22 @@ def _runtime_validator_bytes() -> bytes:
         raise _error("corrected target RDP runtime validator is unreadable") from None
 
 
-def _overlay_runtime_validator(root: Path) -> None:
-    """Overlay the reviewed validator after the desktop leaf copies its bundle."""
+def _overlay_runtime_validator(root: Path, runtime_layout: str = "legacy") -> None:
+    """Check the package validator, or overlay the legacy bundled copy."""
 
     source_bytes = _runtime_validator_bytes()
-    destination = _target_path(root, "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py")
+    destination_path = (
+        "/usr/libexec/omarchy-pi/verify-hypr-rdp-runtime.py"
+        if runtime_layout == "packaged"
+        else "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py"
+    )
+    destination = _target_path(root, destination_path)
     if not destination.is_file() or destination.is_symlink():
         raise _error("target RDP runtime validator is missing")
+    if runtime_layout == "packaged":
+        if not stat.S_IMODE(destination.stat().st_mode) & 0o111:
+            raise _error("packaged RDP runtime validator is not executable")
+        return
     _atomic_write(destination, source_bytes, mode=0o755)
 
 
@@ -899,12 +940,22 @@ def _configure_password(root: Path, boot: Path, username: str, password: str, *,
     _target_exec(root, boot, ["/usr/bin/chpasswd"], runner=runner, input_text=f"{username}:{password}\n")
 
 
-def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any]) -> str:
+def _create_rdp_profile(
+    root: Path,
+    account: Account,
+    settings: Mapping[str, Any],
+    runtime_layout: str = "legacy",
+) -> str:
     profile_root = account.home / ".config/omarchy-pi-rdp"
     tls_root = account.home / ".config/hypr-rdp"
     policy_path = _target_path(root, "/etc/omarchy-pi/rdp-profile.toml")
     mode = settings["rdp_mode"]
     wants = account.home / ".config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service"
+    rdp_unit = (
+        "/usr/lib/systemd/user/omarchy-pi-hypr-rdp.service"
+        if runtime_layout == "packaged"
+        else "/etc/systemd/user/omarchy-pi-hypr-rdp.service"
+    )
     if mode == "disabled":
         _remove_managed(profile_root / "config.toml")
         _remove_managed(profile_root / "password")
@@ -912,7 +963,7 @@ def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any
         _remove_managed(tls_root)
         _remove_managed(policy_path)
         if os.path.lexists(wants):
-            if not wants.is_symlink() or os.readlink(wants) != "/etc/systemd/user/omarchy-pi-hypr-rdp.service":
+            if not wants.is_symlink() or os.readlink(wants) != rdp_unit:
                 raise _error("target RDP enablement is not managed")
             wants.unlink()
         return "disabled"
@@ -947,10 +998,10 @@ def _create_rdp_profile(root: Path, account: Account, settings: Mapping[str, Any
         _atomic_write(policy_path, policy, mode=0o644)
         _ensure_parent(wants)
         if os.path.lexists(wants):
-            if not wants.is_symlink() or os.readlink(wants) != "/etc/systemd/user/omarchy-pi-hypr-rdp.service":
+            if not wants.is_symlink() or os.readlink(wants) != rdp_unit:
                 raise _error("target RDP enablement is not managed")
         else:
-            wants.symlink_to("/etc/systemd/user/omarchy-pi-hypr-rdp.service")
+            wants.symlink_to(rdp_unit)
             os.lchown(wants, account.uid, account.gid)
     except BaseException:
         for path in (profile_root / "config.toml", password_path):
@@ -1129,7 +1180,14 @@ def _host_key_fingerprint(root: Path) -> str:
     raise _error("target has no SSH host key")
 
 
-def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], storage: Mapping[str, Any], rdp_bind: str) -> str:
+def _validate_result(
+    root: Path,
+    account: Account,
+    settings: Mapping[str, Any],
+    storage: Mapping[str, Any],
+    rdp_bind: str,
+    runtime_layout: str = "legacy",
+) -> str:
     machine_id = _target_path(root, "/etc/machine-id")
     value = machine_id.read_text(encoding="utf-8").strip()
     if not re.fullmatch(r"[0-9a-f]{32}", value) or value == "0" * 32:
@@ -1202,9 +1260,20 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
     else:
         config_path = account.home / ".config/omarchy-pi-rdp/config.toml"
         tls_path = account.home / ".config/hypr-rdp"
+        rdp_wants = account.home / ".config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service"
+        expected_rdp_unit = (
+            "/usr/lib/systemd/user/omarchy-pi-hypr-rdp.service"
+            if runtime_layout == "packaged"
+            else "/etc/systemd/user/omarchy-pi-hypr-rdp.service"
+        )
         policy_path = _target_path(root, "/etc/omarchy-pi/rdp-profile.toml")
         policy_parent = policy_path.parent
-        runtime_validator = _target_path(root, "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py")
+        runtime_validator = _target_path(
+            root,
+            "/usr/libexec/omarchy-pi/verify-hypr-rdp-runtime.py"
+            if runtime_layout == "packaged"
+            else "/usr/local/libexec/omarchy-pi/verify-hypr-rdp-runtime.py",
+        )
         expected_policy = f'username = {json.dumps(account.username)}\nbind = {json.dumps(rdp_bind)}\n'
         config_text = config_path.read_text(encoding="utf-8")
         validator_bytes = runtime_validator.read_bytes() if runtime_validator.is_file() and not runtime_validator.is_symlink() else b""
@@ -1222,6 +1291,8 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
         if (
             rdp_bind not in config_text
             or f'username = {json.dumps(account.username)}' not in config_text
+            or not rdp_wants.is_symlink()
+            or os.readlink(rdp_wants) != expected_rdp_unit
             or not policy_parent_valid
             or not policy_path.is_file()
             or policy_path.is_symlink()
@@ -1232,7 +1303,7 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
             or runtime_validator.is_symlink()
             or not (stat.S_IMODE(runtime_validator.stat().st_mode) & 0o111)
             or (os.geteuid() == 0 and runtime_validator.stat().st_uid != 0)
-            or hashlib.sha256(validator_bytes).hexdigest() != expected_validator_sha256
+            or (runtime_layout != "packaged" and hashlib.sha256(validator_bytes).hexdigest() != expected_validator_sha256)
             or tls_path.exists()
             or tls_path.is_symlink()
         ):
@@ -1247,8 +1318,56 @@ def _validate_result(root: Path, account: Account, settings: Mapping[str, Any], 
         root,
         f"/etc/systemd/system/multi-user.target.wants/omarchy-pi-uwsm-session@{account.username}.service",
     )
-    if not session_wants.is_symlink() or os.readlink(session_wants) != "../omarchy-pi-uwsm-session@.service":
+    expected_session_unit = (
+        "/usr/lib/systemd/system/omarchy-pi-uwsm-session@.service"
+        if runtime_layout == "packaged"
+        else "../omarchy-pi-uwsm-session@.service"
+    )
+    if not session_wants.is_symlink() or os.readlink(session_wants) != expected_session_unit:
         raise _error("target desktop session is not enabled")
+    if runtime_layout == "packaged":
+        vendor_units = (
+            _target_path(root, "/usr/lib/systemd/system/omarchy-pi-uwsm-session@.service"),
+            _target_path(root, "/usr/lib/systemd/user/omarchy-pi-hypr-rdp.service"),
+        )
+        if any(not path.is_file() or path.is_symlink() for path in vendor_units):
+            raise _error("packaged target systemd vendor unit is missing")
+        shadow_units = (
+            _target_path(root, "/etc/systemd/system/omarchy-pi-uwsm-session@.service"),
+            _target_path(root, "/etc/systemd/user/omarchy-pi-hypr-rdp.service"),
+        )
+        if any(path.exists() or path.is_symlink() for path in shadow_units):
+            raise _error("packaged target contains an /etc systemd shadow unit")
+    if runtime_layout == "packaged":
+        runtime_root = _target_path(root, "/usr/share/omarchy")
+        marker = runtime_root / ".omarchy-pi-source-commit"
+        packaged_marker = runtime_root / ".omarchy-pi-packaged.json"
+        setup = runtime_root / "install/arm64/setup-desktop-user.sh"
+        env_path = account.home / ".config/uwsm/env.d/90-omarchy-pi"
+        try:
+            packaged_document = json.loads(packaged_marker.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            packaged_document = None
+        if (
+            runtime_root.is_symlink()
+            or not runtime_root.is_dir()
+            or marker.is_symlink()
+            or not marker.is_file()
+            or not _SOURCE_REVISION.fullmatch(marker.read_text(encoding="utf-8").strip())
+            or packaged_marker.is_symlink()
+            or not isinstance(packaged_document, dict)
+            or packaged_document.get("runtime_mode", packaged_document.get("mode")) != "packaged"
+            or packaged_document.get("source_revision") != marker.read_text(encoding="utf-8").strip()
+            or setup.is_symlink()
+            or not setup.is_file()
+            or not os.access(setup, os.X_OK)
+            or env_path.is_symlink()
+            or not env_path.is_file()
+            or 'export OMARCHY_PATH="/usr/share/omarchy"' not in env_path.read_text(encoding="utf-8")
+            or (account.home / ".local/share/omarchy-pi/current").exists()
+            or (account.home / ".local/share/omarchy-pi/releases").exists()
+        ):
+            raise _error("packaged Omarchy runtime layout is incomplete")
     return fingerprint
 
 
@@ -1272,6 +1391,7 @@ def provision_target(
     boot = validated_storage["boot"]
     validate_target_options(root, validated)
     source, payload_root, provision_script = _source_and_script(payload, root)
+    runtime_layout = _payload_runtime_layout(payload_root, source)
     if _account_already_exists(root, validated["username"]):
         raise _error("selected target account already exists")
     for marker in _INSTALLER_MARKERS:
@@ -1279,22 +1399,24 @@ def provision_target(
             raise _error("target still contains installer state")
 
     progress("desktop payload")
-    _run(
-        runner,
-        [
-            "/bin/bash",
-            os.fspath(provision_script),
-            "--rootfs",
-            os.fspath(root),
-            "--source-checkout",
-            os.fspath(source),
-            "--payload-dir",
-            os.fspath(payload_root),
-            "--user",
-            validated["username"],
-        ],
-    )
-    _overlay_runtime_validator(root)
+    provision_command = [
+        "/bin/bash",
+        os.fspath(provision_script),
+        "--rootfs",
+        os.fspath(root),
+        "--source-checkout",
+        os.fspath(source),
+        "--payload-dir",
+        os.fspath(payload_root),
+        "--user",
+        validated["username"],
+    ]
+    if runtime_layout == "packaged":
+        # The package pair is installed in the payload root before this leaf;
+        # selecting the layout here prevents accidental source-release setup.
+        provision_command.extend(["--runtime-layout", "packaged"])
+    _run(runner, provision_command)
+    _overlay_runtime_validator(root, runtime_layout)
     account = _account_from_target(root, validated["username"])
 
     progress("target identity")
@@ -1313,18 +1435,23 @@ def provision_target(
     _target_exec(root, boot, ["/usr/bin/pacman-key", "--init"], runner=runner)
     _target_exec(root, boot, ["/usr/bin/pacman-key", "--populate", "archlinux", "archlinuxarm"], runner=runner)
     progress("desktop user setup")
-    setup_path = f"/home/{account.username}/.local/share/omarchy-pi/current/install/arm64/setup-desktop-user.sh"
-    _target_exec(root, boot, ["/usr/bin/bash", setup_path], runner=runner, user=account.username)
+    if runtime_layout == "packaged":
+        setup_path = "/usr/share/omarchy/install/arm64/setup-desktop-user.sh"
+        setup_command = ["/usr/bin/bash", setup_path, "--runtime-layout", "packaged"]
+    else:
+        setup_path = f"/home/{account.username}/.local/share/omarchy-pi/current/install/arm64/setup-desktop-user.sh"
+        setup_command = ["/usr/bin/bash", setup_path]
+    _target_exec(root, boot, setup_command, runner=runner, user=account.username)
 
     progress("target remote desktop")
-    rdp_bind = _create_rdp_profile(root, account, validated)
+    rdp_bind = _create_rdp_profile(root, account, validated, runtime_layout)
     progress("target boot")
     _write_fstab(root, validated_storage)
     _write_cmdline(root, validated_storage, validated["encryption"])
     _configure_boot(root, boot, validated_storage, runner=runner, machine=machine)
 
     progress("target validation")
-    fingerprint = _validate_result(root, account, validated, validated_storage, rdp_bind)
+    fingerprint = _validate_result(root, account, validated, validated_storage, rdp_bind, runtime_layout)
     if validated_provenance is not None:
         progress("provenance")
         _persist_provenance(root, validated_provenance)

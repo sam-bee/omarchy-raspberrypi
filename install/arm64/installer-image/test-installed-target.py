@@ -65,11 +65,41 @@ class FakeRunner:
                 encoding="utf-8",
             )
             home = self.root / "home/desk"
-            (home / ".local/share/omarchy-pi/current/install/arm64").mkdir(parents=True)
+            if "--runtime-layout" in command:
+                (self.root / "usr/share/omarchy/install/arm64").mkdir(parents=True, exist_ok=True)
+                (self.root / "usr/share/omarchy/.omarchy-pi-source-commit").write_text("a" * 40 + "\n")
+                (self.root / "usr/share/omarchy/.omarchy-pi-packaged.json").write_text(
+                    json.dumps({"runtime_mode": "packaged", "source_revision": "a" * 40}),
+                    encoding="ascii",
+                )
+                validator = self.root / "usr/libexec/omarchy-pi/verify-hypr-rdp-runtime.py"
+                validator.parent.mkdir(parents=True, exist_ok=True)
+                validator.write_text(
+                    installed._runtime_validator_bytes().decode("utf-8"),
+                    encoding="utf-8",
+                )
+                validator.chmod(0o755)
+                setup = self.root / "usr/share/omarchy/install/arm64/setup-desktop-user.sh"
+                setup.write_text("#!/bin/bash\n", encoding="ascii")
+                setup.chmod(0o755)
+                for vendor in (
+                    self.root / "usr/lib/systemd/system/omarchy-pi-uwsm-session@.service",
+                    self.root / "usr/lib/systemd/user/omarchy-pi-hypr-rdp.service",
+                ):
+                    vendor.parent.mkdir(parents=True, exist_ok=True)
+                    vendor.write_text("[Unit]\n", encoding="ascii")
+                env = home / ".config/uwsm/env.d/90-omarchy-pi"
+                env.parent.mkdir(parents=True, exist_ok=True)
+                env.write_text('export OMARCHY_PATH="/usr/share/omarchy"\n', encoding="ascii")
+            else:
+                (home / ".local/share/omarchy-pi/current/install/arm64").mkdir(parents=True)
             os.chown(home, os.getuid(), os.getgid())
             wants = self.root / "etc/systemd/system/multi-user.target.wants/omarchy-pi-uwsm-session@desk.service"
             wants.parent.mkdir(parents=True, exist_ok=True)
-            wants.symlink_to("../omarchy-pi-uwsm-session@.service")
+            if "--runtime-layout" in command:
+                wants.symlink_to("/usr/lib/systemd/system/omarchy-pi-uwsm-session@.service")
+            else:
+                wants.symlink_to("../omarchy-pi-uwsm-session@.service")
             return subprocess.CompletedProcess(command, 0, "", "")
 
         if command and command[0] == "systemctl":
@@ -385,8 +415,68 @@ class InstalledTargetTests(unittest.TestCase):
                     localtime.unlink()
                 if replacement is not None:
                     localtime.symlink_to(replacement)
-                with self.assertRaisesRegex(installed.TargetProvisionError, "timezone link"):
+        with self.assertRaisesRegex(installed.TargetProvisionError, "timezone link"):
                     installed._validate_result(root, account, validated, checked_storage, summary["rdp_bind"])
+
+    def test_packaged_runtime_uses_system_path_and_skips_release_pointer(self) -> None:
+        temporary, root, boot, payload, settings, storage = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        source = payload / "source"
+        subprocess.run(["git", "init", "--quiet", "--initial-branch=main"], cwd=source, check=True)
+        environment = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Installed target test",
+            "GIT_AUTHOR_EMAIL": "installed-target@example.invalid",
+            "GIT_COMMITTER_NAME": "Installed target test",
+            "GIT_COMMITTER_EMAIL": "installed-target@example.invalid",
+        }
+        subprocess.run(["git", "add", "."], cwd=source, check=True, env=environment)
+        subprocess.run(["git", "commit", "--quiet", "-m", "fixture"], cwd=source, check=True, env=environment)
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
+        (payload / "desktop-manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source": {"revision": revision},
+                    "runtime": {
+                        "layout": "packaged",
+                        "path": "/usr/share/omarchy",
+                        "source_revision": revision,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        # FakeRunner's package marker is deliberately fixed to the test's
+        # expected source value; the target leaf only needs a package-owned
+        # marker and helper for this integration boundary.
+        runner = FakeRunner(root, boot)
+        original = installed._configure_boot
+        installed._configure_boot = lambda *args, **kwargs: None
+        self.addCleanup(lambda: setattr(installed, "_configure_boot", original))
+        summary = installed.provision_target(
+            root,
+            payload,
+            settings,
+            storage,
+            lambda phase: None,
+            runner=runner,
+            machine="aarch64",
+        )
+        self.assertEqual(summary["username"], "desk")
+        provision_calls = [call for call in runner.calls if call and call[0] == "/bin/bash" and "--rootfs" in call]
+        self.assertEqual(len(provision_calls), 1)
+        self.assertIn("--runtime-layout", provision_calls[0])
+        setup_calls = [call for call in runner.calls if "/usr/share/omarchy/install/arm64/setup-desktop-user.sh" in call]
+        self.assertEqual(len(setup_calls), 1)
+        self.assertFalse((root / "home/desk/.local/share/omarchy-pi/current").exists())
+        self.assertIn('export OMARCHY_PATH="/usr/share/omarchy"', (root / "home/desk/.config/uwsm/env.d/90-omarchy-pi").read_text())
+        rdp_wants = root / "home/desk/.config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service"
+        self.assertEqual(os.readlink(rdp_wants), "/usr/lib/systemd/user/omarchy-pi-hypr-rdp.service")
+        session_wants = root / "etc/systemd/system/multi-user.target.wants/omarchy-pi-uwsm-session@desk.service"
+        self.assertEqual(os.readlink(session_wants), "/usr/lib/systemd/system/omarchy-pi-uwsm-session@.service")
+        self.assertFalse((root / "etc/systemd/system/omarchy-pi-uwsm-session@.service").exists())
+        self.assertFalse((root / "etc/systemd/user/omarchy-pi-hypr-rdp.service").exists())
 
     def test_rdp_modes_publish_runtime_policy_without_precreating_tls(self) -> None:
         for mode, expected_bind in (("loopback", "127.0.0.1:3389"), ("lan", "0.0.0.0:3389")):
