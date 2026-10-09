@@ -63,7 +63,6 @@ def create_profile(home: Path, uid: int, password: str) -> tuple[Path, Path]:
         'bind = "127.0.0.1:3389"\n'
         'username = "omarchy-pi"\n'
         f"password_file = {json.dumps(str(password_path))}\n"
-        'resolution = "1280x720"\n'
         "fps = 20\n"
         'egfx_codec = "avc420"\n'
         'audio_mode = "off"\n'

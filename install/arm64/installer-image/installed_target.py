@@ -998,7 +998,6 @@ def _create_rdp_profile(
         f'bind = "{bind}"\n'
         f'username = {json.dumps(account.username)}\n'
         f"password_file = {json.dumps(target_password_path)}\n"
-        'resolution = "1280x720"\n'
         "fps = 20\n"
         'egfx_codec = "avc420"\n'
         'audio_mode = "off"\n'

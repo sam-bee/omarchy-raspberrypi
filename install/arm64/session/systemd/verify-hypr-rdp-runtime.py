@@ -21,6 +21,8 @@ SHA256_FILE = Path("/usr/share/omarchy-pi/hypr-rdp.sha256")
 PROFILE_POLICY = Path("/etc/omarchy-pi/rdp-profile.toml")
 PACKAGE_OWNER_UID = 0
 RUNTIME_ROOT = Path("/run/user")
+MAX_RESOLUTION_DIMENSION = 2**16 - 1
+RESOLUTION_PATTERN = re.compile(r"([0-9]+)x([0-9]+)")
 
 
 def fail(message: str) -> NoReturn:
@@ -250,6 +252,33 @@ def check_profile_policy(uid: int) -> dict[str, str]:
     return {"username": username, "bind": bind}
 
 
+def check_resolution(value: object) -> None:
+    """Match hypr-rdp v0.1.6's explicit WxH parser bounds.
+
+    Omitting the setting leaves the managed headless output client-sized.
+    Explicit values are accepted using the same nonzero, u16, and H.264 even
+    dimension rules as the pinned hypr-rdp parser (odd values are rounded
+    down by hypr-rdp).
+    """
+
+    if not isinstance(value, str):
+        fail("resolution must be a WxH string")
+    match = RESOLUTION_PATTERN.fullmatch(value)
+    if match is None:
+        fail("resolution must use the WxH format")
+    try:
+        width, height = (int(part) for part in match.groups())
+    except ValueError:
+        fail("resolution dimensions are invalid")
+    if width == 0 or height == 0:
+        fail("resolution dimensions must be non-zero")
+    if width > MAX_RESOLUTION_DIMENSION or height > MAX_RESOLUTION_DIMENSION:
+        fail(f"resolution dimensions must be <= {MAX_RESOLUTION_DIMENSION}")
+    # hypr-rdp's avc420 path rounds each dimension down to an even value.
+    if (width & ~1) == 0 or (height & ~1) == 0:
+        fail("resolution is too small; minimum is 2x2")
+
+
 def check_config(home: Path, uid: int, profile: dict[str, str] | None = None) -> tuple[Path, Path]:
     config_dir = home / ".config/omarchy-pi-rdp"
     real_directory(config_dir, owner_uid=uid, mode=0o700)
@@ -267,17 +296,19 @@ def check_config(home: Path, uid: int, profile: dict[str, str] | None = None) ->
     expected = {
         "bind": profile["bind"],
         "username": profile["username"],
-        "resolution": "1280x720",
         "fps": 20,
         "egfx_codec": "avc420",
         "audio_mode": "off",
         "file_transfer_mode": "off",
     }
-    if set(config) != set(expected) | {"password_file"}:
+    required = set(expected) | {"password_file"}
+    if set(config) - {"resolution"} != required:
         fail("config fields differ from the reviewed persistent profile")
     for key, value in expected.items():
         if config.get(key) != value:
             fail(f"config field {key} differs from the validated local profile")
+    if "resolution" in config:
+        check_resolution(config["resolution"])
 
     password_path = config_dir / "password"
     password_value = config.get("password_file")

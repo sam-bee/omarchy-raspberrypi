@@ -18,6 +18,19 @@ Pass both archives to `build-desktop-payload.py` with repeated `--runtime-packag
 
 The package map excludes Pi boot, kernel, network and authentication configuration. Pi session units and helpers are package-owned under `/usr/lib/systemd` and `/usr/libexec/omarchy-pi`. The installer continues to prepare the Pi-native boot chain, encrypted target and recovery access. A fresh target's generated Wi-Fi profile sets NetworkManager's `powersave=2` property, so the setting follows that profile without binding it to a particular radio or MAC address. See [Raspberry Pi network adapter policy](raspberrypi-networking.md) for machine-specific radio selection and persistent local overrides.
 
+Target RDP profiles omit `resolution` by default so hypr-rdp can size its
+separate headless output from the client request. The fallback before a
+client requests a size is 1920×1080. Existing explicit `resolution = "WxH"`
+preferences remain supported within hypr-rdp's dimension bounds; they fix the
+output size. The runtime verifier accepts either form while retaining its
+identity, credential-file, TLS, ownership and package checks. For an existing
+profile, remove only the `resolution` line from
+`~/.config/omarchy-pi-rdp/config.toml` to select client sizing, then restart
+`omarchy-pi-hypr-rdp.service` through the user manager. Restarting disconnects
+the active RDP client. This requires the updated verifier package; the older
+verifier rejects profiles that differ from its fixed 1280×720 baseline.
+The installer environment retains its separately validated fixed display.
+
 The pair manifest binds the package names, shared version, `aarch64` architecture, package filenames and SHA-256 values to a full source revision and the SHA-256 of its deterministic Git archive. The installed `omarchy` package carries `.omarchy-pi-source-commit` and `.omarchy-pi-packaged.json`; the latter records packaged mode, channel, version and source provenance. Update dispatch also asks pacman which package owns `/usr/share/omarchy/version` and its settings directory, so a stale `OMARCHY_PATH` or arbitrary source checkout cannot select packaged mode.
 
 There is no trusted downstream ARM package feed yet. The pair is therefore built from the fixed downstream source and reviewed provenance. Repository signatures remain required. If the reviewed local archives are unsigned, the durable worker uses a job-local `LocalFileSigLevel = Optional` entry only for those archives; it does not relax repository or host-wide trust, and this workflow creates no signing key or external feed.

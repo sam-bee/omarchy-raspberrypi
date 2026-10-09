@@ -398,6 +398,7 @@ class InstalledTargetTests(unittest.TestCase):
         self.assertEqual(summary["rdp_bind"], "127.0.0.1:3389")
         rdp_config = (root / "home/desk/.config/omarchy-pi-rdp/config.toml").read_text(encoding="utf-8")
         self.assertIn('password_file = "/home/desk/.config/omarchy-pi-rdp/password"', rdp_config)
+        self.assertNotIn("resolution =", rdp_config)
         self.assertNotIn(str(root), rdp_config)
         self.assertNotIn("target-login-secret", repr(summary))
         self.assertNotIn("target-rdp-secret", repr(summary))
@@ -630,6 +631,40 @@ class InstalledTargetTests(unittest.TestCase):
         self.assertFalse(
             (root / "home/desk/.config/systemd/user/graphical-session.target.wants/omarchy-pi-hypr-rdp.service").exists()
         )
+
+    def test_rdp_resolution_is_optional_or_hypr_rdp_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            config_dir = home / ".config/omarchy-pi-rdp"
+            config_dir.mkdir(parents=True, mode=0o700)
+            password = config_dir / "password"
+            password.write_bytes(b"rdp-secret")
+            password.chmod(0o600)
+            config = config_dir / "config.toml"
+            base = (
+                'bind = "127.0.0.1:3389"\n'
+                'username = "desk"\n'
+                f'password_file = "{password}"\n'
+                "fps = 20\n"
+                'egfx_codec = "avc420"\n'
+                'audio_mode = "off"\n'
+                'file_transfer_mode = "off"\n'
+            )
+            profile = {"username": "desk", "bind": "127.0.0.1:3389"}
+
+            for resolution in (None, "1920x1080", "1919x1079", "65535x65535"):
+                with self.subTest(resolution=resolution):
+                    suffix = "" if resolution is None else f'resolution = "{resolution}"\n'
+                    config.write_text(base + suffix, encoding="utf-8")
+                    config.chmod(0o600)
+                    rdp_runtime.check_config(home, os.getuid(), profile)
+
+            for resolution in ("0x1080", "1x2", "65536x1080", "1920X1080", "1920x"):
+                with self.subTest(resolution=resolution):
+                    config.write_text(base + f'resolution = "{resolution}"\n', encoding="utf-8")
+                    config.chmod(0o600)
+                    with self.assertRaises(SystemExit):
+                        rdp_runtime.check_config(home, os.getuid(), profile)
 
     def test_invalid_provenance_fails_before_target_commands(self) -> None:
         temporary, root, boot, payload, settings, storage = self.make_fixture()
