@@ -7,9 +7,10 @@ splits the stream below GitHub's asset limit, and writes the release metadata
 used by the existing Pi 5 release workflow.  It never opens a device, mounts
 anything, contacts a Pi, or publishes an asset.
 
-The final invocation must provide an explicit native-acceptance record.  This
-keeps a locally verified image from being presented as a production release
-before the exact raw-image bytes have passed the native boot/install gate.
+The final invocation must provide an explicit acceptance record bound to the
+selected raw image.  It may record an exact-image native boot or an inherited
+native baseline plus final-image runtime and file validation; the generated
+manifest states which scope was actually tested.
 """
 
 from __future__ import annotations
@@ -191,13 +192,11 @@ def _native_acceptance(
     image_digest: Digest,
     installer_revision: str,
     installer_runtime_sha: str,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], str, dict[str, bool | None]]:
     document = _read_json(path, "native acceptance record")
-    validation = document.get("validation")
-    native = validation.get("native_boot_tested") if isinstance(validation, Mapping) else document.get("native_boot_tested")
-    if native is not True and document.get("status") not in {"passed", "accepted"}:
-        raise ReleaseError("native acceptance record does not prove a passed native boot")
-    raw_sha = document.get("raw_sha256")
+    if document.get("status") != "passed":
+        raise ReleaseError("native acceptance status must be passed")
+    raw_sha = _valid_sha(document.get("raw_sha256"), "native acceptance raw_sha256")
     if raw_sha != image_digest.sha256:
         raise ReleaseError("native acceptance raw_sha256 does not match the selected image")
     pinned_revision = document.get("installer_source_revision")
@@ -206,16 +205,68 @@ def _native_acceptance(
     pinned_runtime_sha = document.get("installer_runtime_sha256")
     if pinned_runtime_sha is not None and pinned_runtime_sha != installer_runtime_sha:
         raise ReleaseError("native acceptance runtime digest does not match the selected image")
-    scope = document.get("scope") or document.get("acceptance_scope")
-    if not isinstance(scope, str) or not scope.strip():
+    scope_value = document.get("scope") or document.get("acceptance_scope")
+    if isinstance(scope_value, str) and scope_value.strip():
+        scope_values = [scope_value.strip()]
+    elif isinstance(scope_value, list) and scope_value and all(isinstance(value, str) and value.strip() for value in scope_value):
+        scope_values = [value.strip() for value in scope_value]
+    else:
         checks = document.get("checks")
         if isinstance(checks, Mapping):
-            scope = ", ".join(sorted(str(key) for key, value in checks.items() if value is True))
+            scope_values = sorted(str(key) for key, value in checks.items() if value is True)
         elif isinstance(checks, list):
-            scope = ", ".join(str(value) for value in checks if isinstance(value, str))
-    if not isinstance(scope, str) or not scope.strip():
+            scope_values = [str(value).strip() for value in checks if isinstance(value, str) and value.strip()]
+        else:
+            scope_values = []
+    if not scope_values:
         raise ReleaseError("native acceptance record must describe its tested scope")
-    return document, scope.strip()
+
+    validation = document.get("validation")
+    if validation is not None and not isinstance(validation, Mapping):
+        raise ReleaseError("native acceptance validation must be an object")
+
+    def flag(name: str) -> bool | None:
+        values = [
+            obj[name]
+            for obj in (document, validation or {})
+            if isinstance(obj, Mapping) and name in obj
+        ]
+        if any(type(value) is not bool for value in values):
+            raise ReleaseError(f"native acceptance {name} must be boolean")
+        if len(set(values)) > 1:
+            raise ReleaseError(f"native acceptance {name} is contradictory")
+        return values[0] if values else None
+
+    def normalized(value: str) -> str:
+        return value.strip().lower().replace("_", "-").replace(" ", "-")
+
+    scope_tokens = {normalized(value) for value in scope_values}
+
+    def scoped_flag(name: str, *aliases: str) -> bool | None:
+        value = flag(name)
+        implied = any(alias in scope_tokens for alias in aliases)
+        if value is False and implied:
+            raise ReleaseError(f"native acceptance {name} conflicts with its scope")
+        return value if value is not None else (True if implied else None)
+
+    native = flag("native_boot_tested")
+    if native is None:
+        raise ReleaseError("native acceptance must explicitly record native_boot_tested")
+    if native is False and scope_tokens & {"exact-image-native-boot", "exact-native-boot", "exact-image-boot"}:
+        raise ReleaseError("native acceptance scope claims an exact-image boot while native_boot_tested is false")
+    runtime_verified = scoped_flag("native_runtime_verified", "native-runtime-verified")
+    file_verified = scoped_flag("file_image_verified", "file-image-verified", "final-image-file-verified")
+    inherited = scoped_flag("inherited_baseline", "inherited-baseline", "baseline-inherited")
+    if native is False and not (runtime_verified is True and file_verified is True and inherited is True):
+        raise ReleaseError(
+            "native acceptance without exact-image boot requires inherited baseline, runtime, and file validation"
+        )
+    return document, ", ".join(scope_values), {
+        "native_boot_tested": native,
+        "native_runtime_verified": runtime_verified,
+        "file_image_verified": file_verified,
+        "inherited_baseline": inherited,
+    }
 
 
 def _runtime_rows(value: list[Any]) -> list[dict[str, Any]]:
@@ -298,6 +349,7 @@ def _release_text(
     runtime_packages: list[Mapping[str, Any]],
     acceptance: Mapping[str, Any],
     acceptance_scope: str,
+    acceptance_flags: Mapping[str, bool | None],
 ) -> str:
     part_lines = "\n".join(
         f"- `{stem}.img.zst.part-{index:02d}` — {part.bytes:,} bytes; SHA-256 `{part.sha256}`"
@@ -312,7 +364,7 @@ def _release_text(
     )
     return f"""# Omarchy Pi 5 {release}
 
-This production release packages the Raspberry Pi 5 installer image whose updated runtime passed the native acceptance scope recorded below. The scope is tied to this image's raw SHA-256; it does not imply that the earlier full encrypted fresh-install rehearsal was repeated for this updater-only refresh.
+This production release packages the Raspberry Pi 5 installer image whose acceptance scope is recorded below. The record explicitly states whether this exact raw image was booted natively; the scope is tied to this image's raw SHA-256.
 
 ## Image and provenance
 
@@ -322,7 +374,7 @@ This production release packages the Raspberry Pi 5 installer image whose update
 - Installer runtime digest: `{installer_runtime_sha}`
 - Desktop payload source: `{desktop_revision}`
 - Desktop payload: {len(desktop_rows)} installed package records; {desktop_archive_digest.bytes:,} bytes; SHA-256 `{desktop_archive_digest.sha256}`
-- Native acceptance record: `{acceptance.get('status', 'passed')}`; scope: {acceptance_scope}
+- Acceptance record: `{acceptance.get('status', 'passed')}`; exact-image native boot tested: `{str(acceptance_flags['native_boot_tested']).lower()}`; scope: {acceptance_scope}
 
 The compressed stream is split below GitHub's 2 GiB asset limit:
 
@@ -355,7 +407,7 @@ The package pair and Pi-specific installer source are part of the image provenan
 
 ## Build and acceptance
 
-The release manifest and package inventories record the image, package, desktop, source and acceptance pins. Native acceptance covers the exact raw image hash above and the updated runtime scope listed above. The earlier full encrypted installation remains baseline evidence for the installer workflow; it is not claimed as a second fresh installation of this image.
+The release manifest and package inventories record the image, package, desktop, source and acceptance pins. Acceptance covers the exact raw image hash above and the updated runtime scope listed above; `native_boot_tested` is true only when the record proves that exact image booted. The earlier full encrypted installation remains baseline evidence for the installer workflow; it is not claimed as a second fresh installation of this image.
 
 ## License
 
@@ -402,7 +454,7 @@ def build(args: argparse.Namespace) -> Path:
     installer_runtime_sha = _valid_sha(output.get("installer", {}).get("runtime_sha256"), "installer runtime digest")
     desktop_revision = _valid_revision(output.get("desktop", {}).get("source_revision"), "desktop source revision")
     image_digest = _sha256(image)
-    acceptance, acceptance_scope = _native_acceptance(
+    acceptance, acceptance_scope, acceptance_flags = _native_acceptance(
         args.native_acceptance,
         image_digest=image_digest,
         installer_revision=installer_revision,
@@ -475,7 +527,7 @@ def build(args: argparse.Namespace) -> Path:
             "runtime_packages": runtime_packages,
         },
         "verification": {
-            "native_boot_tested": True,
+            "native_boot_tested": acceptance_flags["native_boot_tested"],
             "native_acceptance_status": acceptance.get("status", "passed"),
             "native_acceptance_scope": acceptance_scope,
             "native_acceptance_raw_sha256": image_digest.sha256,
@@ -485,6 +537,9 @@ def build(args: argparse.Namespace) -> Path:
             "candidate_validation": receipt.get("validation", {}),
         },
     }
+    for key in ("native_runtime_verified", "file_image_verified", "inherited_baseline"):
+        if acceptance_flags[key] is not None:
+            manifest["verification"][key] = acceptance_flags[key]
     manifest_path = output_dir / "release-manifest.json"
     _write_json(manifest_path, manifest)
     licenses_source = args.licenses_source or Path(__file__).with_name("omarchy-pi5-0.1.0-pi5-2026.09.29") / "LICENSES.md"
@@ -506,6 +561,7 @@ def build(args: argparse.Namespace) -> Path:
             runtime_packages,
             acceptance,
             acceptance_scope,
+            acceptance_flags,
         ),
         encoding="utf-8",
     )
@@ -527,7 +583,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-dir", type=Path, required=True, help="completed image candidate directory")
     parser.add_argument("--output-dir", type=Path, required=True, help="new empty release metadata directory")
     parser.add_argument("--installer-package-manifest", type=Path, required=True, help="native stage-arm package manifest")
-    parser.add_argument("--native-acceptance", type=Path, required=True, help="exact-image native acceptance record")
+    parser.add_argument("--native-acceptance", type=Path, required=True, help="acceptance record bound to the selected raw image")
     parser.add_argument("--desktop-archive", type=Path, help="desktop.tar.zst; defaults to the candidate payload")
     parser.add_argument("--image-stem", help="release image stem; defaults to the candidate raw image stem")
     parser.add_argument("--licenses-source", type=Path, help="license note template")
