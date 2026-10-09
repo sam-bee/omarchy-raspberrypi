@@ -15,6 +15,20 @@ RDP frames/input after this restart, and a reboot were not tested. The
 previous pair/profile were retained privately for recovery and the installed
 pair was published as the next update's package rollback boundary.
 
+That transaction exposed a missing update safeguard: a live Hyprland
+auto-reload while the settings files were being replaced left the session
+with three emergency bindings, despite clean package integrity afterward.
+Reloading the completed config restored 230 bindings. Source `c1f1c608`
+restores upstream's pause/resume ALPM hooks to the Pi runtime package. Pair
+`4.0.0.alpha-6873` was installed with identical temporary hooks protecting
+this first upgrade; the transaction ran both hooks and retained all 230
+bindings with no config errors. Reload/error-display options were restored,
+package integrity passed, and a captured RDP output showed the normal desktop.
+Existing RDP profile and authentication hashes matched, and SSH, RDP and
+Fail2ban remained available. The permanent package-owned hooks replaced the
+temporary copies, and 6873 is now the validated package rollback boundary.
+No reboot or alternate-size client/input test was performed for this repair.
+
 ## Build and provenance
 
 Build the pair from a clean pinned checkout:
