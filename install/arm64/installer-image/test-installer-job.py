@@ -29,6 +29,7 @@ SPEC.loader.exec_module(job)
 
 SECRET = "correct horse battery staple"
 WIFI_SECRET = "wifi-secret"
+UNLOCK_KEY_HEX = "ab" * 64
 
 
 def settings(*, encryption: str = "plain") -> dict[str, object]:
@@ -54,6 +55,8 @@ class FakeDisk(types.ModuleType):
         super().__init__("disk_install")
         self.root = root
         self.prepare_calls: list[tuple[object, ...]] = []
+        self.select_key_calls: list[bool] = []
+        self.validate_pair_calls: list[bool] = []
 
     def discover_disks(self) -> list[dict[str, object]]:
         return [
@@ -71,7 +74,14 @@ class FakeDisk(types.ModuleType):
     def confirm_token(self, identity: dict[str, object]) -> str:
         return "CONFIRM " + str(identity["path"])
 
-    def validate_pair(self, target, key):
+    def select_key_disk(self, path: str, *, allow_existing_key: bool = False):
+        self.select_key_calls.append(allow_existing_key)
+        identity = self.select_disk(path)
+        identity["key_reusable" if allow_existing_key else "key_eligible"] = True
+        return identity
+
+    def validate_pair(self, target, key, *, allow_existing_key: bool = False):
+        self.validate_pair_calls.append(allow_existing_key)
         target_path = target.get("path") if isinstance(target, dict) else target
         key_path = key.get("path") if isinstance(key, dict) else key
         if target_path != "/dev/nvme0n1" or key_path not in {None, "/dev/sdb"}:
@@ -79,8 +89,18 @@ class FakeDisk(types.ModuleType):
         return target, key
 
     @contextlib.contextmanager
-    def prepare_target(self, target: str, mode: str, passphrase: str | None, key: str | None, *, progress_callback=None):
-        self.prepare_calls.append((target, mode, passphrase, key))
+    def prepare_target(
+        self,
+        target: str,
+        mode: str,
+        passphrase: str | None,
+        key: str | None,
+        *,
+        allow_existing_key: bool = False,
+        key_bytes: bytes | None = None,
+        progress_callback=None,
+    ):
+        self.prepare_calls.append((target, mode, passphrase, key, allow_existing_key, key_bytes))
         if progress_callback is not None:
             progress_callback("Preparing test target")
         root = self.root / "target-root"
@@ -208,7 +228,14 @@ class InstallerJobTests(unittest.TestCase):
     def start_service(self) -> None:
         self.started += 1
 
-    def request(self, *, action: str = "submit", encryption: str = "plain") -> dict[str, object]:
+    def request(
+        self,
+        *,
+        action: str = "submit",
+        encryption: str = "plain",
+        erase_existing_key: bool = False,
+        unlock_key_hex: str | None = None,
+    ) -> dict[str, object]:
         target = "/dev/nvme0n1"
         key = "/dev/sdb" if encryption == "key" else None
         return {
@@ -219,11 +246,25 @@ class InstallerJobTests(unittest.TestCase):
             "target_confirmation": "CONFIRM " + target,
             "key_confirmation": "CONFIRM " + key if key else None,
             "consent_internet": True,
+            "erase_existing_key": erase_existing_key,
+            "unlock_key_hex": unlock_key_hex,
             "restart_confirmation": job.RESTART_CONFIRMATION,
         }
 
-    def submit(self, *, encryption: str = "plain") -> dict[str, object]:
-        return job._handle_request(self.request(encryption=encryption))
+    def submit(
+        self,
+        *,
+        encryption: str = "plain",
+        erase_existing_key: bool = False,
+        unlock_key_hex: str | None = None,
+    ) -> dict[str, object]:
+        return job._handle_request(
+            self.request(
+                encryption=encryption,
+                erase_existing_key=erase_existing_key,
+                unlock_key_hex=unlock_key_hex,
+            )
+        )
 
     def fake_recovery(self, *, fail=False):
         calls = []
@@ -426,6 +467,58 @@ class InstallerJobTests(unittest.TestCase):
         self.assertEqual(private_request["settings"]["password"], SECRET)
         self.assertEqual(job._load_state()["phase"], "queued")
 
+    def test_key_reuse_and_operator_key_are_private_and_reach_storage(self) -> None:
+        result = self.submit(
+            encryption="key",
+            erase_existing_key=True,
+            unlock_key_hex=UNLOCK_KEY_HEX,
+        )
+        self.assertTrue(result["state"]["erase_existing_key"])
+        private_request = json.loads((job.RUNTIME_ROOT / "request.json").read_text())
+        self.assertTrue(private_request["erase_existing_key"])
+        self.assertEqual(private_request["unlock_key_hex"], UNLOCK_KEY_HEX)
+        self.assertNotIn(UNLOCK_KEY_HEX, json.dumps(result))
+        self.assertEqual(self.disk.select_key_calls, [True])
+        self.assertEqual(self.disk.validate_pair_calls, [True])
+
+        plan = job._handle_request({
+            **self.request(
+                action="plan",
+                encryption="key",
+                erase_existing_key=True,
+                unlock_key_hex=UNLOCK_KEY_HEX,
+            ),
+        })
+        self.assertTrue(plan["erase_existing_key"])
+        self.assertNotIn(UNLOCK_KEY_HEX, json.dumps(plan))
+        self.assertEqual(job._run_worker(), 0)
+        self.assertEqual(self.disk.prepare_calls[0][4], True)
+        self.assertEqual(self.disk.prepare_calls[0][5], bytes.fromhex(UNLOCK_KEY_HEX))
+        self.assertNotIn(UNLOCK_KEY_HEX, job._log_path(result["job_id"]).read_text())
+
+    def test_key_reuse_defaults_off_and_requires_explicit_boolean(self) -> None:
+        result = self.submit(encryption="key")
+        self.assertFalse(result["state"]["erase_existing_key"])
+        private_request = json.loads((job.RUNTIME_ROOT / "request.json").read_text())
+        self.assertFalse(private_request["erase_existing_key"])
+        self.assertNotIn("unlock_key_hex", private_request)
+
+        with self.assertRaisesRegex(job.InstallerError, "only valid for key encryption"):
+            job._handle_request({**self.request(erase_existing_key=True), "action": "plan"})
+        with self.assertRaisesRegex(job.InstallerError, "must be a boolean"):
+            job._handle_request({**self.request(encryption="key", erase_existing_key="yes"), "action": "plan"})
+
+    def test_operator_key_rejects_bad_length_and_type_before_queueing(self) -> None:
+        for value, message in (("00", "exactly 128"), (123, "exactly 128"), ("g" * 128, "exactly 128")):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(job.InstallerError, message):
+                    job._handle_request({**self.request(encryption="key", unlock_key_hex=value), "action": "plan"})
+                self.assertEqual(self.started, 0)
+                self.assertFalse((job.RUNTIME_ROOT / "request.json").exists())
+        with self.assertRaisesRegex(job.InstallerError, "only valid for key encryption"):
+            job._handle_request({**self.request(unlock_key_hex=UNLOCK_KEY_HEX), "action": "plan"})
+        self.assertEqual(self.disk.prepare_calls, [])
+
     def test_worker_runs_in_background_and_removes_transient_secrets(self) -> None:
         self.submit()
         original_sigterm = signal.getsignal(signal.SIGTERM)
@@ -528,7 +621,16 @@ class InstallerJobTests(unittest.TestCase):
         snapshots = []
 
         @contextlib.contextmanager
-        def prepare_target(target, mode, passphrase, key, *, progress_callback):
+        def prepare_target(
+            target,
+            mode,
+            passphrase,
+            key,
+            *,
+            allow_existing_key=False,
+            key_bytes=None,
+            progress_callback,
+        ):
             progress_callback("Formatting target root filesystem " + SECRET)
             snapshots.append(job._load_state())
             raise RuntimeError("storage command stopped")
@@ -609,10 +711,19 @@ class InstallerJobTests(unittest.TestCase):
             disk.BOOT_SIZE_MIB = 1
             disk.select_disk = lambda path: identity
             disk.confirm_token = lambda value: "CONFIRM " + value["path"]
-            disk.validate_pair = lambda target, key: (target, key)
+            disk.validate_pair = lambda target, key, *, allow_existing_key=False: (target, key)
 
             @contextlib.contextmanager
-            def prepare_target(target, mode, passphrase, key, *, progress_callback=None):
+            def prepare_target(
+                target,
+                mode,
+                passphrase,
+                key,
+                *,
+                allow_existing_key=False,
+                key_bytes=None,
+                progress_callback=None,
+            ):
                 mounted = base / "mounted"
                 (mounted / "root").mkdir(parents=True)
                 (mounted / "boot").mkdir()

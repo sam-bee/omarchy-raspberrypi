@@ -60,19 +60,25 @@ def _disk_label(disk: Mapping[str, Any], *, unavailable: bool = False) -> str:
     size = _human_size(disk.get("size"))
     identity = disk.get("identity") if isinstance(disk.get("identity"), Mapping) else {}
     model = _text(disk.get("model") or identity.get("model") or disk.get("transport") or identity.get("transport") or "disk")
+    serial = _text(disk.get("serial") or identity.get("serial") or "unknown")
     suffix = ""
     reasons = disk.get("reasons")
     if unavailable:
         reason = ", ".join(_text(item) for item in reasons) if isinstance(reasons, list) and reasons else "not eligible for this role"
         suffix = " — unavailable: " + reason
-    return f"{path}  {size}  {model}{suffix}"
+    return f"{path}  {size}  {model}  serial={serial}{suffix}"
 
 
-def _disk_options(disks: Sequence[Mapping[str, Any]], *, key: bool = False) -> tuple[list[str], list[Mapping[str, Any]], list[str]]:
+def _disk_options(
+    disks: Sequence[Mapping[str, Any]],
+    *,
+    key: bool = False,
+    reuse_existing_key: bool = False,
+) -> tuple[list[str], list[Mapping[str, Any]], list[str]]:
     available: list[Mapping[str, Any]] = []
     unavailable: list[str] = []
     for disk in disks:
-        eligible_field = "key_eligible" if key else "eligible"
+        eligible_field = "key_reusable" if reuse_existing_key else "key_eligible" if key else "eligible"
         eligible = disk.get(eligible_field)
         # An omitted eligibility bit is intentionally not a safe default.  The
         # controller owns the protected-media policy and must positively mark
@@ -777,15 +783,36 @@ class InstallerUi:
                         hidden.append(_text(wifi.get("password")))
                     self.ui.message("Review settings", [_redact(str(exc), hidden), "Choose a section to correct; your answers remain in place."])
 
-    def _select_disk(self, disks: Sequence[Mapping[str, Any]], *, key: bool = False, title: str | None = None) -> Mapping[str, Any] | object:
-        options, available, unavailable = _disk_options(disks, key=key)
+    def _select_disk(
+        self,
+        disks: Sequence[Mapping[str, Any]],
+        *,
+        key: bool = False,
+        reuse_existing_key: bool = False,
+        title: str | None = None,
+    ) -> Mapping[str, Any] | object:
+        options, available, unavailable = _disk_options(disks, key=key, reuse_existing_key=reuse_existing_key)
         if not available:
-            self.ui.message("No eligible disk", unavailable or ["The installer found no eligible disk for this role."])
+            self.ui.message(
+                "No reusable unlock-key USB" if reuse_existing_key else "No eligible disk",
+                unavailable or [
+                    "The installer found no reusable attached unlock-key USB."
+                    if reuse_existing_key else "The installer found no eligible disk for this role."
+                ],
+            )
             return _CANCEL
         selected = self.ui.choose(
-            title or ("Select target USB/NVMe" if not key else "Select disposable key USB"),
+            title or (
+                "Select existing unlock-key USB" if reuse_existing_key
+                else "Select target USB/NVMe" if not key
+                else "Select fresh blank unlock-key USB"
+            ),
             options,
-            detail=["Unavailable disks are listed with their reason and cannot be selected."] + unavailable,
+            detail=[
+                "Unavailable disks are listed with their reason and cannot be selected.",
+                "Only an explicitly reusable unlock-key USB can be selected for reuse."
+                if reuse_existing_key else "",
+            ] + unavailable,
         )
         if selected in (_BACK, _CANCEL) or not isinstance(selected, int):
             return _BACK
@@ -860,7 +887,8 @@ class InstallerUi:
     def _plan_lines(self, plan: Mapping[str, Any], target: Mapping[str, Any], key: Mapping[str, Any] | None, settings: Mapping[str, Any] | None = None) -> list[str]:
         lines = ["The installer accepted the answers and produced this plan:", "", f"Target storage: {_disk_label(target)}"]
         if key is not None:
-            lines.append(f"Disposable key: {_disk_label(key)}")
+            key_label = "Existing unlock-key USB" if plan.get("erase_existing_key") is True else "Unlock-key USB"
+            lines.append(f"{key_label}: {_disk_label(key)}")
         if isinstance(settings, Mapping):
             lines.extend(["", "Settings:"])
             rdp_labels = {"disabled": "Disabled", "loopback": "Loopback (SSH tunnel)", "lan": "LAN (direct client)"}
@@ -888,7 +916,20 @@ class InstallerUi:
             revision = installer.get("revision") or installer.get("source_revision") or installer.get("commit")
             if revision:
                 lines.append("Installer revision: " + _text(revision))
-        lines.extend(["", "The target token below is an exact erase safeguard.", "Submitting the exact erase token and internet consent starts installation."])
+        if plan.get("erase_existing_key") is True:
+            lines.extend([
+                "",
+                "WARNING: The selected existing unlock-key USB will be erased and reused.",
+                "The old unlock key will be lost and cannot unlock the new target.",
+            ])
+        elif key is not None:
+            lines.append("The selected key USB is expected to be a fresh blank device.")
+        lines.extend([
+            "",
+            "The selected target storage will be erased.",
+            "The target token below is an exact erase safeguard.",
+            "Submitting the exact erase token and internet consent starts installation.",
+        ])
         return lines
 
     def install(self, previous_state: Mapping[str, Any]) -> int | None:
@@ -919,11 +960,40 @@ class InstallerUi:
             if isinstance(wifi, Mapping) and isinstance(wifi.get("password"), str):
                 secrets.append(wifi["password"])
             key: Mapping[str, Any] | None = None
+            erase_existing_key = False
             if settings.get("encryption") == "key":
-                key = self._select_disk(disks, key=True)
+                erase_existing_key = self._choose_value(
+                    "Unlock-key USB",
+                    [
+                        ("Use a fresh blank USB (recommended)", False),
+                        ("Erase and reuse an existing unlock-key USB", True),
+                    ],
+                    False,
+                    detail=[
+                        "A fresh blank USB is the default.",
+                        "Reusing an existing key erases its current key material; the old key will be lost.",
+                    ],
+                )
+                if erase_existing_key is _BACK:
+                    return None
+                key = self._select_disk(
+                    disks,
+                    key=True,
+                    reuse_existing_key=bool(erase_existing_key),
+                    title=(
+                        "Select existing unlock-key USB"
+                        if erase_existing_key else "Select fresh blank unlock-key USB"
+                    ),
+                )
                 if key in (_BACK, _CANCEL):
                     return None
-            request = {"action": "plan", "settings": settings, "target": target.get("path"), "key": key.get("path") if key else None}
+            request = {
+                "action": "plan",
+                "settings": settings,
+                "target": target.get("path"),
+                "key": key.get("path") if key else None,
+                "erase_existing_key": erase_existing_key,
+            }
             plan = self._call(request)
             if not self.ui.message_with_review("Review installation", self._plan_lines(plan, target, key, settings)):
                 return None
@@ -951,6 +1021,7 @@ class InstallerUi:
                 "target_confirmation": target_confirmation,
                 "key_confirmation": key_confirmation,
                 "consent_internet": True,
+                "erase_existing_key": erase_existing_key,
             }
             if restart:
                 submit["restart_confirmation"] = RESTART_CONFIRMATION

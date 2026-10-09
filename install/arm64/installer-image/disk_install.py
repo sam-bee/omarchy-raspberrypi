@@ -546,6 +546,20 @@ def _identity_for(node: Mapping[str, Any], *, nodes: Sequence[Mapping[str, Any]]
         and not any(reason not in {"device is too small"} for reason in reasons)
         and _int(node.get("size")) >= FIRST_PARTITION_SECTOR * SECTOR_SIZE + KEY_SIZE_MIB * MIB
     )
+    # Existing key media is protected from ordinary target and fresh-key
+    # selection. Recycling it is a separate explicit operation: only a USB
+    # whole disk carrying the known key marker may qualify, and only the
+    # marker and target-size guard may be ignored. Mounts, swaps,
+    # holders/slaves, installer media, missing identity, and every other
+    # discovery protection continue to make it non-reusable.
+    reusable_key = (
+        node.get("type") == "disk"
+        and str(node.get("tran") or "").lower() == "usb"
+        and key_media
+        and not installer_media
+        and not any(reason not in {"protected existing unlock-key media", "device is too small"} for reason in reasons)
+        and _int(node.get("size")) >= FIRST_PARTITION_SECTOR * SECTOR_SIZE + KEY_SIZE_MIB * MIB
+    )
     return {
         "path": path,
         "identity": {
@@ -562,10 +576,12 @@ def _identity_for(node: Mapping[str, Any], *, nodes: Sequence[Mapping[str, Any]]
             "key_media": key_media,
             "installer_media": installer_media,
             "blank_key_candidate": blank_candidate,
+            "key_reusable": reusable_key,
         },
         "size": _int(node.get("size")),
         "eligible": not reasons,
         "key_eligible": blank_candidate,
+        "key_reusable": reusable_key,
         "reasons": reasons,
     }
 
@@ -614,8 +630,8 @@ def select_disk(path: str) -> dict[str, Any]:
     raise InstallError(f"disk is not a discovered whole physical device: {path}")
 
 
-def select_key_disk(path: str) -> dict[str, Any]:
-    """Select a fresh blank USB identity for key preparation."""
+def select_key_disk(path: str, *, allow_existing_key: bool = False) -> dict[str, Any]:
+    """Select a blank USB, or explicitly approved existing key media."""
 
     _require_preflight()
     requested = os.path.realpath(path)
@@ -623,8 +639,8 @@ def select_key_disk(path: str) -> dict[str, Any]:
     for candidate in candidates:
         if os.path.realpath(str(candidate["path"])) != requested:
             continue
-        if not candidate.get("key_eligible"):
-            reasons = "; ".join(candidate.get("reasons", [])) or "not a fresh blank key USB"
+        if not candidate.get("key_eligible") and not (allow_existing_key and candidate.get("key_reusable")):
+            reasons = "; ".join(candidate.get("reasons", [])) or "not a blank or reusable key USB"
             raise InstallError(f"refusing key medium {path}: {reasons}")
         return candidate
     raise InstallError(f"key medium is not a discovered whole physical device: {path}")
@@ -665,33 +681,40 @@ def _current_identity(identity: Mapping[str, Any], *, role: str) -> dict[str, An
     return candidate
 
 
-def _revalidate(identity: Mapping[str, Any], *, role: str) -> dict[str, Any]:
+def _revalidate(identity: Mapping[str, Any], *, role: str, allow_existing_key: bool = False) -> dict[str, Any]:
     current = _current_identity(identity, role=role)
     if role == "target" and not current["eligible"]:
         raise InstallError(f"target changed: {'; '.join(current['reasons'])}")
-    if role == "key" and not current.get("key_eligible"):
-        raise InstallError("key media is no longer a blank USB stick")
+    if role == "key" and not current.get("key_eligible") and not (allow_existing_key and current.get("key_reusable")):
+        raise InstallError("key media is no longer a blank or explicitly reusable USB stick")
     return current
 
 
-def _validate_key(identity: Mapping[str, Any]) -> dict[str, Any]:
-    current = _revalidate(identity, role="key")
+def _validate_key(identity: Mapping[str, Any], *, allow_existing_key: bool = False) -> dict[str, Any]:
+    current = _revalidate(identity, role="key", allow_existing_key=allow_existing_key)
     details = current["identity"]
     if details.get("key_media"):
-        raise InstallError("refusing an existing unlock-key USB; choose a fresh blank stick")
+        if not allow_existing_key or not current.get("key_reusable"):
+            raise InstallError("refusing an existing unlock-key USB; choose a fresh blank stick or explicitly allow reuse")
     if not details.get("blank_key_candidate"):
-        raise InstallError("key USB must be blank, unmounted, and unmarked")
+        if not (allow_existing_key and details.get("key_media") and current.get("key_reusable")):
+            raise InstallError("key USB must be blank, unmounted, and unmarked")
     if int(current["size"]) < (FIRST_PARTITION_SECTOR * SECTOR_SIZE + KEY_SIZE_MIB * MIB):
         raise InstallError("key USB is too small for its 256 MiB key partition")
     return current
 
 
-def validate_pair(target_identity: Mapping[str, Any], key_identity: Mapping[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def validate_pair(
+    target_identity: Mapping[str, Any],
+    key_identity: Mapping[str, Any] | None = None,
+    *,
+    allow_existing_key: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Revalidate selected target/key identities immediately before mutation."""
 
     _require_preflight()
     target = _revalidate(target_identity, role="target")
-    key = _validate_key(key_identity) if key_identity is not None else None
+    key = _validate_key(key_identity, allow_existing_key=allow_existing_key) if key_identity is not None else None
     if key is not None and _same_identity(target, key):
         raise InstallError("target and key media must be different devices")
     return target, key
@@ -802,15 +825,22 @@ def _make_key(
     key_identity: Mapping[str, Any],
     *,
     job_dir: Path,
+    allow_existing_key: bool = False,
+    key_bytes: bytes | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[str, str, Path, Path]:
+    if key_bytes is not None and (not isinstance(key_bytes, bytes) or len(key_bytes) != 64):
+        raise InstallError("supplied unlock key must be exactly 64 bytes")
     key_disk = str(key_identity["path"])
     key_part, _unused = _partition_devices(key_disk)
     _progress(progress_callback, "Revalidating selected unlock-key USB")
-    current = _revalidate(key_identity, role="key")
+    current = _revalidate(key_identity, role="key", allow_existing_key=allow_existing_key)
     _progress(progress_callback, "Selected unlock-key USB revalidated")
     _progress(progress_callback, "Preparing unlock-key USB: wiping previous signatures")
-    current = _revalidate(current, role="key")
+    current = _revalidate(current, role="key", allow_existing_key=allow_existing_key)
+    key_bytes = secrets.token_bytes(64) if key_bytes is None else key_bytes
+    key_file = _write_secret_file(job_dir, "generated-key", key_bytes)
+    _progress(progress_callback, "Unlock key staged before media preparation")
     _checked(["wipefs", "--all", "--force", "--", key_disk])
     _progress(progress_callback, "Unlock-key USB signatures wiped")
     # wipefs removes the old partition/filesystem signatures.  Let udev
@@ -849,7 +879,6 @@ def _make_key(
         key_path = key_mount / ".cryptroot.key"
         _progress(progress_callback, "Writing unlock key file")
         descriptor = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
-        key_bytes = secrets.token_bytes(64)
         try:
             os.write(descriptor, key_bytes)
             os.fsync(descriptor)
@@ -886,7 +915,6 @@ def _make_key(
         _checked(["umount", "--", os.fspath(key_mount)])
         mounted = False
         _progress(progress_callback, "Unlock-key USB unmounted read-only")
-        key_file = _write_secret_file(job_dir, "generated-key", key_bytes)
         _progress(progress_callback, "Unlock key staged for target enrollment")
         return key_part, key_uuid, key_file, key_mount
     finally:
@@ -939,11 +967,17 @@ def prepare_target(
     key_identity: Mapping[str, Any] | None = None,
     *,
     progress_callback: ProgressCallback | None = None,
+    allow_existing_key: bool = False,
+    key_bytes: bytes | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Prepare and mount one target, yielding only resources owned by the job."""
 
     if mode not in {"plain", "passphrase", "key"}:
         raise InstallError("mode must be plain, passphrase, or key")
+    if key_bytes is not None and (not isinstance(key_bytes, bytes) or len(key_bytes) != 64):
+        raise InstallError("supplied unlock key must be exactly 64 bytes")
+    if key_bytes is not None and mode != "key":
+        raise InstallError("supplied unlock key is valid only in key mode")
     if mode == "plain" and (passphrase or key_identity is not None):
         raise InstallError("plain mode cannot receive encryption credentials")
     if mode in {"passphrase", "key"} and (
@@ -958,12 +992,12 @@ def prepare_target(
         raise InstallError("a key USB is valid only in key mode")
 
     _progress(progress_callback, "Revalidating selected target and key devices")
-    target, key = validate_pair(target_identity, key_identity)
+    target, key = validate_pair(target_identity, key_identity, allow_existing_key=allow_existing_key)
     _progress(progress_callback, "Selected target and key devices revalidated")
     # Recheck once more directly before the first destructive command.  This
     # catches a device replacement between validation and command dispatch.
     _progress(progress_callback, "Rechecking devices immediately before mutation")
-    target, key = validate_pair(target, key)
+    target, key = validate_pair(target, key, allow_existing_key=allow_existing_key)
     _progress(progress_callback, "Devices rechecked immediately before mutation")
     target_path = str(target["path"])
     boot_device, root_device = _partition_devices(target_path)
@@ -991,6 +1025,8 @@ def prepare_target(
             key_part, key_uuid, key_file, key_mount = _make_key(
                 key,
                 job_dir=job_dir,
+                allow_existing_key=allow_existing_key,
+                key_bytes=key_bytes,
                 progress_callback=progress_callback,
             )
 

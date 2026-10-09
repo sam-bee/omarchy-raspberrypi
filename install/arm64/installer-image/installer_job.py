@@ -69,7 +69,7 @@ _MODULE_SEARCH_DIRS: list[Path] = []
 _SIBLING_MODULES = frozenset({"disk_install", "desktop_payload", "installed_target", "recovery", "settings", "installer_ui"})
 
 _SENSITIVE_NAME = re.compile(
-    r"(?:pass(?:word|phrase)?|secret|authorized.?key|private.?key|credential|token)",
+    r"(?:pass(?:word|phrase)?|secret|authorized.?key|private.?key|unlock.?key|credential|token)",
     re.IGNORECASE,
 )
 _SOURCE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
@@ -445,6 +445,7 @@ def _safe_state(state: Mapping[str, Any]) -> dict[str, Any]:
         "message",
         "log_file",
         "previous_job_id",
+        "erase_existing_key",
     }
     result: dict[str, Any] = {}
     for key, value in state.items():
@@ -515,24 +516,60 @@ def _target_and_key(request: Mapping[str, Any]) -> tuple[str, str | None]:
     return target, key
 
 
-def _select_key_disk(disk: Any, path: str) -> Mapping[str, Any]:
+def _validate_erase_existing_key(value: Any, settings: Mapping[str, Any]) -> bool:
+    """Validate the explicit opt-in for reusing an existing unlock key."""
+
+    if not isinstance(value, bool):
+        raise InstallerError("erase_existing_key must be a boolean")
+    if value and settings.get("encryption") != "key":
+        raise InstallerError("erase_existing_key is only valid for key encryption")
+    return value
+
+
+def _validate_unlock_key_hex(value: Any, settings: Mapping[str, Any]) -> str | None:
+    """Validate an optional operator-supplied 64-byte unlock key.
+
+    The value is accepted only in the private control request and is converted
+    to bytes immediately before storage preparation.  It is never part of a
+    plan or durable state response.
+    """
+
+    if value is None:
+        return None
+    if settings.get("encryption") != "key":
+        raise InstallerError("unlock_key_hex is only valid for key encryption")
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-fA-F]{128}", value) is None:
+        raise InstallerError("unlock_key_hex must be exactly 128 hexadecimal characters")
+    return value
+
+
+def _select_key_disk(disk: Any, path: str, *, allow_existing_key: bool = False) -> Mapping[str, Any]:
     selector = getattr(disk, "select_key_disk", None)
     try:
-        identity = selector(path) if selector is not None else disk.select_disk(path)
+        if selector is not None:
+            identity = selector(path, allow_existing_key=allow_existing_key)
+        else:
+            identity = disk.select_disk(path)
     except Exception as exc:
         raise InstallerError("the selected key disk is not eligible") from exc
     if not isinstance(identity, Mapping):
         raise InstallerError("key disk selection returned an invalid identity")
     # A disposable key stick is intentionally too small for the target-disk
-    # minimum.  The storage module therefore exposes key_eligible separately.
-    # Older test doubles omit the field and retain the ordinary selector.
-    if "key_eligible" in identity and identity.get("key_eligible") is not True:
+    # minimum. The storage module exposes separate positive policy bits for a
+    # fresh key and an explicitly reusable existing key. Older test doubles
+    # omit these fields and retain the ordinary selector.
+    eligibility_field = "key_reusable" if allow_existing_key else "key_eligible"
+    if eligibility_field in identity and identity.get(eligibility_field) is not True:
+        if allow_existing_key:
+            raise InstallerError("the selected key disk is not a reusable unlock-key USB")
         raise InstallerError("the selected key disk is not a blank eligible USB")
     return identity
 
 
 def _plan(request: Mapping[str, Any]) -> dict[str, Any]:
     settings = _validate_settings(request.get("settings"))
+    erase_existing_key = _validate_erase_existing_key(request.get("erase_existing_key", False), settings)
+    unlock_key_hex = _validate_unlock_key_hex(request.get("unlock_key_hex"), settings)
     target, key = _target_and_key(request)
     if settings["encryption"] == "key" and key is None:
         raise InstallerError("key encryption needs a separate key disk")
@@ -541,8 +578,8 @@ def _plan(request: Mapping[str, Any]) -> dict[str, Any]:
     disk = _module("disk_install")
     try:
         target_identity = disk.select_disk(target)
-        key_identity = _select_key_disk(disk, key) if key else None
-        valid = disk.validate_pair(target_identity, key_identity)
+        key_identity = _select_key_disk(disk, key, allow_existing_key=erase_existing_key) if key else None
+        valid = disk.validate_pair(target_identity, key_identity, allow_existing_key=erase_existing_key)
         if valid is False:
             raise InstallerError("the selected disk pair was rejected")
         target_token = str(disk.confirm_token(target_identity))
@@ -573,6 +610,10 @@ def _plan(request: Mapping[str, Any]) -> dict[str, Any]:
         "payload": _safe_summary(metadata),
         "installer": installer,
         "required_target_bytes": required_target_bytes,
+        "erase_existing_key": erase_existing_key,
+        # Kept only for the root-owned private request. The public plan
+        # adapter deliberately omits this value and _safe_state filters it.
+        "unlock_key_hex": unlock_key_hex,
         # The raw identities are retained only for the root worker request;
         # all terminal responses use the recursively filtered copies above.
         "target_identity_raw": target_identity,
@@ -730,8 +771,11 @@ def _submit(request: Mapping[str, Any], *, restart: bool) -> dict[str, Any]:
         "key_token": plan["key_token"],
         "installer": plan["installer"],
         "required_target_bytes": plan["required_target_bytes"],
+        "erase_existing_key": plan["erase_existing_key"],
         "consent_internet": True,
     }
+    if plan["unlock_key_hex"] is not None:
+        private_request["unlock_key_hex"] = plan["unlock_key_hex"]
     # The request is written before the durable queued state.  A power loss
     # between these writes is still handled as an interrupted job, and the
     # request disappears with /run; it can never be auto-resumed.
@@ -753,6 +797,7 @@ def _submit(request: Mapping[str, Any], *, restart: bool) -> dict[str, Any]:
         "payload": plan["payload"],
         "installer": plan["installer"],
         "log_file": str(_log_path(job_id)),
+        "erase_existing_key": plan["erase_existing_key"],
     }
     if previous_job_id:
         state["previous_job_id"] = previous_job_id
@@ -794,7 +839,7 @@ def _worker_progress(
     _job_log(job_id, f"{phase}: {message}", secrets_to_hide=secrets_to_hide)
 
 
-def _validate_worker_disk(request: Mapping[str, Any]) -> None:
+def _validate_worker_disk(request: Mapping[str, Any], *, allow_existing_key: bool = False) -> None:
     disk = _module("disk_install")
     target = request["target"]
     key = request.get("key")
@@ -803,7 +848,11 @@ def _validate_worker_disk(request: Mapping[str, Any]) -> None:
     if not isinstance(target_identity, Mapping) or (key is not None and not isinstance(key_identity, Mapping)):
         raise InstallerError("the confirmed disk identities are unavailable")
     try:
-        current_target, current_key = disk.validate_pair(target_identity, key_identity)
+        current_target, current_key = disk.validate_pair(
+            target_identity,
+            key_identity,
+            allow_existing_key=allow_existing_key,
+        )
         if current_target.get("path") != target or str(disk.confirm_token(current_target)) != request.get("target_token"):
             raise InstallerError("the target disk identity changed after confirmation")
         if key is not None and current_key is None:
@@ -926,6 +975,12 @@ def _run_worker() -> int:
                 _job_log(job_id, "boot repair and target cleanup complete")
                 return 0
             settings = _validate_settings(settings)
+            erase_existing_key = _validate_erase_existing_key(
+                private_request.get("erase_existing_key", False), settings
+            )
+            unlock_key_hex = _validate_unlock_key_hex(private_request.get("unlock_key_hex"), settings)
+            key_bytes = bytes.fromhex(unlock_key_hex) if unlock_key_hex is not None else None
+            secret_values = tuple(_settings_secret_values(settings)) + ((unlock_key_hex,) if unlock_key_hex else ())
             state["status"] = "running"
             state["phase"] = "payload-validation"
             state["started_at"] = state.get("started_at", _now())
@@ -977,7 +1032,7 @@ def _run_worker() -> int:
             private_request["required_target_bytes"] = _required_target_bytes(
                 metadata, settings["encryption"] != "plain"
             )
-            _validate_worker_disk(private_request)
+            _validate_worker_disk(private_request, allow_existing_key=erase_existing_key)
             _worker_progress(
                 job_id,
                 "target-preparation",
@@ -991,6 +1046,8 @@ def _run_worker() -> int:
                 settings["encryption"],
                 passphrase,
                 private_request.get("key_identity"),
+                allow_existing_key=erase_existing_key,
+                key_bytes=key_bytes,
                 progress_callback=lambda message: _worker_progress(
                     job_id,
                     "target-preparation",
@@ -1122,6 +1179,7 @@ def _handle_request(request: Mapping[str, Any]) -> dict[str, Any]:
             "settings": plan["settings_summary"],
             "payload": plan["payload"],
             "installer": plan["installer"],
+            "erase_existing_key": plan["erase_existing_key"],
             "target": {"path": plan["target_path"], "identity": plan["target_identity"], "token": plan["target_token"]},
             "key": (
                 {"path": plan["key_path"], "identity": plan["key_identity"], "token": plan["key_token"]}

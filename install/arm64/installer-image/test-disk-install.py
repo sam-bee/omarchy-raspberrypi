@@ -177,8 +177,94 @@ class DiskInstallTests(unittest.TestCase):
     def test_existing_key_media_cannot_be_reselected_as_fresh_key(self) -> None:
         with self.discovery_patches():
             disks = {disk["path"]: disk for disk in disk_install.discover_disks()}
-            with self.assertRaisesRegex(disk_install.InstallError, "blank USB"):
+            self.assertTrue(disks["/dev/sda"]["key_reusable"])
+            with self.assertRaisesRegex(disk_install.InstallError, "blank.*USB"):
                 disk_install.validate_pair(disks["/dev/sdb"], disks["/dev/sda"])
+
+    def test_existing_key_media_requires_explicit_reuse_permission(self) -> None:
+        with self.discovery_patches():
+            disks = {disk["path"]: disk for disk in disk_install.discover_disks()}
+            selected = disk_install.select_key_disk("/dev/sda", allow_existing_key=True)
+            target, key = disk_install.validate_pair(
+                disks["/dev/sdb"], selected, allow_existing_key=True
+            )
+
+        self.assertEqual(target["path"], "/dev/sdb")
+        self.assertEqual(key["path"], "/dev/sda")
+        self.assertTrue(key["identity"]["key_media"])
+        self.assertTrue(key["key_reusable"])
+
+    def test_reuse_permission_does_not_admit_arbitrary_or_unsafe_media(self) -> None:
+        base = {
+            "size": 64 * GIB,
+            "eligible": False,
+            "key_eligible": False,
+            "key_reusable": False,
+            "identity": {
+                "stable_id": "serial:MEDIA",
+                "size": 64 * GIB,
+                "transport": "usb",
+                "model": "USB",
+                "major_minor": "8:1",
+            },
+        }
+        records = []
+        for path, reason, key_media in (
+            ("/dev/sdb", "unrelated partitioned data", False),
+            ("/dev/sdc", "installer media", True),
+            ("/dev/sdd", "mounted filesystem or descendant", True),
+            ("/dev/sde", "device has active sysfs holders or slaves", True),
+        ):
+            record = json.loads(json.dumps(base))
+            record.update(path=path, reasons=[reason])
+            record["identity"].update(stable_id=f"serial:{path}", key_media=key_media, installer_media=reason == "installer media")
+            records.append(record)
+
+        with mock.patch.object(disk_install, "_preflight_error", return_value=None), mock.patch.object(
+            disk_install, "discover_disks", return_value=records
+        ):
+            for record in records:
+                with self.assertRaisesRegex(disk_install.InstallError, "key medium"):
+                    disk_install.select_key_disk(record["path"], allow_existing_key=True)
+
+    def test_existing_key_revalidation_change_rejects_before_mutation(self) -> None:
+        selected = json.loads(json.dumps(self.document["blockdevices"][1]))
+        selected_record = {
+            "path": "/dev/sda",
+            "size": selected["size"],
+            "eligible": False,
+            "key_eligible": False,
+            "key_reusable": True,
+            "reasons": ["protected existing unlock-key media"],
+            "identity": {
+                "stable_id": "serial:DEDICATED-KEY",
+                "size": selected["size"],
+                "major_minor": "8:0",
+                "model": "USB",
+                "transport": "usb",
+                "key_media": True,
+                "blank_key_candidate": False,
+                "key_reusable": True,
+            },
+        }
+        changed = json.loads(json.dumps(selected_record))
+        changed["key_reusable"] = False
+        changed["identity"]["key_reusable"] = False
+        changed["reasons"] = ["protected existing unlock-key media", "mounted filesystem or descendant"]
+        current_target = json.loads(json.dumps(self.target["/dev/nvme0n1"]))
+        with mock.patch.object(disk_install, "_preflight_error", return_value=None), mock.patch.object(
+            disk_install, "discover_disks", return_value=[current_target, changed]
+        ):
+            with self.assertRaisesRegex(disk_install.InstallError, "blank or explicitly reusable"):
+                disk_install.validate_pair(current_target, selected_record, allow_existing_key=True)
+
+    def test_target_and_existing_key_must_be_different_devices(self) -> None:
+        blank = json.loads(json.dumps(self.blank_key))
+        with mock.patch.object(disk_install, "_preflight_error", return_value=None), mock.patch.object(
+            disk_install, "discover_disks", return_value=[blank]
+        ):
+            with self.assertRaisesRegex(disk_install.InstallError, "different devices"):
+                disk_install.validate_pair(blank, blank, allow_existing_key=True)
 
     def test_sysfs_holder_is_a_target_guard(self) -> None:
         def details(kname: str) -> dict[str, object]:
@@ -732,6 +818,8 @@ class DiskInstallTests(unittest.TestCase):
     def test_key_mode_keeps_recovery_secret_out_of_argv_and_cleans_secret_dir(self) -> None:
         commands: list[tuple[list[str], str | None]] = []
         progress: list[str] = []
+        enrolled_key_bytes: list[bytes] = []
+        supplied_key = b"S" * 64
         key = dict(self.blank_key)
         key["identity"] = dict(key["identity"])
 
@@ -746,6 +834,9 @@ class DiskInstallTests(unittest.TestCase):
                 return _result(command, "11111111-1111-1111-1111-111111111111\n")
             if command[:2] == ["cryptsetup", "luksUUID"]:
                 return _result(command, "44444444-4444-4444-4444-444444444444\n")
+            if command[:2] == ["cryptsetup", "luksAddKey"]:
+                key_path = Path(command[command.index("--new-keyfile") + 1])
+                enrolled_key_bytes.append(key_path.read_bytes())
             return _result(command)
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -764,6 +855,7 @@ class DiskInstallTests(unittest.TestCase):
                     "recovery-passphrase",
                     key,
                     progress_callback=progress.append,
+                    key_bytes=supplied_key,
                 ) as context:
                     self.assertEqual(context["key_uuid"], "33333333-3333-3333-3333-333333333333")
                     self.assertEqual(context["key_path"], "/.cryptroot.key")
@@ -780,6 +872,7 @@ class DiskInstallTests(unittest.TestCase):
             self.assertNotIn("recovery-passphrase", argv)
         luks_format_input = next(value for argv, value in commands if argv[:2] == ["cryptsetup", "luksFormat"])
         self.assertEqual(luks_format_input, "recovery-passphrase")
+        self.assertEqual(enrolled_key_bytes, [supplied_key])
         key_sfdisk = next(value for argv, value in commands if argv[0] == "sfdisk" and argv[-1] == "/dev/sdb")
         self.assertIn(",524288,83", key_sfdisk or "")
         wipefs_indices = [index for index, (argv, _input) in enumerate(commands) if argv[0] == "wipefs"]
@@ -791,6 +884,32 @@ class DiskInstallTests(unittest.TestCase):
         self.assertIn("Formatting unlock-key USB filesystem (ext4)", progress)
         self.assertIn("Unlock key staged for target enrollment", progress)
         self.assertTrue(all("recovery-passphrase" not in label for label in progress))
+
+    def test_supplied_key_bytes_are_validated_before_any_storage_command(self) -> None:
+        commands: list[list[str]] = []
+
+        def runner(command: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return _result(command)
+
+        with mock.patch.multiple(
+            disk_install,
+            _run=mock.Mock(side_effect=runner),
+            _preflight_error=mock.Mock(return_value=None),
+            discover_disks=mock.Mock(return_value=[self.target["/dev/nvme0n1"], self.blank_key]),
+        ):
+            for invalid in (b"short", b"K" * 65, "K" * 64):
+                with self.assertRaisesRegex(disk_install.InstallError, "exactly 64 bytes"):
+                    with disk_install.prepare_target(
+                        self.target["/dev/nvme0n1"],
+                        "key",
+                        "recovery-passphrase",
+                        self.blank_key,
+                        key_bytes=invalid,
+                    ):
+                        self.fail("invalid supplied key was accepted")
+
+        self.assertEqual(commands, [])
 
 
 if __name__ == "__main__":

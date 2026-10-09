@@ -103,16 +103,27 @@ class FakeController:
                         "path": "/dev/sda",
                         "size": 128 * 1024**3,
                         "model": "target USB",
+                        "serial": "TARGET-SERIAL",
                         "eligible": True,
                         "transport": "usb",
                     },
-                    {"path": "/dev/sdb", "size": 64 * 1024**3, "eligible": False, "reasons": ["protected key media"]},
+                    {
+                        "path": "/dev/sdb",
+                        "size": 64 * 1024**3,
+                        "model": "existing key USB",
+                        "serial": "KEY-SERIAL",
+                        "eligible": False,
+                        "key_eligible": True,
+                        "key_reusable": True,
+                        "reasons": ["protected key media"],
+                    },
                 ]
             }
         if action == "plan":
             return {
                 "target": {"path": "/dev/sda", "token": "TARGET-123"},
-                "key": None,
+                "key": ({"path": request["key"], "token": "KEY-123"} if request.get("key") else None),
+                "erase_existing_key": bool(request.get("erase_existing_key", False)),
                 "payload": {"required_target_bytes": 1},
                 "installer": {"revision": "test"},
             }
@@ -161,6 +172,42 @@ class InstallerUiTests(unittest.TestCase):
         rendered = "\n".join(line for _title, lines in ui.messages + ui.reviews for line in lines)
         self.assertNotIn("account-secret", rendered)
         self.assertEqual(len(ui.watched), 1)
+
+    def test_key_reuse_selects_only_reusable_media_and_persists_confirmation_flag(self) -> None:
+        controller = FakeController()
+        ui = FakeInteraction(
+            choices=[0, 1, 0],  # target, reuse existing key, key disk
+            texts=["TARGET-123", "KEY-123", "YES"],
+        )
+        app = installer_ui.InstallerUi(controller, _valid_settings, ui)
+        app._reuse_defaults = lambda: {}
+        values = app._base_settings({})
+        values.update({
+            "username": "sierra",
+            "hostname": "omarchy-pi",
+            "password": "account-secret",
+            "encryption": "key",
+            "recovery_passphrase": "recovery-secret",
+        })
+        selected_settings = _valid_settings(values)
+        app._collect_settings = lambda _initial: selected_settings
+
+        result = app.install({"status": "idle"})
+        self.assertEqual(result, 0)
+        plan_request = next(request for request in controller.requests if request["action"] == "plan")
+        submit_request = next(request for request in controller.requests if request["action"] == "submit")
+        self.assertTrue(plan_request["erase_existing_key"])
+        self.assertTrue(submit_request["erase_existing_key"])
+        self.assertEqual(plan_request["key"], "/dev/sdb")
+        review = next(lines for title, lines in ui.reviews if title == "Review installation")
+        rendered = "\n".join(review)
+        self.assertIn("Target storage: /dev/sda", rendered)
+        self.assertIn("target USB  serial=TARGET-SERIAL", rendered)
+        self.assertIn("Existing unlock-key USB: /dev/sdb", rendered)
+        self.assertIn("existing key USB  serial=KEY-SERIAL", rendered)
+        self.assertIn("selected target storage will be erased", rendered)
+        self.assertIn("existing unlock-key USB will be erased and reused", rendered)
+        self.assertIn("old unlock key will be lost", rendered)
 
     def test_back_from_account_keeps_earlier_edits(self) -> None:
         ui = FakeInteraction(texts=["alice", installer_ui._BACK])
