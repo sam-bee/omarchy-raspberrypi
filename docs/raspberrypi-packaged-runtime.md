@@ -4,6 +4,17 @@ The packaged installer variant installs the matching downstream `omarchy` and `o
 
 The initial fresh NVMe installation passed native boot, encrypted automatic unlock, package integrity, XDG state, SSH and RDP acceptance for the installed pair `omarchy`/`omarchy-settings` version `4.0.0.alpha-6857`. A subsequent normal packaged update and reboot also passed on kernel `6.18.55`, with pair version `4.0.0.alpha-6865`, the protected configuration fingerprints preserved, `pacman -Qkk` reporting 1792 runtime files and 473 settings files unaltered, and automatic unlock, SSH, the desktop and RDP service working after reboot. These results describe the tested installed target; they do not claim that the final USB image has been natively booted.
 
+The client-resolution fix was subsequently installed as a targeted matching
+pair `4.0.0.alpha-6871` from source `55cb5ba1`. Package integrity remained
+clean; the updated preflight and RDP restart passed, and the new headless
+display used the 1920×1080 fallback with the fixed resolution omitted.
+Existing RDP password/TLS material and SSH authentication hashes matched,
+and fresh SSH access passed. This targeted transaction did not run the full
+Arch upgrade or migrations. A client-requested alternate size, rendered
+RDP frames/input after this restart, and a reboot were not tested. The
+previous pair/profile were retained privately for recovery and the installed
+pair was published as the next update's package rollback boundary.
+
 ## Build and provenance
 
 Build the pair from a clean pinned checkout:
