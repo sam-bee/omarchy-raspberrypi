@@ -322,76 +322,23 @@ packaged_runtime="$test_tmp/packaged-runtime"
 mkdir -p "$packaged_runtime/config" "$packaged_runtime/install/arm64"
 touch "$packaged_runtime/version"
 printf '%s\n' '{"schema_version":1,"runtime_mode":"packaged","source_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' >"$packaged_runtime/.omarchy-pi-packaged.json"
+printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' >"$packaged_runtime/.omarchy-pi-source-commit"
 cp "$ROOT/install/arm64/update_packages.py" "$packaged_runtime/install/arm64/update_packages.py"
-candidate_root="$test_tmp/package-candidate"
-python3 - "$candidate_root" <<'PY'
-import hashlib
-import io
+cat >"$packaged_runtime/install/arm64/update-source.py" <<'PY'
+#!/usr/bin/python3
 import json
-from pathlib import Path
+import os
 import sys
-import tarfile
 
-root = Path(sys.argv[1])
-(root / "source/migrations").mkdir(parents=True)
-(root / "source/install/arm64").mkdir(parents=True)
-(root / "source/install/arm64/migrations.allowlist").write_text("# reviewed\n")
-(root / "source/.omarchy-pi-source-commit").write_text("b" * 40 + "\n")
-
-source_archive = root / "source.tar"
-with tarfile.open(source_archive, "w") as stream:
-    for path in sorted((root / "source").rglob("*")):
-        if path.name == ".omarchy-pi-source-commit":
-            continue
-        stream.add(path, arcname=path.relative_to(root / "source").as_posix(), recursive=False)
-source_sha256 = hashlib.sha256(source_archive.read_bytes()).hexdigest()
-
-def archive(directory, name, package_name, version, revision, package_sha256):
-    path = root / directory / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    settings = "omarchy-settings"
-    metadata = f"pkgname = {package_name}\npkgver = {version}\narch = aarch64\n"
-    if package_name == "omarchy":
-        metadata += f"depend = {settings}={version}\n"
-    marker = json.dumps({
-        "schema_version": 1,
-        "layout": "packaged",
-        "runtime_mode": "packaged",
-        "channel": "stable",
-        "version": version,
-        "source_revision": revision,
-        "source_sha256": package_sha256,
-    }, sort_keys=True).encode() + b"\n"
-    with tarfile.open(path, "w") as stream:
-        def add(member, body):
-            info = tarfile.TarInfo(member)
-            info.size = len(body)
-            info.mode = 0o644
-            stream.addfile(info, io.BytesIO(body))
-        add(".PKGINFO", metadata.encode())
-        add("usr/share/omarchy/.omarchy-pi-source-commit", (revision + "\n").encode())
-        add("usr/share/omarchy/.omarchy-pi-packaged.json", marker)
-    return {
-        "name": package_name,
-        "version": version,
-        "architecture": "aarch64",
-        "filename": f"{directory}/{name}",
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "signature": "optional",
-    }
-
-packages = [archive("packages", f"{name}-1.0-1-aarch64.pkg.tar.zst", name, "1.0-1", "b" * 40, source_sha256) for name in ("omarchy", "omarchy-settings")]
-previous = [archive("previous", f"{name}-0.9-1-aarch64.pkg.tar.zst", name, "0.9-1", "a" * 40, "c" * 64) for name in ("omarchy", "omarchy-settings")]
-(root / "candidate.json").write_text(json.dumps({
-    "schema_version": 1,
-    "architecture": "aarch64",
-    "channel": "stable",
-    "source_revision": "b" * 40,
-    "source": {"tree": "source", "archive": "source.tar", "archive_sha256": source_sha256},
-    "packages": packages,
-    "previous_packages": previous,
+if sys.argv[1:] != ["check", "--json"]:
+    raise SystemExit(2)
+print(json.dumps({
+    "status": os.environ.get("TEST_PACKAGED_SOURCE_STATUS", "update-available"),
+    "remote_revision": os.environ.get("TEST_PACKAGED_SOURCE_REVISION", "b" * 40),
 }))
+raise SystemExit(int(os.environ.get("TEST_PACKAGED_SOURCE_EXIT", "0")))
 PY
+chmod +x "$packaged_runtime/install/arm64/update-source.py"
 
 if capture_checker "$stdout" "$stderr" \
   TEST_UNAME=aarch64 \
@@ -401,12 +348,70 @@ if capture_checker "$stdout" "$stderr" \
   TEST_OMARCHY_PATH="$packaged_runtime" \
   OMARCHY_PI_TESTING=1 \
   OMARCHY_PI_TEST_RUNTIME_ROOT="$packaged_runtime" \
-  OMARCHY_PI_TEST_CANDIDATE_ROOT="$candidate_root"; then
+  TEST_PACKAGED_SOURCE_REVISION="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"; then
   status=0
 else
   status=$?
 fi
-[[ $status -eq 0 ]] || fail "update checker detects a reviewed packaged ARM candidate" "$(cat "$stdout" "$stderr")"
-grep -Fx "omarchy-stable-candidate $(printf 'b%.0s' {1..40}) available" "$stdout" >/dev/null ||
-  fail "update checker reports packaged candidate provenance" "$(cat "$stdout")"
-pass "update checker detects a reviewed packaged ARM candidate"
+[[ $status -eq 0 ]] || fail "update checker detects a packaged source update" "$(cat "$stdout" "$stderr")"
+grep -Fx "omarchy-pi-source $(printf 'b%.0s' {1..40}) available" "$stdout" >/dev/null ||
+  fail "update checker reports packaged source provenance" "$(cat "$stdout")"
+! grep -Fq 'candidate unavailable' "$stdout" || fail "packaged polling does not require a prebuilt candidate"
+pass "update checker detects a packaged source update without building packages"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_UNAME=aarch64 \
+  TEST_PACKAGE_PROVENANCE=stable \
+  TEST_CHECKUPDATES=fail \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$packaged_runtime" \
+  OMARCHY_PI_TESTING=1 \
+  OMARCHY_PI_TEST_RUNTIME_ROOT="$packaged_runtime" \
+  TEST_PACKAGED_SOURCE_STATUS=up-to-date \
+  TEST_PACKAGED_SOURCE_REVISION="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 1 ]] || fail "update checker recognizes a current packaged source revision"
+grep -Fx 'Omarchy is up to date' "$stdout" >/dev/null ||
+  fail "packaged source current state is reported as up to date" "$(cat "$stdout")"
+pass "update checker recognizes a current packaged source revision"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_UNAME=aarch64 \
+  TEST_PACKAGE_PROVENANCE=stable \
+  TEST_CHECKUPDATES=fail \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$packaged_runtime" \
+  OMARCHY_PI_TESTING=1 \
+  OMARCHY_PI_TEST_RUNTIME_ROOT="$packaged_runtime" \
+  TEST_PACKAGED_SOURCE_STATUS=unavailable \
+  TEST_PACKAGED_SOURCE_EXIT=2; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker reports a packaged source resolution failure"
+grep -Fx 'omarchy-pi-source update check failed' "$stdout" >/dev/null ||
+  fail "packaged source resolution failure is visible" "$(cat "$stdout")"
+! grep -Fx 'Omarchy is up to date' "$stdout" >/dev/null || fail "packaged source failure is not reported as current"
+pass "update checker surfaces packaged source resolution failures"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_UNAME=aarch64 \
+  TEST_PACKAGE_PROVENANCE=stable \
+  TEST_CHECKUPDATES=fail \
+  TEST_INSTALLED_PACKAGE=none \
+  TEST_OMARCHY_PATH="$packaged_runtime" \
+  OMARCHY_PI_TESTING=1 \
+  OMARCHY_PI_TEST_RUNTIME_ROOT="$packaged_runtime" \
+  TEST_PACKAGED_SOURCE_REVISION=invalid; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker reports invalid packaged source metadata"
+grep -Fx 'omarchy-pi-source update check failed' "$stdout" >/dev/null ||
+  fail "invalid packaged source metadata is visible" "$(cat "$stdout")"
+pass "update checker rejects invalid packaged source metadata"

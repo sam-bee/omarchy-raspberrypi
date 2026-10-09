@@ -16,7 +16,7 @@ packaged_arm_runtime() {
     runtime_root=$OMARCHY_PI_TEST_RUNTIME_ROOT
   fi
   [[ ${OMARCHY_PATH:-$runtime_root} == "$runtime_root" ]] || return 1
-  [[ -f "$runtime_root/version" && -f "$runtime_root/.omarchy-pi-packaged.json" && -d "$runtime_root/config" && -f "$runtime_root/install/arm64/update_packages.py" ]] || return 1
+  [[ -f "$runtime_root/version" && -f "$runtime_root/.omarchy-pi-packaged.json" && -d "$runtime_root/config" && -f "$runtime_root/install/arm64/update_packages.py" && -f "$runtime_root/install/arm64/update-source.py" ]] || return 1
   local runtime_owner settings_owner
   runtime_owner=$(pacman -Qo --quiet -- "$runtime_root/version" 2>/dev/null || true)
   settings_owner=$(pacman -Qo --quiet -- "$runtime_root/config" 2>/dev/null || true)
@@ -30,20 +30,49 @@ if packaged_arm_runtime; then
   if [[ ${OMARCHY_PI_TESTING:-0} == 1 && -n ${OMARCHY_PI_TEST_RUNTIME_ROOT:-} ]]; then
     packaged_runtime_root=$OMARCHY_PI_TEST_RUNTIME_ROOT
   fi
-  candidate_output=""
-  candidate_status=0
+  # Polling must stay cheap and side-effect free.  The packaged updater builds
+  # a candidate only when the user starts an update; there is no durable
+  # candidate directory for this status command to inspect.  Ask the pinned
+  # source resolver for the current branch revision instead, then compare it
+  # with the source marker owned by the installed runtime package.
+  packaged_source_status=0
+  packaged_source_output=""
   set +e
-  candidate_args=(check)
-  if [[ ${OMARCHY_PI_TESTING:-0} == 1 && -n ${OMARCHY_PI_TEST_CANDIDATE_ROOT:-} ]]; then
-    candidate_args+=(--root "$OMARCHY_PI_TEST_CANDIDATE_ROOT")
-  fi
-  candidate_output=$(/usr/bin/python3 "$packaged_runtime_root/install/arm64/update_packages.py" "${candidate_args[@]}" 2>/dev/null)
-  candidate_status=$?
+  packaged_source_output=$(/usr/bin/python3 "$packaged_runtime_root/install/arm64/update-source.py" check --json 2>/dev/null)
+  packaged_source_status=$?
   set -e
-  if (( candidate_status == 0 )); then
-    updates+=("$candidate_output")
-  elif (( candidate_status != 1 )); then
-    updates+=("omarchy package candidate unavailable")
+  packaged_current_revision=""
+  if [[ -f "$packaged_runtime_root/.omarchy-pi-source-commit" && ! -L "$packaged_runtime_root/.omarchy-pi-source-commit" ]]; then
+    packaged_current_revision=$(<"$packaged_runtime_root/.omarchy-pi-source-commit")
+  fi
+  packaged_current_revision=${packaged_current_revision//$'\r'/}
+  packaged_current_revision=${packaged_current_revision//$'\n'/}
+  packaged_source_revision=""
+  if (( packaged_source_status == 0 )) && [[ $packaged_current_revision =~ ^[0-9a-f]{40}$ ]]; then
+    if packaged_source_revision=$(
+      printf '%s\n' "$packaged_source_output" | /usr/bin/python3 -c '
+import json
+import re
+import sys
+
+try:
+    document = json.load(sys.stdin)
+except (json.JSONDecodeError, OSError):
+    raise SystemExit(1)
+revision = document.get("remote_revision") if isinstance(document, dict) else None
+status = document.get("status") if isinstance(document, dict) else None
+if status not in {"up-to-date", "update-available"} or not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+    raise SystemExit(1)
+print(revision)
+'); then
+      if [[ $packaged_source_revision != "$packaged_current_revision" ]]; then
+        updates+=("omarchy-pi-source $packaged_source_revision available")
+      fi
+    else
+      updates+=("omarchy-pi-source update check failed")
+    fi
+  else
+    updates+=("omarchy-pi-source update check failed")
   fi
 fi
 
