@@ -53,6 +53,18 @@ class RuntimePackageTests(unittest.TestCase):
             "default/hypr/input.lua": "return {}\n",
             "default/fonts/omarchy/omarchy.ttf": "font fixture\n",
             "default/systemd/user/omarchy-test.service": "[Service]\nExecStart=/usr/bin/true\n",
+            "default/libalpm/hooks/10-omarchy-hyprland-reload-pause.hook": (
+                "[Trigger]\nOperation = Install\nOperation = Upgrade\nType = Package\n"
+                "Target = omarchy-settings\nTarget = omarchy-settings-dev\n\n"
+                "[Action]\nWhen = PreTransaction\nDepends = omarchy\n"
+                "Exec = /usr/bin/omarchy-hyprland-reload-guard pause\n"
+            ),
+            "default/libalpm/hooks/90-omarchy-hyprland-reload-resume.hook": (
+                "[Trigger]\nOperation = Install\nOperation = Upgrade\nType = Package\n"
+                "Target = omarchy-settings\nTarget = omarchy-settings-dev\n\n"
+                "[Action]\nWhen = PostTransaction\nDepends = omarchy\n"
+                "Exec = /usr/bin/omarchy-hyprland-reload-guard resume\n"
+            ),
             "default/limine/limine.conf": "THIS_MUST_NOT_BE_PACKAGED\n",
             "default/chromium/extensions/copy-url/icon.png": "placeholder symlink\n",
             "default/libalpm/hooks/05-auth.hook": "THIS_MUST_NOT_BE_PACKAGED\n",
@@ -155,6 +167,18 @@ class RuntimePackageTests(unittest.TestCase):
             self.assertIn("usr/lib/systemd/system/omarchy-pi-uwsm-session@.service", settings_names)
             self.assertIn("usr/libexec/omarchy-pi/start-uwsm-session.sh", settings_names)
             self.assertIn("etc/skel/.config/uwsm/env.d/90-omarchy-pi", settings_names)
+            for source_rel, destination_rel in builder.SAFE_OMARCHY_HOOKS.items():
+                self.assertIn(destination_rel, runtime_names)
+                self.assertNotIn(destination_rel, settings_names)
+                self.assertEqual(
+                    builder._archive_member_bytes(runtime, destination_rel),
+                    (source / source_rel).read_bytes(),
+                )
+                hook = builder._archive_member_bytes(runtime, destination_rel).decode()
+                self.assertIn("Target = omarchy-settings", hook)
+                self.assertIn("Target = omarchy-settings-dev", hook)
+                self.assertIn("Depends = omarchy", hook)
+            self.assertNotIn("usr/share/libalpm/hooks/05-auth.hook", runtime_names)
             self.assertIn("etc/skel/.config/chromium-flags.conf", settings_names)
             self.assertIn("etc/skel/.config/xdg-desktop-portal/portals.conf", settings_names)
             self.assertIn("etc/skel/.config/xdg-terminals.list", settings_names)

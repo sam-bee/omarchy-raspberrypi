@@ -138,6 +138,16 @@ SAFE_PI_ASSETS = {
     "install/arm64/session/xdg-terminals.list": "etc/skel/.config/xdg-terminals.list",
 }
 
+# These two hooks are the only default/libalpm hooks permitted into the
+# runtime package.  The broad default/libalpm/hooks/ denylist below remains in
+# force for every other hook because package hooks can mutate protected system
+# state.  These hooks only bracket replacement of Omarchy's own settings and
+# depend on the matching omarchy runtime command package.
+SAFE_OMARCHY_HOOKS = {
+    "default/libalpm/hooks/10-omarchy-hyprland-reload-pause.hook": "usr/share/libalpm/hooks/10-omarchy-hyprland-reload-pause.hook",
+    "default/libalpm/hooks/90-omarchy-hyprland-reload-resume.hook": "usr/share/libalpm/hooks/90-omarchy-hyprland-reload-resume.hook",
+}
+
 ICON_DESTINATION_SIZES = ("48x48", "256x256", "scalable")
 
 # Packaged provisioning writes this exact environment into the selected
@@ -532,6 +542,12 @@ def _copy_mapped(
                 share_link.parent.mkdir(parents=True, exist_ok=True)
                 share_link.symlink_to(f"../../../bin/{name}")
                 paths.update({f"usr/bin/{name}", f"usr/share/omarchy/bin/{name}"})
+        for source_rel, destination_rel in SAFE_OMARCHY_HOOKS.items():
+            source = source_root / source_rel
+            if not source.is_file() or source.is_symlink():
+                raise RuntimePackageError(f"required Omarchy package hook is unavailable: {source_rel}")
+            _copy_entry(source, staging / destination_rel)
+            paths.add(destination_rel)
         version = source_root / "version"
         if version.is_file() and not version.is_symlink():
             _copy_entry(version, staging / "usr/share/omarchy/version")

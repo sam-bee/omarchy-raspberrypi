@@ -44,6 +44,18 @@ The installer environment retains its separately validated fixed display.
 
 The pair manifest binds the package names, shared version, `aarch64` architecture, package filenames and SHA-256 values to a full source revision and the SHA-256 of its deterministic Git archive. The installed `omarchy` package carries `.omarchy-pi-source-commit` and `.omarchy-pi-packaged.json`; the latter records packaged mode, channel, version and source provenance. Update dispatch also asks pacman which package owns `/usr/share/omarchy/version` and its settings directory, so a stale `OMARCHY_PATH` or arbitrary source checkout cannot select packaged mode.
 
+The runtime package also owns Omarchy's two Hyprland reload-guard ALPM hooks
+under `/usr/share/libalpm/hooks`. They pause config auto-reload while pacman
+replaces the settings tree, then reload the complete configuration and restore
+the prior reload/error-display options. Every other upstream package hook
+remains excluded. Older Pi package pairs omitted these hooks, allowing a
+reload during replacement to leave an emergency-bindings state even though
+the completed package passed file-integrity checks. When upgrading one of
+those pairs, install the two reviewed hooks temporarily in
+`/etc/pacman.d/hooks` for the first protected transaction, then remove those
+temporary copies after the new package-owned hooks are present. Verify live
+Hyprland config/keybindings in addition to package integrity.
+
 There is no trusted downstream ARM package feed yet. The pair is therefore built from the fixed downstream source and reviewed provenance. Repository signatures remain required. If the reviewed local archives are unsigned, the durable worker uses a job-local `LocalFileSigLevel = Optional` entry only for those archives; it does not relax repository or host-wide trust, and this workflow creates no signing key or external feed.
 
 ## Normal updates
