@@ -36,11 +36,11 @@ The host's Arch Linux ARM repositories and keyring remain authoritative. Preserv
 
 Selected system setup, update, migration, repository, reset, hibernation and boot-theme entry points reject non-x86 hosts before mutating work. They do not accept a target override: planner simulation must never authorize native system operations. The focused guard tests enumerate the covered commands and prove refusal before mocked privileged commands or file changes. Migration listing remains read-only and available.
 
-These guards are defense against normal accidental entry, not a sandbox or a complete audit of all Omarchy commands. Direct execution of installation leaves or migration files, raw pacman operations, individual maintenance helpers and independently supplied upstream scripts can bypass them. They do not by themselves validate a deployment. Installed Pi updates use the bounded updater below, with separate package, source, migration and recovery checks. Future updates must also retain this downstream branch rather than replacing it with official package-owned files.
+These guards are defense against normal accidental entry, not a sandbox or a complete audit of all Omarchy commands. Direct execution of installation leaves or migration files, raw pacman operations, individual maintenance helpers and independently supplied upstream scripts can bypass them. They do not by themselves validate a deployment. Installed Pi updates use the bounded updater below, with separate package, source, migration and recovery checks. Source-layout installs keep a user-owned downstream release; packaged-layout installs keep the runtime in the matching pacman package pair under `/usr/share/omarchy`. Do not replace either path with an unreviewed upstream checkout or package.
 
 ## Pi updates
 
-On an installed Pi with an active user-owned source release, use the normal Omarchy entry point as the desktop user:
+Use the normal Omarchy entry point as the desktop user for both supported Pi layouts:
 
 ```bash
 omarchy update
@@ -49,21 +49,43 @@ omarchy update --status
 omarchy update --watch
 ```
 
-The first command asks for confirmation. `-y` confirms the complete update. The updater records a job under PID 1, so closing the terminal does not stop it; `--status` reads the latest persisted result and `--watch` reconnects to its log. A completed job records that a reboot is required but does not reboot the machine. Do not run the command with `sudo`; it obtains the required privileged worker through its own boundary.
+The first command asks for confirmation. `-y` confirms the complete update. The `bin/omarchy-update` dispatcher selects the source path when `OMARCHY_PATH` names a valid user-owned Pi release and selects the packaged path only when `/usr/share/omarchy` has the packaged marker and pacman proves ownership by the matching `omarchy`/`omarchy-settings` pair (or matching `-dev` pair). The updater records a job under PID 1, so closing the terminal does not stop it; `--status` reads the latest persisted result and `--watch` reconnects to its log. A completed job records that a reboot is required but does not reboot the machine. Do not run the command with `sudo`; it obtains the required privileged worker through its own boundary.
 
-The package phase downloads and applies the complete Arch Linux ARM transaction through pacman with the target keyring and its normal package signature checks. It refuses the transaction when an EEPROM package is pending. The source phase resolves the fixed HTTPS repository and `quattro-rpi5` branch to an exact full commit SHA, prepares a clean checkout in the user's private cache, and then stages the downstream source release archive. The session stager keeps the `current` and `previous` releases and preserves edited managed configuration. A source commit SHA is provenance for the downstream archive; it is not an additional pacman package signature.
+### Source-layout installs
 
-Before package application, the updater checks the old and candidate source releases. A new or changed ARM migration must have an exact entry in `install/arm64/migrations.allowlist`, including its SHA-256 and a `run` or `skip` decision. Missing, stale or malformed review data stops the job. A `run` entry executes as the detached desktop user with no interactive terminal or guaranteed sudo prompt/keepalive, so it must be noninteractive and desktop-user compatible. Privileged work requires a separately reviewed updater implementation; an allowlist entry alone does not authorize it. Changes to the downstream `hypr-rdp` or `ttfx` package recipe also stop the job; the current updater has no recipe accept override, so delivery requires a separately reviewed package compatibility change. These checks refuse an ambiguous migration or custom recipe; they do not run a broad automatic Pi migration.
+The source path is the historical Pi layout: the active release is a user-owned checkout under `~/.local/share/omarchy-pi`, selected by the `current` pointer and marked with its full source commit. The updater resolves the fixed HTTPS downstream repository and `quattro-rpi5` branch to a full commit, prepares a clean checkout in the user's private cache, reviews migrations and protected state, updates the Arch Linux ARM package transaction, and activates the new source release. It keeps `current` and `previous` source releases and preserves edited managed configuration. A source commit SHA identifies the downstream archive; it is not a pacman package signature.
 
-For each job, inspect the durable records in `/var/lib/omarchy-pi-updates/<job>/`. `update.log` contains the worker output, `result.json` contains the persisted phase and result, `package-plan.txt` contains the planned package set, and `packages-before.json` and `packages-after.json` record the installed package sets. If a job fails, preserve and inspect these records before retrying; a package transaction may already have changed the system.
-
-Source rollback is separate from package rollback. The active source helper can move the user session back to its previous staged release:
+For an older source-layout install, source rollback remains a user-session operation:
 
 ```bash
 python3 "$HOME/.local/share/omarchy-pi/current/install/arm64/update-source.py" rollback --json
 ```
 
-This changes the user-owned source pointer and managed session files only. It does not undo ALARM package changes, migrations, caches, boot files or a reboot. Use the installer USB recovery path below for a bounded boot repair. For the guided Install or Repair home, run `omarchy-pi-install`; do not treat source rollback as a complete system rollback.
+This changes the user-owned source pointer and managed session files only. It does not undo Arch Linux ARM package changes, migrations, caches, boot files or a reboot. It is not a packaged-runtime rollback and must not be used as one.
+
+### Packaged-layout installs
+
+The packaged path is the current conventional layout: the matched `omarchy` and `omarchy-settings` packages own `/usr/share/omarchy`, while user configuration remains under `~/.config` and `~/.local/state/omarchy`. The same `omarchy update` command is used for both layouts. Before the privileged worker starts, the desktop-user phase runs the packaged runtime's pinned `update-source.py prepare`, builds the matching package pair with `build-runtime-packages.py`, creates a deterministic Git source archive, and records the source revision, source-archive SHA-256, package filenames and package SHA-256 values in the candidate manifest. The worker takes a root-owned snapshot of that candidate before validating it or applying pacman.
+
+There is no trusted downstream ARM package feed yet. The source-build bridge therefore prepares a candidate from the fixed downstream source as the desktop user; the root worker does not execute the user's fetched builder or mutable checkout as the update mechanism. It validates a root-owned snapshot of the native package metadata, exact `omarchy`/`omarchy-settings` dependency and version pair, packaged provenance markers, source archive/tree match, migration allowlist, and the existing package/signature policy before installing. Only explicitly allowlisted migration scripts may run under the desktop account. Repository signatures remain required. If the reviewed local pair is unsigned, the worker uses a job-local `LocalFileSigLevel = Optional` entry only for those local archives; it does not relax repository or host-wide trust.
+
+The package pair is selected by both marker and ownership: `.omarchy-pi-packaged.json` records the packaged mode and source provenance, `.omarchy-pi-source-commit` records the full source revision, and `pacman -Qo --quiet` must identify the two expected owners. A stale `OMARCHY_PATH` or a source checkout cannot force packaged mode. A changed source revision or archive digest is not silently treated as current even when the package version is unchanged.
+
+The packaged worker still updates the normal Arch Linux ARM transaction, checks migrations and protected boot state, verifies the installed result and records a reboot requirement. It does not reboot the Pi. Inspect `/var/lib/omarchy-pi-updates/<job>/` for `update.log`, `result.json`, `package-plan.txt`, and the before/after package lists before retrying a failed job.
+
+The common package phase downloads and applies the complete Arch Linux ARM transaction through pacman with the target keyring and its normal package signature checks. It refuses the transaction when an EEPROM package is pending. The package pair is supplied separately on the packaged path and is deliberately absent from repository resolution.
+
+Before package application, the updater checks the old and candidate source releases. A new or changed ARM migration must have an exact entry in `install/arm64/migrations.allowlist`, including its SHA-256 and a `run` or `skip` decision. Missing, stale or malformed review data stops the job. A `run` entry executes as the detached desktop user with no interactive terminal or guaranteed sudo prompt/keepalive, so it must be noninteractive and desktop-user compatible. Privileged work requires a separately reviewed updater implementation; an allowlist entry alone does not authorize it. Changes to the downstream `hypr-rdp` or `ttfx` package recipe also stop the job; the current updater has no recipe accept override, so delivery requires a separately reviewed package compatibility change. These checks refuse an ambiguous migration or custom recipe; they do not run a broad automatic Pi migration.
+
+For a packaged job, `/usr/share/omarchy-pi/rollback/manifest.json` describes the currently retained pair for the next update. Before pacman runs, the worker copies the previously installed pair, its manifest and any required signatures into `/var/lib/omarchy-pi-updates/<job>/previous/`; `result.json.rollback_before` and `result.json.rollback_packages` identify that durable restore point. Use that job-specific pair for an older-version restore, only after checking the manifest, archive existence and SHA-256 values:
+
+```bash
+sudo pacman -U \
+  /var/lib/omarchy-pi-updates/<job>/previous/<omarchy-archive-from-manifest> \
+  /var/lib/omarchy-pi-updates/<job>/previous/<omarchy-settings-archive-from-manifest>
+```
+
+`pacman -U` can downgrade a package when the previous version is older, but the selected pair must be the same channel and compatible version. Use the plain command when the effective local-file signature policy permits the manifest's verified local archives, including the current Pi policy for this reviewed pair. If the update recorded `/var/lib/omarchy-pi-updates/<job>/pacman-local.conf`, it may be reused with `--config` before `-U` when that host policy requires the recorded override; never copy `LocalFileSigLevel = Optional` into `/etc/pacman.conf`. If neither the effective local policy nor a recorded job-local config permits the archives, stop rather than guessing from the package cache. Verify with `pacman -Qkk omarchy omarchy-settings` afterward. This restores only the two runtime packages. It does not reverse migrations, user configuration, other system packages, boot files, encryption state or a reboot. The installer USB path below provides bounded boot/initramfs repair when that is the actual fault; it is not a full-system rollback.
 
 ## USB recovery commands
 
