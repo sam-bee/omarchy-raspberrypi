@@ -1,0 +1,4903 @@
+{
+  "desktop": {
+    "desktop_manifest_sha256": "3444b4ce08d53ccf4b8e8cb06fa4b00bd23d4d6c6e980b83dfe787048102b013",
+    "package_records": 635,
+    "packages": [
+      {
+        "name": "abseil-cpp",
+        "repository": "local",
+        "version": "20260817.0-2"
+      },
+      {
+        "name": "acl",
+        "repository": "local",
+        "version": "2.4.0-1"
+      },
+      {
+        "name": "adwaita-cursors",
+        "repository": "local",
+        "version": "50.0-1"
+      },
+      {
+        "name": "adwaita-fonts",
+        "repository": "local",
+        "version": "51.0-2"
+      },
+      {
+        "name": "adwaita-icon-theme",
+        "repository": "local",
+        "version": "50.0-1"
+      },
+      {
+        "name": "adwaita-icon-theme-legacy",
+        "repository": "local",
+        "version": "46.2-3"
+      },
+      {
+        "name": "alsa-card-profiles",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "alsa-lib",
+        "repository": "local",
+        "version": "1.2.16.1-1"
+      },
+      {
+        "name": "alsa-topology-conf",
+        "repository": "local",
+        "version": "1.2.5.1-4"
+      },
+      {
+        "name": "alsa-ucm-conf",
+        "repository": "local",
+        "version": "1.2.16.1-1"
+      },
+      {
+        "name": "alsa-utils",
+        "repository": "local",
+        "version": "1.2.16-1"
+      },
+      {
+        "name": "aom",
+        "repository": "local",
+        "version": "3.15.1-1"
+      },
+      {
+        "name": "appstream",
+        "repository": "local",
+        "version": "1.2.0-1"
+      },
+      {
+        "name": "aquamarine",
+        "repository": "local",
+        "version": "0.15.1-1"
+      },
+      {
+        "name": "archlinux-keyring",
+        "repository": "local",
+        "version": "20260909-1"
+      },
+      {
+        "name": "archlinuxarm-keyring",
+        "repository": "local",
+        "version": "20240419-2"
+      },
+      {
+        "name": "at-spi2-core",
+        "repository": "local",
+        "version": "2.60.7-1"
+      },
+      {
+        "name": "attr",
+        "repository": "local",
+        "version": "2.6.0-1"
+      },
+      {
+        "name": "audit",
+        "repository": "local",
+        "version": "4.2.1-1"
+      },
+      {
+        "name": "avahi",
+        "repository": "local",
+        "version": "1:0.9rc5-1"
+      },
+      {
+        "name": "base",
+        "repository": "local",
+        "version": "3-3"
+      },
+      {
+        "name": "bash",
+        "repository": "local",
+        "version": "5.3.20-1"
+      },
+      {
+        "name": "bash-completion",
+        "repository": "local",
+        "version": "2.18.0-1"
+      },
+      {
+        "name": "benchmark",
+        "repository": "local",
+        "version": "1.9.5-2"
+      },
+      {
+        "name": "binutils",
+        "repository": "local",
+        "version": "2.46+r70+g155188ea10a7-1"
+      },
+      {
+        "name": "bluez",
+        "repository": "local",
+        "version": "5.87-2"
+      },
+      {
+        "name": "bluez-libs",
+        "repository": "local",
+        "version": "5.87-2"
+      },
+      {
+        "name": "bluez-tools",
+        "repository": "local",
+        "version": "0.2.0-6"
+      },
+      {
+        "name": "bluez-utils",
+        "repository": "local",
+        "version": "5.87-2"
+      },
+      {
+        "name": "brightnessctl",
+        "repository": "local",
+        "version": "0.5.1-3"
+      },
+      {
+        "name": "brotli",
+        "repository": "local",
+        "version": "1.2.0-1"
+      },
+      {
+        "name": "bubblewrap",
+        "repository": "local",
+        "version": "0.13.0-1"
+      },
+      {
+        "name": "bzip2",
+        "repository": "local",
+        "version": "1.0.8-6"
+      },
+      {
+        "name": "ca-certificates",
+        "repository": "local",
+        "version": "20240618-1"
+      },
+      {
+        "name": "ca-certificates-mozilla",
+        "repository": "local",
+        "version": "3.130-1"
+      },
+      {
+        "name": "ca-certificates-utils",
+        "repository": "local",
+        "version": "20240618-1"
+      },
+      {
+        "name": "cairo",
+        "repository": "local",
+        "version": "1.18.6-1"
+      },
+      {
+        "name": "cfitsio",
+        "repository": "local",
+        "version": "1:4.7.0-1"
+      },
+      {
+        "name": "chromium",
+        "repository": "local",
+        "version": "153.0.8010.36-1"
+      },
+      {
+        "name": "coreutils",
+        "repository": "local",
+        "version": "9.12-2"
+      },
+      {
+        "name": "cpptrace",
+        "repository": "local",
+        "version": "1.0.4-2"
+      },
+      {
+        "name": "cryptsetup",
+        "repository": "local",
+        "version": "2.8.8-1"
+      },
+      {
+        "name": "curl",
+        "repository": "local",
+        "version": "8.22.0-1"
+      },
+      {
+        "name": "dav1d",
+        "repository": "local",
+        "version": "1.5.4-1"
+      },
+      {
+        "name": "db5.3",
+        "repository": "local",
+        "version": "5.3.28-7"
+      },
+      {
+        "name": "dbus",
+        "repository": "local",
+        "version": "1.16.2-1"
+      },
+      {
+        "name": "dbus-broker",
+        "repository": "local",
+        "version": "37-3"
+      },
+      {
+        "name": "dbus-broker-units",
+        "repository": "local",
+        "version": "37-3"
+      },
+      {
+        "name": "dbus-units",
+        "repository": "local",
+        "version": "37-3"
+      },
+      {
+        "name": "dconf",
+        "repository": "local",
+        "version": "0.49.0-1"
+      },
+      {
+        "name": "default-cursors",
+        "repository": "local",
+        "version": "3-1"
+      },
+      {
+        "name": "desktop-file-utils",
+        "repository": "local",
+        "version": "0.28-1"
+      },
+      {
+        "name": "device-mapper",
+        "repository": "local",
+        "version": "2.03.42-1"
+      },
+      {
+        "name": "dhcpcd",
+        "repository": "local",
+        "version": "10.5.2-1"
+      },
+      {
+        "name": "dialog",
+        "repository": "local",
+        "version": "1:1.3_20260721-1"
+      },
+      {
+        "name": "diffutils",
+        "repository": "local",
+        "version": "3.12-2"
+      },
+      {
+        "name": "dosfstools",
+        "repository": "local",
+        "version": "4.2-5"
+      },
+      {
+        "name": "double-conversion",
+        "repository": "local",
+        "version": "3.4.0-1"
+      },
+      {
+        "name": "dtc",
+        "repository": "local",
+        "version": "1:1.8.1-1"
+      },
+      {
+        "name": "duktape",
+        "repository": "local",
+        "version": "2.7.0-7"
+      },
+      {
+        "name": "e2fsprogs",
+        "repository": "local",
+        "version": "1.47.4-1"
+      },
+      {
+        "name": "elfutils",
+        "repository": "local",
+        "version": "0.196-1"
+      },
+      {
+        "name": "ex-vi-compat",
+        "repository": "local",
+        "version": "3-1"
+      },
+      {
+        "name": "exempi",
+        "repository": "local",
+        "version": "2.6.6-3"
+      },
+      {
+        "name": "exiv2",
+        "repository": "local",
+        "version": "0.28.9-1"
+      },
+      {
+        "name": "expac",
+        "repository": "local",
+        "version": "10-13"
+      },
+      {
+        "name": "expat",
+        "repository": "local",
+        "version": "2.8.5-1"
+      },
+      {
+        "name": "eza",
+        "repository": "local",
+        "version": "0.23.5-2"
+      },
+      {
+        "name": "fcft",
+        "repository": "local",
+        "version": "3.3.3-1"
+      },
+      {
+        "name": "fd",
+        "repository": "local",
+        "version": "10.5.0-3"
+      },
+      {
+        "name": "ffmpeg",
+        "repository": "local",
+        "version": "2:9.0.2-1"
+      },
+      {
+        "name": "fftw",
+        "repository": "local",
+        "version": "3.3.11-1"
+      },
+      {
+        "name": "file",
+        "repository": "local",
+        "version": "5.48-1"
+      },
+      {
+        "name": "filesystem",
+        "repository": "local",
+        "version": "2025.10.12-1"
+      },
+      {
+        "name": "findutils",
+        "repository": "local",
+        "version": "4.11.0-1"
+      },
+      {
+        "name": "firmware-raspberrypi",
+        "repository": "local",
+        "version": "20260311-1"
+      },
+      {
+        "name": "flac",
+        "repository": "local",
+        "version": "1.5.0-1"
+      },
+      {
+        "name": "fontconfig",
+        "repository": "local",
+        "version": "2:2.18.3-2"
+      },
+      {
+        "name": "foot",
+        "repository": "local",
+        "version": "1.28.0-2"
+      },
+      {
+        "name": "freeglut",
+        "repository": "local",
+        "version": "3.8.0-1"
+      },
+      {
+        "name": "freetype2",
+        "repository": "local",
+        "version": "2.14.3-1"
+      },
+      {
+        "name": "fribidi",
+        "repository": "local",
+        "version": "1.0.17-1"
+      },
+      {
+        "name": "fuse-common",
+        "repository": "local",
+        "version": "3.18.3-1"
+      },
+      {
+        "name": "fuse3",
+        "repository": "local",
+        "version": "3.18.3-1"
+      },
+      {
+        "name": "fzf",
+        "repository": "local",
+        "version": "0.74.4-1"
+      },
+      {
+        "name": "gawk",
+        "repository": "local",
+        "version": "5.4.1-1"
+      },
+      {
+        "name": "gcc-libs",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "gcr",
+        "repository": "local",
+        "version": "3.41.2-2"
+      },
+      {
+        "name": "gcr-4",
+        "repository": "local",
+        "version": "4.4.1-1"
+      },
+      {
+        "name": "gdbm",
+        "repository": "local",
+        "version": "1.26-2"
+      },
+      {
+        "name": "gdk-pixbuf2",
+        "repository": "local",
+        "version": "2.44.6-2"
+      },
+      {
+        "name": "gettext",
+        "repository": "local",
+        "version": "1.0-2"
+      },
+      {
+        "name": "gexiv2",
+        "repository": "local",
+        "version": "0.16.2-2"
+      },
+      {
+        "name": "gexiv2-common",
+        "repository": "local",
+        "version": "0.16.2-2"
+      },
+      {
+        "name": "giflib",
+        "repository": "local",
+        "version": "6.1.3-2"
+      },
+      {
+        "name": "git",
+        "repository": "local",
+        "version": "2.55.0-1"
+      },
+      {
+        "name": "glib-networking",
+        "repository": "local",
+        "version": "1:2.80.1-1"
+      },
+      {
+        "name": "glib2",
+        "repository": "local",
+        "version": "2.88.3-1"
+      },
+      {
+        "name": "glibc",
+        "repository": "local",
+        "version": "2.43+r22+g8362e8ce10b2-2"
+      },
+      {
+        "name": "glslang",
+        "repository": "local",
+        "version": "1:1.4.357.0-1"
+      },
+      {
+        "name": "glu",
+        "repository": "local",
+        "version": "9.0.3-3"
+      },
+      {
+        "name": "glycin",
+        "repository": "local",
+        "version": "2.1.5-2"
+      },
+      {
+        "name": "glycin-gtk4",
+        "repository": "local",
+        "version": "2.1.5-2"
+      },
+      {
+        "name": "gmp",
+        "repository": "local",
+        "version": "6.3.0-3"
+      },
+      {
+        "name": "gnome-autoar",
+        "repository": "local",
+        "version": "0.5.2-1"
+      },
+      {
+        "name": "gnome-desktop-4",
+        "repository": "local",
+        "version": "1:44.5-1"
+      },
+      {
+        "name": "gnome-desktop-common",
+        "repository": "local",
+        "version": "1:44.5-1"
+      },
+      {
+        "name": "gnome-keyring",
+        "repository": "local",
+        "version": "1:50.0-1"
+      },
+      {
+        "name": "gnome-themes-extra",
+        "repository": "local",
+        "version": "1:3.28-1"
+      },
+      {
+        "name": "gnulib-l10n",
+        "repository": "local",
+        "version": "20241231-1"
+      },
+      {
+        "name": "gnupg",
+        "repository": "local",
+        "version": "2.4.9-3"
+      },
+      {
+        "name": "gnutls",
+        "repository": "local",
+        "version": "3.8.13-3"
+      },
+      {
+        "name": "gobject-introspection-runtime",
+        "repository": "local",
+        "version": "1.86.0-2"
+      },
+      {
+        "name": "gperftools",
+        "repository": "local",
+        "version": "2.18.1-1"
+      },
+      {
+        "name": "gpgme",
+        "repository": "local",
+        "version": "2.2.0-1"
+      },
+      {
+        "name": "gpgmepp",
+        "repository": "local",
+        "version": "2.2.0-1"
+      },
+      {
+        "name": "gpm",
+        "repository": "local",
+        "version": "1.20.7.r38.ge82d1a6-7"
+      },
+      {
+        "name": "graphene",
+        "repository": "local",
+        "version": "1.10.8-2.1"
+      },
+      {
+        "name": "graphite",
+        "repository": "local",
+        "version": "1:1.3.15-1"
+      },
+      {
+        "name": "grep",
+        "repository": "local",
+        "version": "3.12-2"
+      },
+      {
+        "name": "grim",
+        "repository": "local",
+        "version": "1.5.0-2"
+      },
+      {
+        "name": "gsettings-desktop-schemas",
+        "repository": "local",
+        "version": "50.1-1"
+      },
+      {
+        "name": "gsettings-system-schemas",
+        "repository": "local",
+        "version": "50.1-1"
+      },
+      {
+        "name": "gsm",
+        "repository": "local",
+        "version": "1.0.24-1"
+      },
+      {
+        "name": "gssdp",
+        "repository": "local",
+        "version": "1.6.6-1"
+      },
+      {
+        "name": "gst-plugins-bad-libs",
+        "repository": "local",
+        "version": "1.28.7-2"
+      },
+      {
+        "name": "gst-plugins-base-libs",
+        "repository": "local",
+        "version": "1.28.7-2"
+      },
+      {
+        "name": "gstreamer",
+        "repository": "local",
+        "version": "1.28.7-2"
+      },
+      {
+        "name": "gtest",
+        "repository": "local",
+        "version": "1.18.0-1"
+      },
+      {
+        "name": "gtk-update-icon-cache",
+        "repository": "local",
+        "version": "1:4.22.5-1"
+      },
+      {
+        "name": "gtk3",
+        "repository": "local",
+        "version": "1:3.24.52-1"
+      },
+      {
+        "name": "gtk4",
+        "repository": "local",
+        "version": "1:4.22.5-1"
+      },
+      {
+        "name": "gtk4-layer-shell",
+        "repository": "local",
+        "version": "1.3.0-1"
+      },
+      {
+        "name": "gum",
+        "repository": "local",
+        "version": "2.0.2-1"
+      },
+      {
+        "name": "gupnp",
+        "repository": "local",
+        "version": "1:1.6.10-1"
+      },
+      {
+        "name": "gupnp-dlna",
+        "repository": "local",
+        "version": "0.12.0-5"
+      },
+      {
+        "name": "gupnp-igd",
+        "repository": "local",
+        "version": "1.6.0-2"
+      },
+      {
+        "name": "gvfs",
+        "repository": "local",
+        "version": "1.60.3-3"
+      },
+      {
+        "name": "gzip",
+        "repository": "local",
+        "version": "1.15-1"
+      },
+      {
+        "name": "harfbuzz",
+        "repository": "local",
+        "version": "14.5.0-1"
+      },
+      {
+        "name": "hdf5",
+        "repository": "local",
+        "version": "2.2.0-1"
+      },
+      {
+        "name": "hicolor-icon-theme",
+        "repository": "local",
+        "version": "0.18-1"
+      },
+      {
+        "name": "hidapi",
+        "repository": "local",
+        "version": "0.15.0-1"
+      },
+      {
+        "name": "highway",
+        "repository": "local",
+        "version": "1.4.0-1"
+      },
+      {
+        "name": "hwdata",
+        "repository": "local",
+        "version": "0.411-1"
+      },
+      {
+        "name": "hwloc",
+        "repository": "local",
+        "version": "2.14.0-1"
+      },
+      {
+        "name": "hypr-rdp",
+        "repository": "local",
+        "version": "0.1.6-1"
+      },
+      {
+        "name": "hyprcursor",
+        "repository": "local",
+        "version": "0.1.13-7"
+      },
+      {
+        "name": "hyprgraphics",
+        "repository": "local",
+        "version": "0.5.1-4"
+      },
+      {
+        "name": "hyprland",
+        "repository": "local",
+        "version": "0.56.2-3"
+      },
+      {
+        "name": "hyprland-guiutils",
+        "repository": "local",
+        "version": "0.2.2-4"
+      },
+      {
+        "name": "hyprlang",
+        "repository": "local",
+        "version": "0.6.8-5"
+      },
+      {
+        "name": "hyprsunset",
+        "repository": "local",
+        "version": "0.4.0-3"
+      },
+      {
+        "name": "hyprtoolkit",
+        "repository": "local",
+        "version": "0.6.0-1"
+      },
+      {
+        "name": "hyprutils",
+        "repository": "local",
+        "version": "0.14.2-1"
+      },
+      {
+        "name": "hyprwire",
+        "repository": "local",
+        "version": "0.3.1-3"
+      },
+      {
+        "name": "iana-etc",
+        "repository": "local",
+        "version": "20260617-1"
+      },
+      {
+        "name": "icu",
+        "repository": "local",
+        "version": "78.3-1"
+      },
+      {
+        "name": "imagemagick",
+        "repository": "local",
+        "version": "7.1.2.32-1"
+      },
+      {
+        "name": "imath",
+        "repository": "local",
+        "version": "3.2.3-1"
+      },
+      {
+        "name": "imv",
+        "repository": "local",
+        "version": "5.0.1-2"
+      },
+      {
+        "name": "iniparser",
+        "repository": "local",
+        "version": "4.3.0-1"
+      },
+      {
+        "name": "inotify-tools",
+        "repository": "local",
+        "version": "4.26.262-1"
+      },
+      {
+        "name": "iproute2",
+        "repository": "local",
+        "version": "7.2.0-1"
+      },
+      {
+        "name": "iptables",
+        "repository": "local",
+        "version": "1:1.8.13-1"
+      },
+      {
+        "name": "iputils",
+        "repository": "local",
+        "version": "20250605-1"
+      },
+      {
+        "name": "iso-codes",
+        "repository": "local",
+        "version": "4.20.1-1"
+      },
+      {
+        "name": "iw",
+        "repository": "local",
+        "version": "6.17-1"
+      },
+      {
+        "name": "jansson",
+        "repository": "local",
+        "version": "2.15.1-1"
+      },
+      {
+        "name": "jasper",
+        "repository": "local",
+        "version": "4.2.9-1"
+      },
+      {
+        "name": "jbigkit",
+        "repository": "local",
+        "version": "2.1-8"
+      },
+      {
+        "name": "jemalloc",
+        "repository": "local",
+        "version": "1:5.4.0-1"
+      },
+      {
+        "name": "jq",
+        "repository": "local",
+        "version": "1.8.2-1"
+      },
+      {
+        "name": "json-c",
+        "repository": "local",
+        "version": "0.19-1"
+      },
+      {
+        "name": "json-glib",
+        "repository": "local",
+        "version": "1.10.8-1"
+      },
+      {
+        "name": "kbd",
+        "repository": "local",
+        "version": "2.10.0-1"
+      },
+      {
+        "name": "keyutils",
+        "repository": "local",
+        "version": "1.6.3-4"
+      },
+      {
+        "name": "kmod",
+        "repository": "local",
+        "version": "34.2-1"
+      },
+      {
+        "name": "krb5",
+        "repository": "local",
+        "version": "1.22.2-1"
+      },
+      {
+        "name": "l-smash",
+        "repository": "local",
+        "version": "2.14.5-4"
+      },
+      {
+        "name": "lame",
+        "repository": "local",
+        "version": "4.0-1"
+      },
+      {
+        "name": "lcms2",
+        "repository": "local",
+        "version": "2.19.1-1"
+      },
+      {
+        "name": "leancrypto",
+        "repository": "local",
+        "version": "1.9.0-1"
+      },
+      {
+        "name": "less",
+        "repository": "local",
+        "version": "1:710-1"
+      },
+      {
+        "name": "libadwaita",
+        "repository": "local",
+        "version": "1:1.9.4-1"
+      },
+      {
+        "name": "libaec",
+        "repository": "local",
+        "version": "1.1.7-1"
+      },
+      {
+        "name": "libarchive",
+        "repository": "local",
+        "version": "3.8.9-1"
+      },
+      {
+        "name": "libasan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libass",
+        "repository": "local",
+        "version": "0.17.5-1"
+      },
+      {
+        "name": "libassuan",
+        "repository": "local",
+        "version": "3.0.0-1"
+      },
+      {
+        "name": "libasyncns",
+        "repository": "local",
+        "version": "1:0.8+r3+g68cd5af-3"
+      },
+      {
+        "name": "libatasmart",
+        "repository": "local",
+        "version": "0.19-8"
+      },
+      {
+        "name": "libatomic",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libavc1394",
+        "repository": "local",
+        "version": "0.5.4-7"
+      },
+      {
+        "name": "libb2",
+        "repository": "local",
+        "version": "0.98.1-3"
+      },
+      {
+        "name": "libblake3",
+        "repository": "local",
+        "version": "1.8.7-1"
+      },
+      {
+        "name": "libblockdev",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-crypto",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-fs",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-loop",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-mdraid",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-nvme",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-part",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-smart",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libblockdev-swap",
+        "repository": "local",
+        "version": "3.5.0-2"
+      },
+      {
+        "name": "libbluray",
+        "repository": "local",
+        "version": "1.5.1-1"
+      },
+      {
+        "name": "libbpf",
+        "repository": "local",
+        "version": "1.7.0-1"
+      },
+      {
+        "name": "libbs2b",
+        "repository": "local",
+        "version": "3.1.0-10"
+      },
+      {
+        "name": "libbsd",
+        "repository": "local",
+        "version": "0.12.2-2"
+      },
+      {
+        "name": "libbytesize",
+        "repository": "local",
+        "version": "2.12-3"
+      },
+      {
+        "name": "libcap",
+        "repository": "local",
+        "version": "2.78-1"
+      },
+      {
+        "name": "libcap-ng",
+        "repository": "local",
+        "version": "0.9.6-1"
+      },
+      {
+        "name": "libcdio",
+        "repository": "local",
+        "version": "2.4.0-1"
+      },
+      {
+        "name": "libcdio-paranoia",
+        "repository": "local",
+        "version": "10.2+2.0.2-3"
+      },
+      {
+        "name": "libcgif",
+        "repository": "local",
+        "version": "0.5.4-1"
+      },
+      {
+        "name": "libcloudproviders",
+        "repository": "local",
+        "version": "0.4.1-1"
+      },
+      {
+        "name": "libcolord",
+        "repository": "local",
+        "version": "1.4.8-1"
+      },
+      {
+        "name": "libcue",
+        "repository": "local",
+        "version": "2.3.0-1"
+      },
+      {
+        "name": "libcups",
+        "repository": "local",
+        "version": "2:2.4.19-1"
+      },
+      {
+        "name": "libdaemon",
+        "repository": "local",
+        "version": "0.14-6"
+      },
+      {
+        "name": "libdatrie",
+        "repository": "local",
+        "version": "0.2.14-1"
+      },
+      {
+        "name": "libde265",
+        "repository": "local",
+        "version": "1.1.3-1"
+      },
+      {
+        "name": "libdecor",
+        "repository": "local",
+        "version": "0.2.5-1"
+      },
+      {
+        "name": "libdeflate",
+        "repository": "local",
+        "version": "1.26-1"
+      },
+      {
+        "name": "libdisplay-info",
+        "repository": "local",
+        "version": "0.3.0-1"
+      },
+      {
+        "name": "libdovi",
+        "repository": "local",
+        "version": "3.4.0-1"
+      },
+      {
+        "name": "libdrm",
+        "repository": "local",
+        "version": "2.4.134-1"
+      },
+      {
+        "name": "libdvdnav",
+        "repository": "local",
+        "version": "7.0.0-1"
+      },
+      {
+        "name": "libdvdread",
+        "repository": "local",
+        "version": "7.1.1-1"
+      },
+      {
+        "name": "libdwarf",
+        "repository": "local",
+        "version": "1:2.3.3-1"
+      },
+      {
+        "name": "libebur128",
+        "repository": "local",
+        "version": "1.2.6-2"
+      },
+      {
+        "name": "libedit",
+        "repository": "local",
+        "version": "20260512_3.1-1"
+      },
+      {
+        "name": "libei",
+        "repository": "local",
+        "version": "1.6.0-1"
+      },
+      {
+        "name": "libelf",
+        "repository": "local",
+        "version": "0.196-1"
+      },
+      {
+        "name": "libepoxy",
+        "repository": "local",
+        "version": "1.5.10-3"
+      },
+      {
+        "name": "libevdev",
+        "repository": "local",
+        "version": "1.13.7-1"
+      },
+      {
+        "name": "libevent",
+        "repository": "local",
+        "version": "2.1.13-2"
+      },
+      {
+        "name": "libexif",
+        "repository": "local",
+        "version": "0.6.26-1"
+      },
+      {
+        "name": "libfdk-aac",
+        "repository": "local",
+        "version": "2.0.3-2"
+      },
+      {
+        "name": "libffi",
+        "repository": "local",
+        "version": "3.8.0-1"
+      },
+      {
+        "name": "libfontenc",
+        "repository": "local",
+        "version": "1.1.9-1"
+      },
+      {
+        "name": "libfreeaptx",
+        "repository": "local",
+        "version": "0.2.2-1"
+      },
+      {
+        "name": "libfyaml",
+        "repository": "local",
+        "version": "0.9.6-3"
+      },
+      {
+        "name": "libgcc",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libgcrypt",
+        "repository": "local",
+        "version": "1.12.4-1"
+      },
+      {
+        "name": "libgfortran",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libgirepository",
+        "repository": "local",
+        "version": "1.86.0-2"
+      },
+      {
+        "name": "libgit2",
+        "repository": "local",
+        "version": "1:1.9.7-1"
+      },
+      {
+        "name": "libglvnd",
+        "repository": "local",
+        "version": "1.7.0-3"
+      },
+      {
+        "name": "libgomp",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libgpg-error",
+        "repository": "local",
+        "version": "1.61-1"
+      },
+      {
+        "name": "libgsf",
+        "repository": "local",
+        "version": "1.14.58-1"
+      },
+      {
+        "name": "libgudev",
+        "repository": "local",
+        "version": "238-3"
+      },
+      {
+        "name": "libgxps",
+        "repository": "local",
+        "version": "0.3.2-5"
+      },
+      {
+        "name": "libheif",
+        "repository": "local",
+        "version": "1.23.5-1"
+      },
+      {
+        "name": "libice",
+        "repository": "local",
+        "version": "1.1.2-1"
+      },
+      {
+        "name": "libidn2",
+        "repository": "local",
+        "version": "2.3.8-1"
+      },
+      {
+        "name": "libiec61883",
+        "repository": "local",
+        "version": "1.2.0-9"
+      },
+      {
+        "name": "libimagequant",
+        "repository": "local",
+        "version": "4.4.1-2"
+      },
+      {
+        "name": "libimobiledevice",
+        "repository": "local",
+        "version": "1.4.0-2"
+      },
+      {
+        "name": "libimobiledevice-glue",
+        "repository": "local",
+        "version": "1.3.2-1"
+      },
+      {
+        "name": "libinih",
+        "repository": "local",
+        "version": "62-2"
+      },
+      {
+        "name": "libinput",
+        "repository": "local",
+        "version": "1.32.0-1"
+      },
+      {
+        "name": "libiptcdata",
+        "repository": "local",
+        "version": "1.0.5-5"
+      },
+      {
+        "name": "libjpeg-turbo",
+        "repository": "local",
+        "version": "3.2.0-2"
+      },
+      {
+        "name": "libjxl",
+        "repository": "local",
+        "version": "0.12.0-1"
+      },
+      {
+        "name": "libksba",
+        "repository": "local",
+        "version": "1.8.1-1"
+      },
+      {
+        "name": "liblc3",
+        "repository": "local",
+        "version": "1.1.3-2"
+      },
+      {
+        "name": "libldac",
+        "repository": "local",
+        "version": "2.0.2.6-1"
+      },
+      {
+        "name": "libldap",
+        "repository": "local",
+        "version": "2.7.1-1"
+      },
+      {
+        "name": "liblqr",
+        "repository": "local",
+        "version": "0.4.3-1"
+      },
+      {
+        "name": "liblsan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libluv",
+        "repository": "local",
+        "version": "1.52.1-1"
+      },
+      {
+        "name": "libmakepkg-dropins",
+        "repository": "local",
+        "version": "20-2"
+      },
+      {
+        "name": "libmatio",
+        "repository": "local",
+        "version": "1.5.30-1"
+      },
+      {
+        "name": "libmd",
+        "repository": "local",
+        "version": "1.2.0-1"
+      },
+      {
+        "name": "libmm-glib",
+        "repository": "local",
+        "version": "1.24.2-1"
+      },
+      {
+        "name": "libmng",
+        "repository": "local",
+        "version": "2.0.3-4"
+      },
+      {
+        "name": "libmnl",
+        "repository": "local",
+        "version": "1.0.5-2"
+      },
+      {
+        "name": "libmodplug",
+        "repository": "local",
+        "version": "0.8.9.0-7"
+      },
+      {
+        "name": "libmysofa",
+        "repository": "local",
+        "version": "1.3.5-1"
+      },
+      {
+        "name": "libnautilus-extension",
+        "repository": "local",
+        "version": "50.3.1-1"
+      },
+      {
+        "name": "libndp",
+        "repository": "local",
+        "version": "1.9-1"
+      },
+      {
+        "name": "libnetfilter_conntrack",
+        "repository": "local",
+        "version": "1.1.1-1"
+      },
+      {
+        "name": "libnewt",
+        "repository": "local",
+        "version": "0.52.25-2"
+      },
+      {
+        "name": "libnfnetlink",
+        "repository": "local",
+        "version": "1.0.2-2"
+      },
+      {
+        "name": "libnftnl",
+        "repository": "local",
+        "version": "1.3.2-1"
+      },
+      {
+        "name": "libnghttp2",
+        "repository": "local",
+        "version": "1.70.0-1"
+      },
+      {
+        "name": "libnghttp3",
+        "repository": "local",
+        "version": "1.18.0-1"
+      },
+      {
+        "name": "libngtcp2",
+        "repository": "local",
+        "version": "1.25.0-1"
+      },
+      {
+        "name": "libnice",
+        "repository": "local",
+        "version": "0.1.24-1"
+      },
+      {
+        "name": "libnl",
+        "repository": "local",
+        "version": "3.12.0-1"
+      },
+      {
+        "name": "libnm",
+        "repository": "local",
+        "version": "1.58.1-1"
+      },
+      {
+        "name": "libnotify",
+        "repository": "local",
+        "version": "0.8.8-1"
+      },
+      {
+        "name": "libnsbmp",
+        "repository": "local",
+        "version": "0.1.7-2"
+      },
+      {
+        "name": "libnsgif",
+        "repository": "local",
+        "version": "1.0.0-2"
+      },
+      {
+        "name": "libnsl",
+        "repository": "local",
+        "version": "2.0.1-2"
+      },
+      {
+        "name": "libnvme",
+        "repository": "local",
+        "version": "1.16.2-2"
+      },
+      {
+        "name": "libobjc",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libogg",
+        "repository": "local",
+        "version": "1.3.6-1"
+      },
+      {
+        "name": "libopenmpt",
+        "repository": "local",
+        "version": "0.8.9-1"
+      },
+      {
+        "name": "libosinfo",
+        "repository": "local",
+        "version": "1.12.0-3"
+      },
+      {
+        "name": "libp11-kit",
+        "repository": "local",
+        "version": "0.26.5-1"
+      },
+      {
+        "name": "libpcap",
+        "repository": "local",
+        "version": "1.11.0-1"
+      },
+      {
+        "name": "libpciaccess",
+        "repository": "local",
+        "version": "0.19-1"
+      },
+      {
+        "name": "libpgm",
+        "repository": "local",
+        "version": "5.3.128-4"
+      },
+      {
+        "name": "libpipewire",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "libplacebo",
+        "repository": "local",
+        "version": "7.360.1-6"
+      },
+      {
+        "name": "libplist",
+        "repository": "local",
+        "version": "2.7.0-3"
+      },
+      {
+        "name": "libpng",
+        "repository": "local",
+        "version": "1.6.58-2"
+      },
+      {
+        "name": "libportal",
+        "repository": "local",
+        "version": "0.11.0-1"
+      },
+      {
+        "name": "libportal-gtk4",
+        "repository": "local",
+        "version": "0.11.0-1"
+      },
+      {
+        "name": "libproxy",
+        "repository": "local",
+        "version": "0.5.12-1"
+      },
+      {
+        "name": "libpsl",
+        "repository": "local",
+        "version": "0.21.5-2"
+      },
+      {
+        "name": "libpulse",
+        "repository": "local",
+        "version": "17.0+r98+gb096704c0-1"
+      },
+      {
+        "name": "libquadmath",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libraqm",
+        "repository": "local",
+        "version": "0.11.0-1"
+      },
+      {
+        "name": "libraw",
+        "repository": "local",
+        "version": "0.22.2-1"
+      },
+      {
+        "name": "libraw1394",
+        "repository": "local",
+        "version": "2.1.2-4"
+      },
+      {
+        "name": "librsvg",
+        "repository": "local",
+        "version": "2:2.62.3-1"
+      },
+      {
+        "name": "libsamplerate",
+        "repository": "local",
+        "version": "0.2.2-3"
+      },
+      {
+        "name": "libsasl",
+        "repository": "local",
+        "version": "2.1.28-5"
+      },
+      {
+        "name": "libseccomp",
+        "repository": "local",
+        "version": "2.6.0-1"
+      },
+      {
+        "name": "libsecret",
+        "repository": "local",
+        "version": "0.21.8.2-1"
+      },
+      {
+        "name": "libsixel",
+        "repository": "local",
+        "version": "1.10.5-1"
+      },
+      {
+        "name": "libsm",
+        "repository": "local",
+        "version": "1.2.6-1"
+      },
+      {
+        "name": "libsndfile",
+        "repository": "local",
+        "version": "1.2.2-4"
+      },
+      {
+        "name": "libsodium",
+        "repository": "local",
+        "version": "1.0.22-1"
+      },
+      {
+        "name": "libsoup3",
+        "repository": "local",
+        "version": "3.6.6-2"
+      },
+      {
+        "name": "libsoxr",
+        "repository": "local",
+        "version": "0.1.3-5"
+      },
+      {
+        "name": "libssh",
+        "repository": "local",
+        "version": "0.12.2-1"
+      },
+      {
+        "name": "libssh2",
+        "repository": "local",
+        "version": "1.11.1-7"
+      },
+      {
+        "name": "libstdc++",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libstemmer",
+        "repository": "local",
+        "version": "3.1.1-1"
+      },
+      {
+        "name": "libsysprof-capture",
+        "repository": "local",
+        "version": "50.0-6"
+      },
+      {
+        "name": "libtasn1",
+        "repository": "local",
+        "version": "4.21.0-1"
+      },
+      {
+        "name": "libtatsu",
+        "repository": "local",
+        "version": "1.0.5-1"
+      },
+      {
+        "name": "libteam",
+        "repository": "local",
+        "version": "1.32-3"
+      },
+      {
+        "name": "libthai",
+        "repository": "local",
+        "version": "0.1.30-1"
+      },
+      {
+        "name": "libtheora",
+        "repository": "local",
+        "version": "1.2.0-1"
+      },
+      {
+        "name": "libtiff",
+        "repository": "local",
+        "version": "4.7.2-1"
+      },
+      {
+        "name": "libtirpc",
+        "repository": "local",
+        "version": "1.3.8-1"
+      },
+      {
+        "name": "libtool",
+        "repository": "local",
+        "version": "2.6.0+r23+gb08cb0a0-1"
+      },
+      {
+        "name": "libtsan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libubsan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libunibreak",
+        "repository": "local",
+        "version": "7.0-1"
+      },
+      {
+        "name": "libunistring",
+        "repository": "local",
+        "version": "1.4.2-1"
+      },
+      {
+        "name": "libunwind",
+        "repository": "local",
+        "version": "1.8.3-1"
+      },
+      {
+        "name": "liburing",
+        "repository": "local",
+        "version": "2.15-1"
+      },
+      {
+        "name": "libusb",
+        "repository": "local",
+        "version": "1.0.30-1"
+      },
+      {
+        "name": "libusbmuxd",
+        "repository": "local",
+        "version": "2.1.1-2"
+      },
+      {
+        "name": "libutempter",
+        "repository": "local",
+        "version": "1.2.3-1"
+      },
+      {
+        "name": "libutf8proc",
+        "repository": "local",
+        "version": "2.11.3-1"
+      },
+      {
+        "name": "libuv",
+        "repository": "local",
+        "version": "1.52.1-2"
+      },
+      {
+        "name": "libva",
+        "repository": "local",
+        "version": "2.24.1-1"
+      },
+      {
+        "name": "libvdpau",
+        "repository": "local",
+        "version": "1.5-4"
+      },
+      {
+        "name": "libverto",
+        "repository": "local",
+        "version": "0.3.2-6"
+      },
+      {
+        "name": "libvips",
+        "repository": "local",
+        "version": "8.18.7-1"
+      },
+      {
+        "name": "libvorbis",
+        "repository": "local",
+        "version": "1.3.7-4"
+      },
+      {
+        "name": "libvpx",
+        "repository": "local",
+        "version": "1.17.0-1"
+      },
+      {
+        "name": "libvterm",
+        "repository": "local",
+        "version": "0.3.3-2"
+      },
+      {
+        "name": "libwacom",
+        "repository": "local",
+        "version": "2.20.0-1"
+      },
+      {
+        "name": "libwebp",
+        "repository": "local",
+        "version": "1.6.0-2"
+      },
+      {
+        "name": "libwireplumber",
+        "repository": "local",
+        "version": "0.5.17-2"
+      },
+      {
+        "name": "libx11",
+        "repository": "local",
+        "version": "1.8.13-1"
+      },
+      {
+        "name": "libxau",
+        "repository": "local",
+        "version": "1.0.12-1"
+      },
+      {
+        "name": "libxcb",
+        "repository": "local",
+        "version": "1.17.0-1"
+      },
+      {
+        "name": "libxcomposite",
+        "repository": "local",
+        "version": "0.4.7-1"
+      },
+      {
+        "name": "libxcrypt",
+        "repository": "local",
+        "version": "4.5.2-1"
+      },
+      {
+        "name": "libxcursor",
+        "repository": "local",
+        "version": "1.2.3-1"
+      },
+      {
+        "name": "libxcvt",
+        "repository": "local",
+        "version": "0.1.3-1"
+      },
+      {
+        "name": "libxdamage",
+        "repository": "local",
+        "version": "1.1.7-1"
+      },
+      {
+        "name": "libxdmcp",
+        "repository": "local",
+        "version": "1.1.5-2"
+      },
+      {
+        "name": "libxext",
+        "repository": "local",
+        "version": "1.3.7-1"
+      },
+      {
+        "name": "libxfixes",
+        "repository": "local",
+        "version": "6.0.2-1"
+      },
+      {
+        "name": "libxfont2",
+        "repository": "local",
+        "version": "2.0.9-1"
+      },
+      {
+        "name": "libxft",
+        "repository": "local",
+        "version": "2.3.9-1"
+      },
+      {
+        "name": "libxi",
+        "repository": "local",
+        "version": "1.8.3-1"
+      },
+      {
+        "name": "libxinerama",
+        "repository": "local",
+        "version": "1.1.6-1"
+      },
+      {
+        "name": "libxkbcommon",
+        "repository": "local",
+        "version": "1.13.2-1"
+      },
+      {
+        "name": "libxkbcommon-x11",
+        "repository": "local",
+        "version": "1.13.2-1"
+      },
+      {
+        "name": "libxkbfile",
+        "repository": "local",
+        "version": "1.2.0-1"
+      },
+      {
+        "name": "libxml2",
+        "repository": "local",
+        "version": "2.15.4-1"
+      },
+      {
+        "name": "libxmlb",
+        "repository": "local",
+        "version": "0.3.29-1"
+      },
+      {
+        "name": "libxpresent",
+        "repository": "local",
+        "version": "1.0.2-1"
+      },
+      {
+        "name": "libxrandr",
+        "repository": "local",
+        "version": "1.5.5-1"
+      },
+      {
+        "name": "libxrender",
+        "repository": "local",
+        "version": "0.9.12-1"
+      },
+      {
+        "name": "libxshmfence",
+        "repository": "local",
+        "version": "1.3.3-1"
+      },
+      {
+        "name": "libxslt",
+        "repository": "local",
+        "version": "1.1.45-2"
+      },
+      {
+        "name": "libxss",
+        "repository": "local",
+        "version": "1.2.5-1"
+      },
+      {
+        "name": "libxtst",
+        "repository": "local",
+        "version": "1.2.5-1"
+      },
+      {
+        "name": "libxv",
+        "repository": "local",
+        "version": "1.0.13-1"
+      },
+      {
+        "name": "libxxf86vm",
+        "repository": "local",
+        "version": "1.1.7-1"
+      },
+      {
+        "name": "libyaml",
+        "repository": "local",
+        "version": "0.2.5-3"
+      },
+      {
+        "name": "libzip",
+        "repository": "local",
+        "version": "1.11.4-1"
+      },
+      {
+        "name": "licenses",
+        "repository": "local",
+        "version": "20240728-1"
+      },
+      {
+        "name": "lilv",
+        "repository": "local",
+        "version": "0.28.0-1"
+      },
+      {
+        "name": "linux-api-headers",
+        "repository": "local",
+        "version": "7.2-1"
+      },
+      {
+        "name": "linux-firmware",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-amd",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-amdgpu",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-atheros",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-broadcom",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-cirrus",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-intel",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-mediatek",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-nvidia",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-other",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-radeon",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-realtek",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-ti",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-whence",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-rpi",
+        "repository": "local",
+        "version": "6.18.53-1"
+      },
+      {
+        "name": "llhttp",
+        "repository": "local",
+        "version": "9.3.1-1"
+      },
+      {
+        "name": "llvm-libs",
+        "repository": "local",
+        "version": "22.1.8-2"
+      },
+      {
+        "name": "lm_sensors",
+        "repository": "local",
+        "version": "1:3.6.2-1"
+      },
+      {
+        "name": "lmdb",
+        "repository": "local",
+        "version": "0.9.35-1"
+      },
+      {
+        "name": "localsearch",
+        "repository": "local",
+        "version": "3.11.2-1"
+      },
+      {
+        "name": "lua",
+        "repository": "local",
+        "version": "5.5.1-1"
+      },
+      {
+        "name": "lua51-lpeg",
+        "repository": "local",
+        "version": "1.1.0-5"
+      },
+      {
+        "name": "lua54",
+        "repository": "local",
+        "version": "5.4.9-1"
+      },
+      {
+        "name": "luajit",
+        "repository": "local",
+        "version": "2.1.1788856981+c6ffc14-1"
+      },
+      {
+        "name": "lv2",
+        "repository": "local",
+        "version": "1.18.10-2"
+      },
+      {
+        "name": "lz4",
+        "repository": "local",
+        "version": "1:1.10.0-2"
+      },
+      {
+        "name": "lzo",
+        "repository": "local",
+        "version": "2.10-5"
+      },
+      {
+        "name": "md4c",
+        "repository": "local",
+        "version": "0.5.3-1"
+      },
+      {
+        "name": "mdadm",
+        "repository": "local",
+        "version": "4.6-2"
+      },
+      {
+        "name": "mesa",
+        "repository": "local",
+        "version": "1:26.2.3-1"
+      },
+      {
+        "name": "minizip",
+        "repository": "local",
+        "version": "1:1.3.2-3"
+      },
+      {
+        "name": "mkinitcpio",
+        "repository": "local",
+        "version": "42.1-1"
+      },
+      {
+        "name": "mkinitcpio-busybox",
+        "repository": "local",
+        "version": "1.36.1-1"
+      },
+      {
+        "name": "mobile-broadband-provider-info",
+        "repository": "local",
+        "version": "20251101-1"
+      },
+      {
+        "name": "mpdecimal",
+        "repository": "local",
+        "version": "4.0.1-3"
+      },
+      {
+        "name": "mpfr",
+        "repository": "local",
+        "version": "4.2.2-1"
+      },
+      {
+        "name": "mpg123",
+        "repository": "local",
+        "version": "1.33.7-1"
+      },
+      {
+        "name": "mpv",
+        "repository": "local",
+        "version": "1:0.41.0-6"
+      },
+      {
+        "name": "mpv-mpris",
+        "repository": "local",
+        "version": "1.3-1"
+      },
+      {
+        "name": "msgpack-c",
+        "repository": "local",
+        "version": "7.0.1-1"
+      },
+      {
+        "name": "mtdev",
+        "repository": "local",
+        "version": "1.1.7-1"
+      },
+      {
+        "name": "mujs",
+        "repository": "local",
+        "version": "1.3.10-1"
+      },
+      {
+        "name": "muparser",
+        "repository": "local",
+        "version": "2.3.5-2"
+      },
+      {
+        "name": "nano",
+        "repository": "local",
+        "version": "9.2-1"
+      },
+      {
+        "name": "nautilus",
+        "repository": "local",
+        "version": "50.3.1-1"
+      },
+      {
+        "name": "ncurses",
+        "repository": "local",
+        "version": "6.6-2"
+      },
+      {
+        "name": "neovim",
+        "repository": "local",
+        "version": "0.12.5-1"
+      },
+      {
+        "name": "net-tools",
+        "repository": "local",
+        "version": "2.10-3"
+      },
+      {
+        "name": "netctl",
+        "repository": "local",
+        "version": "1.29-2"
+      },
+      {
+        "name": "nettle",
+        "repository": "local",
+        "version": "4.0-1"
+      },
+      {
+        "name": "networkmanager",
+        "repository": "local",
+        "version": "1.58.1-1"
+      },
+      {
+        "name": "nftables",
+        "repository": "local",
+        "version": "1:1.1.7-3"
+      },
+      {
+        "name": "noto-fonts",
+        "repository": "local",
+        "version": "1:2026.09.01-1"
+      },
+      {
+        "name": "noto-fonts-emoji",
+        "repository": "local",
+        "version": "1:2.051-1"
+      },
+      {
+        "name": "npth",
+        "repository": "local",
+        "version": "1.8-1"
+      },
+      {
+        "name": "nspr",
+        "repository": "local",
+        "version": "4.40-1"
+      },
+      {
+        "name": "nss",
+        "repository": "local",
+        "version": "3.130-1"
+      },
+      {
+        "name": "numactl",
+        "repository": "local",
+        "version": "2.0.19-1"
+      },
+      {
+        "name": "ocl-icd",
+        "repository": "local",
+        "version": "2.3.5-1"
+      },
+      {
+        "name": "omarchy",
+        "repository": "local",
+        "version": "4.0.0.alpha-6865"
+      },
+      {
+        "name": "omarchy-settings",
+        "repository": "local",
+        "version": "4.0.0.alpha-6865"
+      },
+      {
+        "name": "onetbb",
+        "repository": "local",
+        "version": "2023.1.0-1"
+      },
+      {
+        "name": "oniguruma",
+        "repository": "local",
+        "version": "6.9.10-1"
+      },
+      {
+        "name": "openal",
+        "repository": "local",
+        "version": "1.25.2-2"
+      },
+      {
+        "name": "opencore-amr",
+        "repository": "local",
+        "version": "0.1.6-2"
+      },
+      {
+        "name": "openexr",
+        "repository": "local",
+        "version": "3.5.1-1"
+      },
+      {
+        "name": "openh264",
+        "repository": "local",
+        "version": "2.6.0-2"
+      },
+      {
+        "name": "openjpeg2",
+        "repository": "local",
+        "version": "2.5.4-1"
+      },
+      {
+        "name": "openjph",
+        "repository": "local",
+        "version": "0.32.0-1"
+      },
+      {
+        "name": "openssh",
+        "repository": "local",
+        "version": "10.5p1-1"
+      },
+      {
+        "name": "openssl",
+        "repository": "local",
+        "version": "3.6.4-1"
+      },
+      {
+        "name": "opus",
+        "repository": "local",
+        "version": "1.6.1-1"
+      },
+      {
+        "name": "orc",
+        "repository": "local",
+        "version": "0.4.44-1"
+      },
+      {
+        "name": "osinfo-db",
+        "repository": "local",
+        "version": "20260812-1"
+      },
+      {
+        "name": "p11-kit",
+        "repository": "local",
+        "version": "0.26.5-1"
+      },
+      {
+        "name": "pacman",
+        "repository": "local",
+        "version": "7.1.0.r9.g54d9411-2"
+      },
+      {
+        "name": "pacman-contrib",
+        "repository": "local",
+        "version": "1.13.1-1"
+      },
+      {
+        "name": "pacman-mirrorlist",
+        "repository": "local",
+        "version": "20260411-2"
+      },
+      {
+        "name": "pam",
+        "repository": "local",
+        "version": "1.7.2-2"
+      },
+      {
+        "name": "pambase",
+        "repository": "local",
+        "version": "20260616-1"
+      },
+      {
+        "name": "pamixer",
+        "repository": "local",
+        "version": "1.6-3"
+      },
+      {
+        "name": "pango",
+        "repository": "local",
+        "version": "1:1.58.2-1"
+      },
+      {
+        "name": "parted",
+        "repository": "local",
+        "version": "3.8-1"
+      },
+      {
+        "name": "pciutils",
+        "repository": "local",
+        "version": "3.15.0-1"
+      },
+      {
+        "name": "pcre",
+        "repository": "local",
+        "version": "8.45-5"
+      },
+      {
+        "name": "pcre2",
+        "repository": "local",
+        "version": "10.48-1"
+      },
+      {
+        "name": "pcsclite",
+        "repository": "local",
+        "version": "2.5.2-1"
+      },
+      {
+        "name": "perl",
+        "repository": "local",
+        "version": "5.42.2-2"
+      },
+      {
+        "name": "perl-error",
+        "repository": "local",
+        "version": "0.17030-3"
+      },
+      {
+        "name": "perl-mailtools",
+        "repository": "local",
+        "version": "2.22-3"
+      },
+      {
+        "name": "perl-timedate",
+        "repository": "local",
+        "version": "2.35-1"
+      },
+      {
+        "name": "pinentry",
+        "repository": "local",
+        "version": "1.3.3-1"
+      },
+      {
+        "name": "pipewire",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "pipewire-alsa",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "pipewire-audio",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "pipewire-jack",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "pipewire-pulse",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "pixman",
+        "repository": "local",
+        "version": "0.46.4-1.1"
+      },
+      {
+        "name": "polkit",
+        "repository": "local",
+        "version": "127-3"
+      },
+      {
+        "name": "poppler",
+        "repository": "local",
+        "version": "26.08.0-1"
+      },
+      {
+        "name": "poppler-glib",
+        "repository": "local",
+        "version": "26.08.0-1"
+      },
+      {
+        "name": "popt",
+        "repository": "local",
+        "version": "1.19-2"
+      },
+      {
+        "name": "portaudio",
+        "repository": "local",
+        "version": "1:19.7.0-4"
+      },
+      {
+        "name": "procps-ng",
+        "repository": "local",
+        "version": "4.0.7-1"
+      },
+      {
+        "name": "psmisc",
+        "repository": "local",
+        "version": "23.7-2"
+      },
+      {
+        "name": "pugixml",
+        "repository": "local",
+        "version": "1.16-1"
+      },
+      {
+        "name": "python",
+        "repository": "local",
+        "version": "3.14.7-1"
+      },
+      {
+        "name": "python-dbus",
+        "repository": "local",
+        "version": "1.5.0-1"
+      },
+      {
+        "name": "python-gobject",
+        "repository": "local",
+        "version": "3.56.3-1"
+      },
+      {
+        "name": "python-pyxdg",
+        "repository": "local",
+        "version": "0.28-7"
+      },
+      {
+        "name": "qoi",
+        "repository": "local",
+        "version": "r350.4461cc3-1"
+      },
+      {
+        "name": "qt6-base",
+        "repository": "local",
+        "version": "6.11.2-3"
+      },
+      {
+        "name": "qt6-declarative",
+        "repository": "local",
+        "version": "6.11.2-2"
+      },
+      {
+        "name": "qt6-imageformats",
+        "repository": "local",
+        "version": "6.11.2-1"
+      },
+      {
+        "name": "qt6-svg",
+        "repository": "local",
+        "version": "6.11.2-1"
+      },
+      {
+        "name": "qt6-translations",
+        "repository": "local",
+        "version": "6.11.2-1"
+      },
+      {
+        "name": "qt6-wayland",
+        "repository": "local",
+        "version": "6.11.2-1"
+      },
+      {
+        "name": "quickshell",
+        "repository": "local",
+        "version": "0.3.1-1"
+      },
+      {
+        "name": "raspberrypi-bootloader",
+        "repository": "local",
+        "version": "20260915-1"
+      },
+      {
+        "name": "raspberrypi-utils",
+        "repository": "local",
+        "version": "20260914-1"
+      },
+      {
+        "name": "rav1e",
+        "repository": "local",
+        "version": "0.8.1-3"
+      },
+      {
+        "name": "re2",
+        "repository": "local",
+        "version": "2:2025.11.05-6"
+      },
+      {
+        "name": "readline",
+        "repository": "local",
+        "version": "8.3.6-1"
+      },
+      {
+        "name": "ripgrep",
+        "repository": "local",
+        "version": "15.2.0-1"
+      },
+      {
+        "name": "rubberband",
+        "repository": "local",
+        "version": "4.0.0-2"
+      },
+      {
+        "name": "sbc",
+        "repository": "local",
+        "version": "2.2-1"
+      },
+      {
+        "name": "sdbus-cpp",
+        "repository": "local",
+        "version": "2.3.1-1"
+      },
+      {
+        "name": "sdl2-compat",
+        "repository": "local",
+        "version": "2.32.72-1"
+      },
+      {
+        "name": "sdl3",
+        "repository": "local",
+        "version": "3.4.16-1"
+      },
+      {
+        "name": "seatd",
+        "repository": "local",
+        "version": "0.9.3-1"
+      },
+      {
+        "name": "sed",
+        "repository": "local",
+        "version": "4.10-2"
+      },
+      {
+        "name": "serd",
+        "repository": "local",
+        "version": "0.32.10-1"
+      },
+      {
+        "name": "shaderc",
+        "repository": "local",
+        "version": "2026.3-1"
+      },
+      {
+        "name": "shadow",
+        "repository": "local",
+        "version": "4.20.0.arch1-1"
+      },
+      {
+        "name": "shared-mime-info",
+        "repository": "local",
+        "version": "2.5.1-2"
+      },
+      {
+        "name": "slang",
+        "repository": "local",
+        "version": "2.3.3-4"
+      },
+      {
+        "name": "slurp",
+        "repository": "local",
+        "version": "1.5.0-2"
+      },
+      {
+        "name": "snappy",
+        "repository": "local",
+        "version": "1.2.2-3"
+      },
+      {
+        "name": "sndio",
+        "repository": "local",
+        "version": "1.10.0-1"
+      },
+      {
+        "name": "socat",
+        "repository": "local",
+        "version": "1.8.1.3-1"
+      },
+      {
+        "name": "sord",
+        "repository": "local",
+        "version": "0.16.22-1"
+      },
+      {
+        "name": "spandsp",
+        "repository": "local",
+        "version": "0.0.6-7"
+      },
+      {
+        "name": "speex",
+        "repository": "local",
+        "version": "1.2.1-2"
+      },
+      {
+        "name": "speexdsp",
+        "repository": "local",
+        "version": "1.2.1-2"
+      },
+      {
+        "name": "spirv-tools",
+        "repository": "local",
+        "version": "1:1.4.357.0-1"
+      },
+      {
+        "name": "sqlite",
+        "repository": "local",
+        "version": "3.53.4-1"
+      },
+      {
+        "name": "sratom",
+        "repository": "local",
+        "version": "0.6.22-1"
+      },
+      {
+        "name": "srt",
+        "repository": "local",
+        "version": "1.5.7-1"
+      },
+      {
+        "name": "starship",
+        "repository": "local",
+        "version": "1.26.0-1"
+      },
+      {
+        "name": "sudo",
+        "repository": "local",
+        "version": "1.9.17.p2-6"
+      },
+      {
+        "name": "systemd",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "systemd-libs",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "systemd-resolvconf",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "systemd-sysvcompat",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "tar",
+        "repository": "local",
+        "version": "1.35-5"
+      },
+      {
+        "name": "tinysparql",
+        "repository": "local",
+        "version": "3.11.1-1"
+      },
+      {
+        "name": "tmux",
+        "repository": "local",
+        "version": "3.7_c-1"
+      },
+      {
+        "name": "tomlplusplus",
+        "repository": "local",
+        "version": "3.4.0-1"
+      },
+      {
+        "name": "totem-pl-parser",
+        "repository": "local",
+        "version": "3.26.7-1"
+      },
+      {
+        "name": "tpm2-tss",
+        "repository": "local",
+        "version": "4.2.0-2"
+      },
+      {
+        "name": "tree-sitter",
+        "repository": "local",
+        "version": "0.26.9-1"
+      },
+      {
+        "name": "tree-sitter-c",
+        "repository": "local",
+        "version": "0.24.1-2"
+      },
+      {
+        "name": "tree-sitter-lua",
+        "repository": "local",
+        "version": "0.5.0-3"
+      },
+      {
+        "name": "tree-sitter-markdown",
+        "repository": "local",
+        "version": "0.5.3-2"
+      },
+      {
+        "name": "tree-sitter-query",
+        "repository": "local",
+        "version": "0.8.0-2"
+      },
+      {
+        "name": "tree-sitter-vim",
+        "repository": "local",
+        "version": "0.8.1-3"
+      },
+      {
+        "name": "tree-sitter-vimdoc",
+        "repository": "local",
+        "version": "4.1.0-2"
+      },
+      {
+        "name": "tslib",
+        "repository": "local",
+        "version": "1.24-1"
+      },
+      {
+        "name": "ttf-dejavu",
+        "repository": "local",
+        "version": "2.37+18+g9b5d1b2f-8"
+      },
+      {
+        "name": "ttf-jetbrains-mono-nerd",
+        "repository": "local",
+        "version": "3.5.1-2"
+      },
+      {
+        "name": "ttf-liberation",
+        "repository": "local",
+        "version": "2.1.5-2"
+      },
+      {
+        "name": "ttfx",
+        "repository": "local",
+        "version": "0.3.2-1"
+      },
+      {
+        "name": "tzdata",
+        "repository": "local",
+        "version": "2026d-1"
+      },
+      {
+        "name": "uchardet",
+        "repository": "local",
+        "version": "0.0.8-4"
+      },
+      {
+        "name": "udisks2",
+        "repository": "local",
+        "version": "2.11.2-1"
+      },
+      {
+        "name": "unibilium",
+        "repository": "local",
+        "version": "2.1.4-1"
+      },
+      {
+        "name": "unzip",
+        "repository": "local",
+        "version": "6.0-23"
+      },
+      {
+        "name": "upower",
+        "repository": "local",
+        "version": "1.91.4-1"
+      },
+      {
+        "name": "util-linux",
+        "repository": "local",
+        "version": "2.42.4-1"
+      },
+      {
+        "name": "util-linux-libs",
+        "repository": "local",
+        "version": "2.42.4-1"
+      },
+      {
+        "name": "uwsm",
+        "repository": "local",
+        "version": "0.27.0-1"
+      },
+      {
+        "name": "v4l-utils",
+        "repository": "local",
+        "version": "1.32.0-2"
+      },
+      {
+        "name": "vapoursynth",
+        "repository": "local",
+        "version": "79-1"
+      },
+      {
+        "name": "vid.stab",
+        "repository": "local",
+        "version": "1.1.2-1"
+      },
+      {
+        "name": "vim",
+        "repository": "local",
+        "version": "9.2.1046-1"
+      },
+      {
+        "name": "vim-runtime",
+        "repository": "local",
+        "version": "9.2.1046-1"
+      },
+      {
+        "name": "vmaf",
+        "repository": "local",
+        "version": "3.2.1-1"
+      },
+      {
+        "name": "volume_key",
+        "repository": "local",
+        "version": "0.3.12-12"
+      },
+      {
+        "name": "vulkan-broadcom",
+        "repository": "local",
+        "version": "1:26.2.3-1"
+      },
+      {
+        "name": "vulkan-icd-loader",
+        "repository": "local",
+        "version": "1.4.357.0-1"
+      },
+      {
+        "name": "vulkan-mesa-implicit-layers",
+        "repository": "local",
+        "version": "1:26.2.3-1"
+      },
+      {
+        "name": "wayland",
+        "repository": "local",
+        "version": "1.26.0-1"
+      },
+      {
+        "name": "wayland-protocols",
+        "repository": "local",
+        "version": "1.49-1"
+      },
+      {
+        "name": "webrtc-audio-processing-1",
+        "repository": "local",
+        "version": "1.3-5"
+      },
+      {
+        "name": "which",
+        "repository": "local",
+        "version": "2.25-1"
+      },
+      {
+        "name": "wireless-regdb",
+        "repository": "local",
+        "version": "2026.09.03-1"
+      },
+      {
+        "name": "wireless_tools",
+        "repository": "local",
+        "version": "30.pre9-5"
+      },
+      {
+        "name": "wireplumber",
+        "repository": "local",
+        "version": "0.5.17-2"
+      },
+      {
+        "name": "wl-clipboard",
+        "repository": "local",
+        "version": "1:2.3.0-1"
+      },
+      {
+        "name": "woff2-font-awesome",
+        "repository": "local",
+        "version": "7.3.1-1"
+      },
+      {
+        "name": "wpa_supplicant",
+        "repository": "local",
+        "version": "2:2.12-1"
+      },
+      {
+        "name": "wtype",
+        "repository": "local",
+        "version": "0.4-2"
+      },
+      {
+        "name": "x264",
+        "repository": "local",
+        "version": "3:0.165.r3222.b35605a-2"
+      },
+      {
+        "name": "x265",
+        "repository": "local",
+        "version": "4.3-1"
+      },
+      {
+        "name": "xcb-proto",
+        "repository": "local",
+        "version": "1.17.0-4"
+      },
+      {
+        "name": "xcb-util",
+        "repository": "local",
+        "version": "0.4.1-2"
+      },
+      {
+        "name": "xcb-util-cursor",
+        "repository": "local",
+        "version": "0.1.6-1"
+      },
+      {
+        "name": "xcb-util-errors",
+        "repository": "local",
+        "version": "1.0.1-2"
+      },
+      {
+        "name": "xcb-util-image",
+        "repository": "local",
+        "version": "0.4.1-3"
+      },
+      {
+        "name": "xcb-util-keysyms",
+        "repository": "local",
+        "version": "0.4.1-5"
+      },
+      {
+        "name": "xcb-util-renderutil",
+        "repository": "local",
+        "version": "0.3.10-2"
+      },
+      {
+        "name": "xcb-util-wm",
+        "repository": "local",
+        "version": "0.4.2-2"
+      },
+      {
+        "name": "xdg-desktop-portal",
+        "repository": "local",
+        "version": "1.22.1-2"
+      },
+      {
+        "name": "xdg-desktop-portal-gtk",
+        "repository": "local",
+        "version": "1.15.3-1"
+      },
+      {
+        "name": "xdg-desktop-portal-hyprland",
+        "repository": "local",
+        "version": "1.4.1-2"
+      },
+      {
+        "name": "xdg-terminal-exec",
+        "repository": "local",
+        "version": "0.14.3-2"
+      },
+      {
+        "name": "xdg-user-dirs",
+        "repository": "local",
+        "version": "0.20-1"
+      },
+      {
+        "name": "xdg-user-dirs-gtk",
+        "repository": "local",
+        "version": "0.16-1"
+      },
+      {
+        "name": "xdg-utils",
+        "repository": "local",
+        "version": "1.2.1-2"
+      },
+      {
+        "name": "xkeyboard-config",
+        "repository": "local",
+        "version": "2.48-1"
+      },
+      {
+        "name": "xorg-fonts-encodings",
+        "repository": "local",
+        "version": "1.1.0-2"
+      },
+      {
+        "name": "xorg-server-common",
+        "repository": "local",
+        "version": "21.1.24-1"
+      },
+      {
+        "name": "xorg-setxkbmap",
+        "repository": "local",
+        "version": "1.3.5-1"
+      },
+      {
+        "name": "xorg-xkbcomp",
+        "repository": "local",
+        "version": "1.5.0-1"
+      },
+      {
+        "name": "xorg-xprop",
+        "repository": "local",
+        "version": "1.2.8-1"
+      },
+      {
+        "name": "xorg-xwayland",
+        "repository": "local",
+        "version": "24.1.13-1"
+      },
+      {
+        "name": "xorgproto",
+        "repository": "local",
+        "version": "2025.1-1"
+      },
+      {
+        "name": "xvidcore",
+        "repository": "local",
+        "version": "1.3.7-4"
+      },
+      {
+        "name": "xxhash",
+        "repository": "local",
+        "version": "0.8.4-1"
+      },
+      {
+        "name": "xz",
+        "repository": "local",
+        "version": "5.8.4-1"
+      },
+      {
+        "name": "zeromq",
+        "repository": "local",
+        "version": "4.3.5-3"
+      },
+      {
+        "name": "zimg",
+        "repository": "local",
+        "version": "3.0.6-2"
+      },
+      {
+        "name": "zix",
+        "repository": "local",
+        "version": "0.8.2-1"
+      },
+      {
+        "name": "zlib",
+        "repository": "local",
+        "version": "1:1.3.2-3"
+      },
+      {
+        "name": "zlib-ng",
+        "repository": "local",
+        "version": "2.3.3-1"
+      },
+      {
+        "name": "zoxide",
+        "repository": "local",
+        "version": "0.10.0-1"
+      },
+      {
+        "name": "zstd",
+        "repository": "local",
+        "version": "1.5.7-3"
+      }
+    ],
+    "payload_sha256": "c862d85707a03e10c9ca20ef591461cf8fe171790bc2c7c34ef1d25f67c627bf",
+    "runtime_packages": [
+      {
+        "architecture": "aarch64",
+        "filename": "omarchy-4.0.0.alpha-6865-aarch64.pkg.tar.zst",
+        "name": "omarchy",
+        "package_sha256": "e07f48cf58fcfabb8e7501ac38cbc26b69f5d2774f82735c8c65ed357ac4cb31",
+        "package_signature": "unsigned",
+        "signature": null,
+        "source_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e",
+        "source_sha256": "1e96503992cebe681f5ed3036d2a22108adb59666ba1c2efb0a900a7137577fc",
+        "version": "4.0.0.alpha-6865"
+      },
+      {
+        "architecture": "aarch64",
+        "filename": "omarchy-settings-4.0.0.alpha-6865-aarch64.pkg.tar.zst",
+        "name": "omarchy-settings",
+        "package_sha256": "bac6505430c5f8f266a612906b23f9355f79028d0bf4cec7e696d6927a42482f",
+        "package_signature": "unsigned",
+        "signature": null,
+        "source_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e",
+        "source_sha256": "1e96503992cebe681f5ed3036d2a22108adb59666ba1c2efb0a900a7137577fc",
+        "version": "4.0.0.alpha-6865"
+      }
+    ],
+    "source_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e"
+  },
+  "installer": {
+    "package_manifest_sha256": "5f4f179c5a7bbf54ab00b5890a0a0695310ad731e8dbcc120095cc651ed5f1a9",
+    "package_records": 337,
+    "packages": [
+      {
+        "name": "abseil-cpp",
+        "repository": "local",
+        "version": "20260817.0-2"
+      },
+      {
+        "name": "acl",
+        "repository": "local",
+        "version": "2.4.0-1"
+      },
+      {
+        "name": "aquamarine",
+        "repository": "local",
+        "version": "0.15.1-1"
+      },
+      {
+        "name": "archlinux-keyring",
+        "repository": "local",
+        "version": "20260909-1"
+      },
+      {
+        "name": "archlinuxarm-keyring",
+        "repository": "local",
+        "version": "20240419-2"
+      },
+      {
+        "name": "attr",
+        "repository": "local",
+        "version": "2.6.0-1"
+      },
+      {
+        "name": "audit",
+        "repository": "local",
+        "version": "4.2.1-1"
+      },
+      {
+        "name": "avahi",
+        "repository": "local",
+        "version": "1:0.9rc5-1"
+      },
+      {
+        "name": "base",
+        "repository": "local",
+        "version": "3-3"
+      },
+      {
+        "name": "bash",
+        "repository": "local",
+        "version": "5.3.20-1"
+      },
+      {
+        "name": "benchmark",
+        "repository": "local",
+        "version": "1.9.5-2"
+      },
+      {
+        "name": "binutils",
+        "repository": "local",
+        "version": "2.46+r70+g155188ea10a7-1"
+      },
+      {
+        "name": "brotli",
+        "repository": "local",
+        "version": "1.2.0-1"
+      },
+      {
+        "name": "bubblewrap",
+        "repository": "local",
+        "version": "0.13.0-1"
+      },
+      {
+        "name": "bzip2",
+        "repository": "local",
+        "version": "1.0.8-6"
+      },
+      {
+        "name": "ca-certificates",
+        "repository": "local",
+        "version": "20240618-1"
+      },
+      {
+        "name": "ca-certificates-mozilla",
+        "repository": "local",
+        "version": "3.130-1"
+      },
+      {
+        "name": "ca-certificates-utils",
+        "repository": "local",
+        "version": "20240618-1"
+      },
+      {
+        "name": "cairo",
+        "repository": "local",
+        "version": "1.18.6-1"
+      },
+      {
+        "name": "coreutils",
+        "repository": "local",
+        "version": "9.12-2"
+      },
+      {
+        "name": "cryptsetup",
+        "repository": "local",
+        "version": "2.8.8-1"
+      },
+      {
+        "name": "curl",
+        "repository": "local",
+        "version": "8.22.0-1"
+      },
+      {
+        "name": "dav1d",
+        "repository": "local",
+        "version": "1.5.4-1"
+      },
+      {
+        "name": "db5.3",
+        "repository": "local",
+        "version": "5.3.28-7"
+      },
+      {
+        "name": "dbus",
+        "repository": "local",
+        "version": "1.16.2-1"
+      },
+      {
+        "name": "dbus-broker",
+        "repository": "local",
+        "version": "37-3"
+      },
+      {
+        "name": "dbus-broker-units",
+        "repository": "local",
+        "version": "37-3"
+      },
+      {
+        "name": "dbus-units",
+        "repository": "local",
+        "version": "37-3"
+      },
+      {
+        "name": "default-cursors",
+        "repository": "local",
+        "version": "3-1"
+      },
+      {
+        "name": "device-mapper",
+        "repository": "local",
+        "version": "2.03.42-1"
+      },
+      {
+        "name": "dhcpcd",
+        "repository": "local",
+        "version": "10.5.2-1"
+      },
+      {
+        "name": "dialog",
+        "repository": "local",
+        "version": "1:1.3_20260721-1"
+      },
+      {
+        "name": "diffutils",
+        "repository": "local",
+        "version": "3.12-2"
+      },
+      {
+        "name": "dosfstools",
+        "repository": "local",
+        "version": "4.2-5"
+      },
+      {
+        "name": "double-conversion",
+        "repository": "local",
+        "version": "3.4.0-1"
+      },
+      {
+        "name": "dtc",
+        "repository": "local",
+        "version": "1:1.8.1-1"
+      },
+      {
+        "name": "duktape",
+        "repository": "local",
+        "version": "2.7.0-7"
+      },
+      {
+        "name": "e2fsprogs",
+        "repository": "local",
+        "version": "1.47.4-1"
+      },
+      {
+        "name": "ex-vi-compat",
+        "repository": "local",
+        "version": "3-1"
+      },
+      {
+        "name": "expat",
+        "repository": "local",
+        "version": "2.8.5-1"
+      },
+      {
+        "name": "fcft",
+        "repository": "local",
+        "version": "3.3.3-1"
+      },
+      {
+        "name": "file",
+        "repository": "local",
+        "version": "5.48-1"
+      },
+      {
+        "name": "filesystem",
+        "repository": "local",
+        "version": "2025.10.12-1"
+      },
+      {
+        "name": "findutils",
+        "repository": "local",
+        "version": "4.11.0-1"
+      },
+      {
+        "name": "firmware-raspberrypi",
+        "repository": "local",
+        "version": "20260311-1"
+      },
+      {
+        "name": "fontconfig",
+        "repository": "local",
+        "version": "2:2.18.3-2"
+      },
+      {
+        "name": "foot",
+        "repository": "local",
+        "version": "1.28.0-2"
+      },
+      {
+        "name": "freetype2",
+        "repository": "local",
+        "version": "2.14.3-1"
+      },
+      {
+        "name": "fribidi",
+        "repository": "local",
+        "version": "1.0.17-1"
+      },
+      {
+        "name": "gawk",
+        "repository": "local",
+        "version": "5.4.1-1"
+      },
+      {
+        "name": "gcc-libs",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "gdbm",
+        "repository": "local",
+        "version": "1.26-2"
+      },
+      {
+        "name": "gdk-pixbuf2",
+        "repository": "local",
+        "version": "2.44.6-2"
+      },
+      {
+        "name": "gettext",
+        "repository": "local",
+        "version": "1.0-2"
+      },
+      {
+        "name": "giflib",
+        "repository": "local",
+        "version": "6.1.3-2"
+      },
+      {
+        "name": "git",
+        "repository": "local",
+        "version": "2.55.0-1"
+      },
+      {
+        "name": "glib2",
+        "repository": "local",
+        "version": "2.88.3-1"
+      },
+      {
+        "name": "glibc",
+        "repository": "local",
+        "version": "2.43+r22+g8362e8ce10b2-2"
+      },
+      {
+        "name": "glslang",
+        "repository": "local",
+        "version": "1:1.4.357.0-1"
+      },
+      {
+        "name": "glycin",
+        "repository": "local",
+        "version": "2.1.5-2"
+      },
+      {
+        "name": "gmp",
+        "repository": "local",
+        "version": "6.3.0-3"
+      },
+      {
+        "name": "gnulib-l10n",
+        "repository": "local",
+        "version": "20241231-1"
+      },
+      {
+        "name": "gnupg",
+        "repository": "local",
+        "version": "2.4.9-3"
+      },
+      {
+        "name": "gnutls",
+        "repository": "local",
+        "version": "3.8.13-3"
+      },
+      {
+        "name": "gperftools",
+        "repository": "local",
+        "version": "2.18.1-1"
+      },
+      {
+        "name": "gpgme",
+        "repository": "local",
+        "version": "2.2.0-1"
+      },
+      {
+        "name": "gpm",
+        "repository": "local",
+        "version": "1.20.7.r38.ge82d1a6-7"
+      },
+      {
+        "name": "graphite",
+        "repository": "local",
+        "version": "1:1.3.15-1"
+      },
+      {
+        "name": "grep",
+        "repository": "local",
+        "version": "3.12-2"
+      },
+      {
+        "name": "gtest",
+        "repository": "local",
+        "version": "1.18.0-1"
+      },
+      {
+        "name": "gzip",
+        "repository": "local",
+        "version": "1.15-1"
+      },
+      {
+        "name": "harfbuzz",
+        "repository": "local",
+        "version": "14.5.0-1"
+      },
+      {
+        "name": "highway",
+        "repository": "local",
+        "version": "1.4.0-1"
+      },
+      {
+        "name": "hwdata",
+        "repository": "local",
+        "version": "0.411-1"
+      },
+      {
+        "name": "hyprcursor",
+        "repository": "local",
+        "version": "0.1.13-7"
+      },
+      {
+        "name": "hyprgraphics",
+        "repository": "local",
+        "version": "0.5.1-4"
+      },
+      {
+        "name": "hyprland",
+        "repository": "local",
+        "version": "0.56.2-3"
+      },
+      {
+        "name": "hyprland-guiutils",
+        "repository": "local",
+        "version": "0.2.2-4"
+      },
+      {
+        "name": "hyprlang",
+        "repository": "local",
+        "version": "0.6.8-5"
+      },
+      {
+        "name": "hyprtoolkit",
+        "repository": "local",
+        "version": "0.6.0-1"
+      },
+      {
+        "name": "hyprutils",
+        "repository": "local",
+        "version": "0.14.2-1"
+      },
+      {
+        "name": "hyprwire",
+        "repository": "local",
+        "version": "0.3.1-3"
+      },
+      {
+        "name": "iana-etc",
+        "repository": "local",
+        "version": "20260617-1"
+      },
+      {
+        "name": "icu",
+        "repository": "local",
+        "version": "78.3-1"
+      },
+      {
+        "name": "iniparser",
+        "repository": "local",
+        "version": "4.3.0-1"
+      },
+      {
+        "name": "iproute2",
+        "repository": "local",
+        "version": "7.2.0-1"
+      },
+      {
+        "name": "iptables",
+        "repository": "local",
+        "version": "1:1.8.13-1"
+      },
+      {
+        "name": "iputils",
+        "repository": "local",
+        "version": "20250605-1"
+      },
+      {
+        "name": "iw",
+        "repository": "local",
+        "version": "6.17-1"
+      },
+      {
+        "name": "jansson",
+        "repository": "local",
+        "version": "2.15.1-1"
+      },
+      {
+        "name": "jbigkit",
+        "repository": "local",
+        "version": "2.1-8"
+      },
+      {
+        "name": "json-c",
+        "repository": "local",
+        "version": "0.19-1"
+      },
+      {
+        "name": "kbd",
+        "repository": "local",
+        "version": "2.10.0-1"
+      },
+      {
+        "name": "keyutils",
+        "repository": "local",
+        "version": "1.6.3-4"
+      },
+      {
+        "name": "kmod",
+        "repository": "local",
+        "version": "34.2-1"
+      },
+      {
+        "name": "krb5",
+        "repository": "local",
+        "version": "1.22.2-1"
+      },
+      {
+        "name": "lcms2",
+        "repository": "local",
+        "version": "2.19.1-1"
+      },
+      {
+        "name": "leancrypto",
+        "repository": "local",
+        "version": "1.9.0-1"
+      },
+      {
+        "name": "libarchive",
+        "repository": "local",
+        "version": "3.8.9-1"
+      },
+      {
+        "name": "libasan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libassuan",
+        "repository": "local",
+        "version": "3.0.0-1"
+      },
+      {
+        "name": "libatomic",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libb2",
+        "repository": "local",
+        "version": "0.98.1-3"
+      },
+      {
+        "name": "libbpf",
+        "repository": "local",
+        "version": "1.7.0-1"
+      },
+      {
+        "name": "libcap",
+        "repository": "local",
+        "version": "2.78-1"
+      },
+      {
+        "name": "libcap-ng",
+        "repository": "local",
+        "version": "0.9.6-1"
+      },
+      {
+        "name": "libcups",
+        "repository": "local",
+        "version": "2:2.4.19-1"
+      },
+      {
+        "name": "libdaemon",
+        "repository": "local",
+        "version": "0.14-6"
+      },
+      {
+        "name": "libdatrie",
+        "repository": "local",
+        "version": "0.2.14-1"
+      },
+      {
+        "name": "libdecor",
+        "repository": "local",
+        "version": "0.2.5-1"
+      },
+      {
+        "name": "libdeflate",
+        "repository": "local",
+        "version": "1.26-1"
+      },
+      {
+        "name": "libdisplay-info",
+        "repository": "local",
+        "version": "0.3.0-1"
+      },
+      {
+        "name": "libdrm",
+        "repository": "local",
+        "version": "2.4.134-1"
+      },
+      {
+        "name": "libedit",
+        "repository": "local",
+        "version": "20260512_3.1-1"
+      },
+      {
+        "name": "libei",
+        "repository": "local",
+        "version": "1.6.0-1"
+      },
+      {
+        "name": "libelf",
+        "repository": "local",
+        "version": "0.196-1"
+      },
+      {
+        "name": "libepoxy",
+        "repository": "local",
+        "version": "1.5.10-3"
+      },
+      {
+        "name": "libevdev",
+        "repository": "local",
+        "version": "1.13.7-1"
+      },
+      {
+        "name": "libevent",
+        "repository": "local",
+        "version": "2.1.13-2"
+      },
+      {
+        "name": "libffi",
+        "repository": "local",
+        "version": "3.8.0-1"
+      },
+      {
+        "name": "libfontenc",
+        "repository": "local",
+        "version": "1.1.9-1"
+      },
+      {
+        "name": "libgcc",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libgcrypt",
+        "repository": "local",
+        "version": "1.12.4-1"
+      },
+      {
+        "name": "libgfortran",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libglvnd",
+        "repository": "local",
+        "version": "1.7.0-3"
+      },
+      {
+        "name": "libgomp",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libgpg-error",
+        "repository": "local",
+        "version": "1.61-1"
+      },
+      {
+        "name": "libgudev",
+        "repository": "local",
+        "version": "238-3"
+      },
+      {
+        "name": "libice",
+        "repository": "local",
+        "version": "1.1.2-1"
+      },
+      {
+        "name": "libidn2",
+        "repository": "local",
+        "version": "2.3.8-1"
+      },
+      {
+        "name": "libinput",
+        "repository": "local",
+        "version": "1.32.0-1"
+      },
+      {
+        "name": "libjpeg-turbo",
+        "repository": "local",
+        "version": "3.2.0-2"
+      },
+      {
+        "name": "libjxl",
+        "repository": "local",
+        "version": "0.12.0-1"
+      },
+      {
+        "name": "libksba",
+        "repository": "local",
+        "version": "1.8.1-1"
+      },
+      {
+        "name": "libldap",
+        "repository": "local",
+        "version": "2.7.1-1"
+      },
+      {
+        "name": "liblsan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libmakepkg-dropins",
+        "repository": "local",
+        "version": "20-2"
+      },
+      {
+        "name": "libmm-glib",
+        "repository": "local",
+        "version": "1.24.2-1"
+      },
+      {
+        "name": "libmnl",
+        "repository": "local",
+        "version": "1.0.5-2"
+      },
+      {
+        "name": "libndp",
+        "repository": "local",
+        "version": "1.9-1"
+      },
+      {
+        "name": "libnetfilter_conntrack",
+        "repository": "local",
+        "version": "1.1.1-1"
+      },
+      {
+        "name": "libnewt",
+        "repository": "local",
+        "version": "0.52.25-2"
+      },
+      {
+        "name": "libnfnetlink",
+        "repository": "local",
+        "version": "1.0.2-2"
+      },
+      {
+        "name": "libnftnl",
+        "repository": "local",
+        "version": "1.3.2-1"
+      },
+      {
+        "name": "libnghttp2",
+        "repository": "local",
+        "version": "1.70.0-1"
+      },
+      {
+        "name": "libnghttp3",
+        "repository": "local",
+        "version": "1.18.0-1"
+      },
+      {
+        "name": "libngtcp2",
+        "repository": "local",
+        "version": "1.25.0-1"
+      },
+      {
+        "name": "libnl",
+        "repository": "local",
+        "version": "3.12.0-1"
+      },
+      {
+        "name": "libnm",
+        "repository": "local",
+        "version": "1.58.1-1"
+      },
+      {
+        "name": "libnsl",
+        "repository": "local",
+        "version": "2.0.1-2"
+      },
+      {
+        "name": "libobjc",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libp11-kit",
+        "repository": "local",
+        "version": "0.26.5-1"
+      },
+      {
+        "name": "libpcap",
+        "repository": "local",
+        "version": "1.11.0-1"
+      },
+      {
+        "name": "libpciaccess",
+        "repository": "local",
+        "version": "0.19-1"
+      },
+      {
+        "name": "libpgm",
+        "repository": "local",
+        "version": "5.3.128-4"
+      },
+      {
+        "name": "libpipewire",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "libpng",
+        "repository": "local",
+        "version": "1.6.58-2"
+      },
+      {
+        "name": "libproxy",
+        "repository": "local",
+        "version": "0.5.12-1"
+      },
+      {
+        "name": "libpsl",
+        "repository": "local",
+        "version": "0.21.5-2"
+      },
+      {
+        "name": "libquadmath",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "librsvg",
+        "repository": "local",
+        "version": "2:2.62.3-1"
+      },
+      {
+        "name": "libsasl",
+        "repository": "local",
+        "version": "2.1.28-5"
+      },
+      {
+        "name": "libseccomp",
+        "repository": "local",
+        "version": "2.6.0-1"
+      },
+      {
+        "name": "libsecret",
+        "repository": "local",
+        "version": "0.21.8.2-1"
+      },
+      {
+        "name": "libsm",
+        "repository": "local",
+        "version": "1.2.6-1"
+      },
+      {
+        "name": "libsodium",
+        "repository": "local",
+        "version": "1.0.22-1"
+      },
+      {
+        "name": "libssh2",
+        "repository": "local",
+        "version": "1.11.1-7"
+      },
+      {
+        "name": "libstdc++",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libsysprof-capture",
+        "repository": "local",
+        "version": "50.0-6"
+      },
+      {
+        "name": "libtasn1",
+        "repository": "local",
+        "version": "4.21.0-1"
+      },
+      {
+        "name": "libteam",
+        "repository": "local",
+        "version": "1.32-3"
+      },
+      {
+        "name": "libthai",
+        "repository": "local",
+        "version": "0.1.30-1"
+      },
+      {
+        "name": "libtiff",
+        "repository": "local",
+        "version": "4.7.2-1"
+      },
+      {
+        "name": "libtirpc",
+        "repository": "local",
+        "version": "1.3.8-1"
+      },
+      {
+        "name": "libtsan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libubsan",
+        "repository": "local",
+        "version": "16.1.1+r12+g301eb08fa2c5-1"
+      },
+      {
+        "name": "libunistring",
+        "repository": "local",
+        "version": "1.4.2-1"
+      },
+      {
+        "name": "libunwind",
+        "repository": "local",
+        "version": "1.8.3-1"
+      },
+      {
+        "name": "liburing",
+        "repository": "local",
+        "version": "2.15-1"
+      },
+      {
+        "name": "libusb",
+        "repository": "local",
+        "version": "1.0.30-1"
+      },
+      {
+        "name": "libutf8proc",
+        "repository": "local",
+        "version": "2.11.3-1"
+      },
+      {
+        "name": "libverto",
+        "repository": "local",
+        "version": "0.3.2-6"
+      },
+      {
+        "name": "libwacom",
+        "repository": "local",
+        "version": "2.20.0-1"
+      },
+      {
+        "name": "libwebp",
+        "repository": "local",
+        "version": "1.6.0-2"
+      },
+      {
+        "name": "libx11",
+        "repository": "local",
+        "version": "1.8.13-1"
+      },
+      {
+        "name": "libxau",
+        "repository": "local",
+        "version": "1.0.12-1"
+      },
+      {
+        "name": "libxcb",
+        "repository": "local",
+        "version": "1.17.0-1"
+      },
+      {
+        "name": "libxcomposite",
+        "repository": "local",
+        "version": "0.4.7-1"
+      },
+      {
+        "name": "libxcrypt",
+        "repository": "local",
+        "version": "4.5.2-1"
+      },
+      {
+        "name": "libxcursor",
+        "repository": "local",
+        "version": "1.2.3-1"
+      },
+      {
+        "name": "libxcvt",
+        "repository": "local",
+        "version": "0.1.3-1"
+      },
+      {
+        "name": "libxdmcp",
+        "repository": "local",
+        "version": "1.1.5-2"
+      },
+      {
+        "name": "libxext",
+        "repository": "local",
+        "version": "1.3.7-1"
+      },
+      {
+        "name": "libxfixes",
+        "repository": "local",
+        "version": "6.0.2-1"
+      },
+      {
+        "name": "libxfont2",
+        "repository": "local",
+        "version": "2.0.9-1"
+      },
+      {
+        "name": "libxft",
+        "repository": "local",
+        "version": "2.3.9-1"
+      },
+      {
+        "name": "libxkbcommon",
+        "repository": "local",
+        "version": "1.13.2-1"
+      },
+      {
+        "name": "libxkbcommon-x11",
+        "repository": "local",
+        "version": "1.13.2-1"
+      },
+      {
+        "name": "libxkbfile",
+        "repository": "local",
+        "version": "1.2.0-1"
+      },
+      {
+        "name": "libxml2",
+        "repository": "local",
+        "version": "2.15.4-1"
+      },
+      {
+        "name": "libxrandr",
+        "repository": "local",
+        "version": "1.5.5-1"
+      },
+      {
+        "name": "libxrender",
+        "repository": "local",
+        "version": "0.9.12-1"
+      },
+      {
+        "name": "libxshmfence",
+        "repository": "local",
+        "version": "1.3.3-1"
+      },
+      {
+        "name": "libxxf86vm",
+        "repository": "local",
+        "version": "1.1.7-1"
+      },
+      {
+        "name": "libyaml",
+        "repository": "local",
+        "version": "0.2.5-3"
+      },
+      {
+        "name": "libzip",
+        "repository": "local",
+        "version": "1.11.4-1"
+      },
+      {
+        "name": "licenses",
+        "repository": "local",
+        "version": "20240728-1"
+      },
+      {
+        "name": "linux-api-headers",
+        "repository": "local",
+        "version": "7.2-1"
+      },
+      {
+        "name": "linux-firmware",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-amd",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-amdgpu",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-atheros",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-broadcom",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-cirrus",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-intel",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-mediatek",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-nvidia",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-other",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-radeon",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-realtek",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-ti",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-firmware-whence",
+        "repository": "local",
+        "version": "20260916-1"
+      },
+      {
+        "name": "linux-rpi",
+        "repository": "local",
+        "version": "6.18.53-1"
+      },
+      {
+        "name": "llvm-libs",
+        "repository": "local",
+        "version": "22.1.8-2"
+      },
+      {
+        "name": "lm_sensors",
+        "repository": "local",
+        "version": "1:3.6.2-1"
+      },
+      {
+        "name": "lmdb",
+        "repository": "local",
+        "version": "0.9.35-1"
+      },
+      {
+        "name": "lua",
+        "repository": "local",
+        "version": "5.5.1-1"
+      },
+      {
+        "name": "lua54",
+        "repository": "local",
+        "version": "5.4.9-1"
+      },
+      {
+        "name": "lz4",
+        "repository": "local",
+        "version": "1:1.10.0-2"
+      },
+      {
+        "name": "lzo",
+        "repository": "local",
+        "version": "2.10-5"
+      },
+      {
+        "name": "md4c",
+        "repository": "local",
+        "version": "0.5.3-1"
+      },
+      {
+        "name": "mesa",
+        "repository": "local",
+        "version": "1:26.2.3-1"
+      },
+      {
+        "name": "mkinitcpio",
+        "repository": "local",
+        "version": "42.1-1"
+      },
+      {
+        "name": "mkinitcpio-busybox",
+        "repository": "local",
+        "version": "1.36.1-1"
+      },
+      {
+        "name": "mobile-broadband-provider-info",
+        "repository": "local",
+        "version": "20251101-1"
+      },
+      {
+        "name": "mpdecimal",
+        "repository": "local",
+        "version": "4.0.1-3"
+      },
+      {
+        "name": "mpfr",
+        "repository": "local",
+        "version": "4.2.2-1"
+      },
+      {
+        "name": "mtdev",
+        "repository": "local",
+        "version": "1.1.7-1"
+      },
+      {
+        "name": "muparser",
+        "repository": "local",
+        "version": "2.3.5-2"
+      },
+      {
+        "name": "nano",
+        "repository": "local",
+        "version": "9.2-1"
+      },
+      {
+        "name": "ncurses",
+        "repository": "local",
+        "version": "6.6-2"
+      },
+      {
+        "name": "net-tools",
+        "repository": "local",
+        "version": "2.10-3"
+      },
+      {
+        "name": "netctl",
+        "repository": "local",
+        "version": "1.29-2"
+      },
+      {
+        "name": "nettle",
+        "repository": "local",
+        "version": "4.0-1"
+      },
+      {
+        "name": "networkmanager",
+        "repository": "local",
+        "version": "1.58.1-1"
+      },
+      {
+        "name": "nftables",
+        "repository": "local",
+        "version": "1:1.1.7-3"
+      },
+      {
+        "name": "npth",
+        "repository": "local",
+        "version": "1.8-1"
+      },
+      {
+        "name": "nspr",
+        "repository": "local",
+        "version": "4.40-1"
+      },
+      {
+        "name": "nss",
+        "repository": "local",
+        "version": "3.130-1"
+      },
+      {
+        "name": "openssh",
+        "repository": "local",
+        "version": "10.5p1-1"
+      },
+      {
+        "name": "openssl",
+        "repository": "local",
+        "version": "3.6.4-1"
+      },
+      {
+        "name": "p11-kit",
+        "repository": "local",
+        "version": "0.26.5-1"
+      },
+      {
+        "name": "pacman",
+        "repository": "local",
+        "version": "7.1.0.r9.g54d9411-2"
+      },
+      {
+        "name": "pacman-mirrorlist",
+        "repository": "local",
+        "version": "20260411-2"
+      },
+      {
+        "name": "pam",
+        "repository": "local",
+        "version": "1.7.2-2"
+      },
+      {
+        "name": "pambase",
+        "repository": "local",
+        "version": "20260616-1"
+      },
+      {
+        "name": "pango",
+        "repository": "local",
+        "version": "1:1.58.2-1"
+      },
+      {
+        "name": "parted",
+        "repository": "local",
+        "version": "3.8-1"
+      },
+      {
+        "name": "pciutils",
+        "repository": "local",
+        "version": "3.15.0-1"
+      },
+      {
+        "name": "pcre",
+        "repository": "local",
+        "version": "8.45-5"
+      },
+      {
+        "name": "pcre2",
+        "repository": "local",
+        "version": "10.48-1"
+      },
+      {
+        "name": "pcsclite",
+        "repository": "local",
+        "version": "2.5.2-1"
+      },
+      {
+        "name": "perl",
+        "repository": "local",
+        "version": "5.42.2-2"
+      },
+      {
+        "name": "perl-error",
+        "repository": "local",
+        "version": "0.17030-3"
+      },
+      {
+        "name": "perl-mailtools",
+        "repository": "local",
+        "version": "2.22-3"
+      },
+      {
+        "name": "perl-timedate",
+        "repository": "local",
+        "version": "2.35-1"
+      },
+      {
+        "name": "pinentry",
+        "repository": "local",
+        "version": "1.3.3-1"
+      },
+      {
+        "name": "pipewire",
+        "repository": "local",
+        "version": "1:1.6.9-1"
+      },
+      {
+        "name": "pixman",
+        "repository": "local",
+        "version": "0.46.4-1.1"
+      },
+      {
+        "name": "polkit",
+        "repository": "local",
+        "version": "127-3"
+      },
+      {
+        "name": "popt",
+        "repository": "local",
+        "version": "1.19-2"
+      },
+      {
+        "name": "procps-ng",
+        "repository": "local",
+        "version": "4.0.7-1"
+      },
+      {
+        "name": "psmisc",
+        "repository": "local",
+        "version": "23.7-2"
+      },
+      {
+        "name": "pugixml",
+        "repository": "local",
+        "version": "1.16-1"
+      },
+      {
+        "name": "python",
+        "repository": "local",
+        "version": "3.14.7-1"
+      },
+      {
+        "name": "python-dbus",
+        "repository": "local",
+        "version": "1.5.0-1"
+      },
+      {
+        "name": "python-pyxdg",
+        "repository": "local",
+        "version": "0.28-7"
+      },
+      {
+        "name": "qt6-base",
+        "repository": "local",
+        "version": "6.11.2-3"
+      },
+      {
+        "name": "qt6-declarative",
+        "repository": "local",
+        "version": "6.11.2-2"
+      },
+      {
+        "name": "qt6-svg",
+        "repository": "local",
+        "version": "6.11.2-1"
+      },
+      {
+        "name": "qt6-translations",
+        "repository": "local",
+        "version": "6.11.2-1"
+      },
+      {
+        "name": "qt6-wayland",
+        "repository": "local",
+        "version": "6.11.2-1"
+      },
+      {
+        "name": "raspberrypi-bootloader",
+        "repository": "local",
+        "version": "20260915-1"
+      },
+      {
+        "name": "raspberrypi-utils",
+        "repository": "local",
+        "version": "20260914-1"
+      },
+      {
+        "name": "re2",
+        "repository": "local",
+        "version": "2:2025.11.05-6"
+      },
+      {
+        "name": "readline",
+        "repository": "local",
+        "version": "8.3.6-1"
+      },
+      {
+        "name": "seatd",
+        "repository": "local",
+        "version": "0.9.3-1"
+      },
+      {
+        "name": "sed",
+        "repository": "local",
+        "version": "4.10-2"
+      },
+      {
+        "name": "shadow",
+        "repository": "local",
+        "version": "4.20.0.arch1-1"
+      },
+      {
+        "name": "shared-mime-info",
+        "repository": "local",
+        "version": "2.5.1-2"
+      },
+      {
+        "name": "slang",
+        "repository": "local",
+        "version": "2.3.3-4"
+      },
+      {
+        "name": "spirv-tools",
+        "repository": "local",
+        "version": "1:1.4.357.0-1"
+      },
+      {
+        "name": "sqlite",
+        "repository": "local",
+        "version": "3.53.4-1"
+      },
+      {
+        "name": "sudo",
+        "repository": "local",
+        "version": "1.9.17.p2-6"
+      },
+      {
+        "name": "systemd",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "systemd-libs",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "systemd-resolvconf",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "systemd-sysvcompat",
+        "repository": "local",
+        "version": "262-1"
+      },
+      {
+        "name": "tar",
+        "repository": "local",
+        "version": "1.35-5"
+      },
+      {
+        "name": "tomlplusplus",
+        "repository": "local",
+        "version": "3.4.0-1"
+      },
+      {
+        "name": "tpm2-tss",
+        "repository": "local",
+        "version": "4.2.0-2"
+      },
+      {
+        "name": "tslib",
+        "repository": "local",
+        "version": "1.24-1"
+      },
+      {
+        "name": "ttf-dejavu",
+        "repository": "local",
+        "version": "2.37+18+g9b5d1b2f-8"
+      },
+      {
+        "name": "tzdata",
+        "repository": "local",
+        "version": "2026d-1"
+      },
+      {
+        "name": "util-linux",
+        "repository": "local",
+        "version": "2.42.4-1"
+      },
+      {
+        "name": "util-linux-libs",
+        "repository": "local",
+        "version": "2.42.4-1"
+      },
+      {
+        "name": "uwsm",
+        "repository": "local",
+        "version": "0.27.0-1"
+      },
+      {
+        "name": "vim",
+        "repository": "local",
+        "version": "9.2.1046-1"
+      },
+      {
+        "name": "vim-runtime",
+        "repository": "local",
+        "version": "9.2.1046-1"
+      },
+      {
+        "name": "wayland",
+        "repository": "local",
+        "version": "1.26.0-1"
+      },
+      {
+        "name": "wayland-protocols",
+        "repository": "local",
+        "version": "1.49-1"
+      },
+      {
+        "name": "which",
+        "repository": "local",
+        "version": "2.25-1"
+      },
+      {
+        "name": "wireless-regdb",
+        "repository": "local",
+        "version": "2026.09.03-1"
+      },
+      {
+        "name": "wireless_tools",
+        "repository": "local",
+        "version": "30.pre9-5"
+      },
+      {
+        "name": "wpa_supplicant",
+        "repository": "local",
+        "version": "2:2.12-1"
+      },
+      {
+        "name": "xcb-proto",
+        "repository": "local",
+        "version": "1.17.0-4"
+      },
+      {
+        "name": "xcb-util",
+        "repository": "local",
+        "version": "0.4.1-2"
+      },
+      {
+        "name": "xcb-util-cursor",
+        "repository": "local",
+        "version": "0.1.6-1"
+      },
+      {
+        "name": "xcb-util-errors",
+        "repository": "local",
+        "version": "1.0.1-2"
+      },
+      {
+        "name": "xcb-util-image",
+        "repository": "local",
+        "version": "0.4.1-3"
+      },
+      {
+        "name": "xcb-util-keysyms",
+        "repository": "local",
+        "version": "0.4.1-5"
+      },
+      {
+        "name": "xcb-util-renderutil",
+        "repository": "local",
+        "version": "0.3.10-2"
+      },
+      {
+        "name": "xcb-util-wm",
+        "repository": "local",
+        "version": "0.4.2-2"
+      },
+      {
+        "name": "xdg-terminal-exec",
+        "repository": "local",
+        "version": "0.14.3-2"
+      },
+      {
+        "name": "xdg-utils",
+        "repository": "local",
+        "version": "1.2.1-2"
+      },
+      {
+        "name": "xkeyboard-config",
+        "repository": "local",
+        "version": "2.48-1"
+      },
+      {
+        "name": "xorg-fonts-encodings",
+        "repository": "local",
+        "version": "1.1.0-2"
+      },
+      {
+        "name": "xorg-server-common",
+        "repository": "local",
+        "version": "21.1.24-1"
+      },
+      {
+        "name": "xorg-setxkbmap",
+        "repository": "local",
+        "version": "1.3.5-1"
+      },
+      {
+        "name": "xorg-xkbcomp",
+        "repository": "local",
+        "version": "1.5.0-1"
+      },
+      {
+        "name": "xorg-xwayland",
+        "repository": "local",
+        "version": "24.1.13-1"
+      },
+      {
+        "name": "xorgproto",
+        "repository": "local",
+        "version": "2025.1-1"
+      },
+      {
+        "name": "xz",
+        "repository": "local",
+        "version": "5.8.4-1"
+      },
+      {
+        "name": "zeromq",
+        "repository": "local",
+        "version": "4.3.5-3"
+      },
+      {
+        "name": "zlib",
+        "repository": "local",
+        "version": "1:1.3.2-3"
+      },
+      {
+        "name": "zlib-ng",
+        "repository": "local",
+        "version": "2.3.3-1"
+      },
+      {
+        "name": "zstd",
+        "repository": "local",
+        "version": "1.5.7-3"
+      }
+    ],
+    "source_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e"
+  },
+  "release": "0.2.0-pi5-2026.10.09",
+  "schema_version": 1
+}

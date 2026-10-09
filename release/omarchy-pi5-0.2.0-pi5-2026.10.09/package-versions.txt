@@ -1,0 +1,12 @@
+# Omarchy Pi 5 0.2.0-pi5-2026.10.09 package and source pins
+installer-runtime-source=c64c78415e97fd8b578ef0a9bcde9ad94a8c195e
+installer-runtime-sha256=09d253faa20eaa20757ac5045641613b5b742b4bfe5858b6dde9ffee71d6724f
+installer-package-records=337
+installer-package-manifest-sha256=5f4f179c5a7bbf54ab00b5890a0a0695310ad731e8dbcc120095cc651ed5f1a9
+desktop-payload-source=c64c78415e97fd8b578ef0a9bcde9ad94a8c195e
+desktop-payload-package-records=635
+desktop-payload-sha256=c862d85707a03e10c9ca20ef591461cf8fe171790bc2c7c34ef1d25f67c627bf
+desktop-manifest-sha256=3444b4ce08d53ccf4b8e8cb06fa4b00bd23d4d6c6e980b83dfe787048102b013
+full-package-inventory=package-versions.json
+runtime-package=omarchy 4.0.0.alpha-6865 e07f48cf58fcfabb8e7501ac38cbc26b69f5d2774f82735c8c65ed357ac4cb31
+runtime-package=omarchy-settings 4.0.0.alpha-6865 bac6505430c5f8f266a612906b23f9355f79028d0bf4cec7e696d6927a42482f

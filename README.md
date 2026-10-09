@@ -1,8 +1,10 @@
 # Omarchy for Raspberry Pi 5
 
-An experimental Raspberry Pi 5 installer for the Omarchy Quattro desktop. Boot the USB installer, connect over SSH or Remote Desktop, and install onto your Pi's NVMe SSD or microSD card. The same USB provides boot repair afterwards.
+A Raspberry Pi 5 installer for the Omarchy Quattro desktop. Boot the USB installer, connect over SSH or Remote Desktop, and install onto your Pi's NVMe SSD or microSD card. The same USB provides boot repair afterwards.
 
 Omarchy is created by DHH and the [Omarchy project](https://omarchy.org). This independently maintained ARM64 port follows the upstream desktop where the hardware supports it. See the [Omarchy manual](manual/01-welcome-to-omarchy.md) for desktop use.
+
+The `v0.2.0-pi5-2026.10.09` release uses the conventional package-owned runtime, restores normal update-availability checks, and retains the previous runtime pair per update job for a bounded manual downgrade.
 
 ## Experimental Compute Module 5 test image
 
@@ -21,39 +23,40 @@ The Pi must already boot USB before its installation target. The installer prese
 
 ## 1. Download and verify
 
-Download all three numbered image parts and the checksum file from the [Pi installer release](https://github.com/sam-bee/omarchy-raspberrypi/releases/tag/v0.1.0-pi5-2026.09.29):
+Download all four numbered image parts and the checksum file from the [Pi installer release](https://github.com/sam-bee/omarchy-raspberrypi/releases/tag/v0.2.0-pi5-2026.10.09):
 
-- [Image part 00](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.1.0-pi5-2026.09.29/omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-00)
-- [Image part 01](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.1.0-pi5-2026.09.29/omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-01)
-- [Image part 02](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.1.0-pi5-2026.09.29/omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-02)
-- [SHA256SUMS](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.1.0-pi5-2026.09.29/SHA256SUMS)
+- [Image part 00](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.2.0-pi5-2026.10.09/omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-00)
+- [Image part 01](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.2.0-pi5-2026.10.09/omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-01)
+- [Image part 02](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.2.0-pi5-2026.10.09/omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-02)
+- [Image part 03](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.2.0-pi5-2026.10.09/omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-03)
+- [SHA256SUMS](https://github.com/sam-bee/omarchy-raspberrypi/releases/download/v0.2.0-pi5-2026.10.09/SHA256SUMS)
 
-Put the four files in the same folder and verify the parts before joining them:
+Put the five files in the same folder and verify the parts before joining them:
 
 ```sh
 sha256sum --ignore-missing --check SHA256SUMS
 ```
 
-Each of the three image parts must report `OK`. On macOS, use `shasum -a 256 -c SHA256SUMS` and check each part's result; missing metadata files are harmless if you downloaded only the image parts. On Windows, use `Get-FileHash .\*.part-* -Algorithm SHA256` in PowerShell and compare each part's hash with its entry in `SHA256SUMS`.
+Each of the four image parts must report `OK`. On macOS, use `shasum -a 256 -c SHA256SUMS` and check each part's result; missing metadata files are harmless if you downloaded only the image parts. On Windows, use `Get-FileHash .\*.part-* -Algorithm SHA256` in PowerShell and compare each part's hash with its entry in `SHA256SUMS`.
 
 Join the parts in order, then decompress the image on Linux or macOS (requires `zstd`):
 
 ```sh
-cat omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-00 omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-01 omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-02 > omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst
-zstd --decompress --keep omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst
+cat omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-00 omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-01 omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-02 omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-03 > omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst
+zstd --decompress --keep omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst
 ```
 
 On Windows, join them in **Command Prompt**:
 
 ```bat
-copy /b omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-00+omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-01+omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst.part-02 omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img.zst
+copy /b omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-00+omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-01+omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-02+omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-03 omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst
 ```
 
-Then extract the resulting `.img.zst` with an archive application that supports Zstandard. Allow at least 25 GB of free disk space for the downloaded parts, joined archive and extracted `.img`. You may delete the numbered parts once joining and decompression succeed.
+Then extract the resulting `.img.zst` with an archive application that supports Zstandard. Allow at least 30 GB of free disk space for the downloaded parts, joined archive and extracted `.img`. You may delete the numbered parts once joining and decompression succeed.
 
 ## 2. Flash and configure the USB
 
-Use [Raspberry Pi Imager](https://www.raspberrypi.com/documentation/computers/getting-started.html) or another disk-image writing application to write `omarchy-pi5-0.1.0-pi5-2026.09.29-installer.img` to the **whole USB stick**. This erases that stick; check its capacity and model before starting. Copying the `.img` onto an existing filesystem will not make a bootable installer.
+Use [Raspberry Pi Imager](https://www.raspberrypi.com/documentation/computers/getting-started.html) or another disk-image writing application to write `omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img` to the **whole USB stick**. This erases that stick; check its capacity and model before starting. Copying the `.img` onto an existing filesystem will not make a bootable installer.
 
 In Raspberry Pi Imager, choose **Use Custom** for the OS, select the extracted `.img`, and select your USB as the storage device. Skip Imager's OS customisation; this installer uses the settings file below. Let writing and verification finish.
 
@@ -109,9 +112,21 @@ Keep the configured installer USB for recovery.
 
 ## Updates and recovery
 
-Run `omarchy update` as the desktop user, then reboot after it completes. If you disconnect, `omarchy update --status` shows the result and `omarchy update --watch` reconnects to progress. See [Pi updates](docs/arm64.md#pi-updates).
+A normal Pi 5 installation uses the conventional packaged Omarchy layout. The `omarchy` and `omarchy-settings` packages own `/usr/share/omarchy`, commands are installed under `/usr/bin`, and user configuration and state remain under `~/.config` and `~/.local/state/omarchy`. Older source-layout installations retain their user-owned releases; see the [ARM64 update guide](docs/arm64.md#source-layout-installs).
 
-For boot repair, power off, attach the configured installer USB and boot it. Connect as before and choose **Repair target boot files**. Identify the target, unlock it with its attached key USB or recovery passphrase, review the proposed repair and confirm. After completion, shut down and remove the installer USB again. See [USB recovery commands](docs/arm64.md#usb-recovery-commands) for the command-line procedure. Repair preserves the installed desktop; choosing Install again erases its target after confirmation.
+Run the normal Omarchy update command as the desktop user, then reboot when it reports completion:
+
+```bash
+omarchy update
+omarchy update --status
+omarchy update --watch
+```
+
+The updater prepares and checks the matching runtime pair, then records a durable job under `/var/lib/omarchy-pi-updates/<job>/`. It does not reboot the Pi; `--status` and `--watch` reconnect after a terminal disconnect. See the [packaged runtime guide](docs/raspberrypi-packaged-runtime.md#normal-updates) and the [ARM64 update guide](docs/arm64.md#packaged-layout-installs).
+
+Before applying a new packaged pair, the worker retains the previous pair in `/var/lib/omarchy-pi-updates/<job>/previous/`; the [retained-pair downgrade procedure](docs/raspberrypi-packaged-runtime.md#retained-pair-and-downgrade-boundary) explains how to restore it when needed.
+
+For boot repair, power off, attach the configured installer USB and boot it. Connect as before and choose **Repair target boot files**. Identify the target, unlock it with its attached key USB or recovery passphrase, review the proposed repair and confirm. After completion, shut down and remove the installer USB again. See [USB recovery commands](docs/arm64.md#usb-recovery-commands) for the bounded controller procedure. Repair preserves the installed desktop; choosing Install again erases its target after confirmation.
 
 ## Build and source
 

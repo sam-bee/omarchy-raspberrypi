@@ -1,0 +1,91 @@
+{
+  "compression": {
+    "format": "zstd",
+    "level": 1,
+    "stream_bytes": 7115222871,
+    "stream_sha256": "7404d88cd74e811d41dafb138a0a98f7a78ba7279a7d7d91dc7517ad5e20234a",
+    "threads": 2
+  },
+  "image": {
+    "bytes": 14643363840,
+    "filename": "omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img",
+    "sha256": "6e7dd757a564a6e688bc50be5b3b6ddb04f6c9a2de23cbeba5ada81b48ddab01"
+  },
+  "parts": [
+    {
+      "bytes": 1900000000,
+      "filename": "omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-00",
+      "sha256": "b52f4c0083ce7a1d14c2a5f0f89a010532296ef992f5f859dde8c775ac60d4ea"
+    },
+    {
+      "bytes": 1900000000,
+      "filename": "omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-01",
+      "sha256": "499319b49f300f548332ed9b71cab1a4616bb02ef694db0085c40734e1e9e019"
+    },
+    {
+      "bytes": 1900000000,
+      "filename": "omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-02",
+      "sha256": "0d2f87fc64ea63c9bf956d3a6133353ab71b9e09dfa37e3ab38bb7a3bfa48940"
+    },
+    {
+      "bytes": 1415222871,
+      "filename": "omarchy-pi5-0.2.0-pi5-2026.10.09-installer.img.zst.part-03",
+      "sha256": "146f9fb4a6552969164ebaafa47c920eb30347d898d492657753a4ce2779ee3f"
+    }
+  ],
+  "release": "0.2.0-pi5-2026.10.09",
+  "schema_version": 1,
+  "sources": {
+    "desktop_payload_package_records": 635,
+    "desktop_payload_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e",
+    "desktop_payload_sha256": "c862d85707a03e10c9ca20ef591461cf8fe171790bc2c7c34ef1d25f67c627bf",
+    "installer_package_manifest_sha256": "5f4f179c5a7bbf54ab00b5890a0a0695310ad731e8dbcc120095cc651ed5f1a9",
+    "installer_runtime_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e",
+    "installer_runtime_sha256": "09d253faa20eaa20757ac5045641613b5b742b4bfe5858b6dde9ffee71d6724f",
+    "runtime_packages": [
+      {
+        "architecture": "aarch64",
+        "filename": "omarchy-4.0.0.alpha-6865-aarch64.pkg.tar.zst",
+        "name": "omarchy",
+        "package_sha256": "e07f48cf58fcfabb8e7501ac38cbc26b69f5d2774f82735c8c65ed357ac4cb31",
+        "package_signature": "unsigned",
+        "signature": null,
+        "source_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e",
+        "source_sha256": "1e96503992cebe681f5ed3036d2a22108adb59666ba1c2efb0a900a7137577fc",
+        "version": "4.0.0.alpha-6865"
+      },
+      {
+        "architecture": "aarch64",
+        "filename": "omarchy-settings-4.0.0.alpha-6865-aarch64.pkg.tar.zst",
+        "name": "omarchy-settings",
+        "package_sha256": "bac6505430c5f8f266a612906b23f9355f79028d0bf4cec7e696d6927a42482f",
+        "package_signature": "unsigned",
+        "signature": null,
+        "source_revision": "c64c78415e97fd8b578ef0a9bcde9ad94a8c195e",
+        "source_sha256": "1e96503992cebe681f5ed3036d2a22108adb59666ba1c2efb0a900a7137577fc",
+        "version": "4.0.0.alpha-6865"
+      }
+    ]
+  },
+  "verification": {
+    "candidate_validation": {
+      "boot_prefix_and_uuids_preserved": true,
+      "desktop_archive_repacked_with_original_metadata": true,
+      "desktop_pair_upgraded_only": true,
+      "method": "ordinary files, ARM pacman under QEMU/PRoot, debugfs, e2fsck -fn",
+      "native_boot_tested": false,
+      "physical_devices_written": [],
+      "source_checkout_clean_and_head_pinned": true
+    },
+    "file_image_verified": true,
+    "inherited_baseline": true,
+    "native_acceptance_raw_sha256": "6e7dd757a564a6e688bc50be5b3b6ddb04f6c9a2de23cbeba5ada81b48ddab01",
+    "native_acceptance_scope": "Fresh encrypted NVMe installation from the accepted USB installer baseline, Matching final Omarchy runtime packages installed and normal Omarchy update completed, Updated NVMe reboot, automatic existing USB-key unlock, SSH, desktop startup and RDP service verified, Final image filesystem, file readback, runtime package provenance and unchanged boot prefix verified",
+    "native_acceptance_status": "passed",
+    "native_boot_tested": false,
+    "native_runtime_verified": true,
+    "part_hashes_rechecked_locally": true,
+    "physical_devices_touched_during_packaging": false,
+    "raw_and_compressed_hashes_rechecked_locally": true
+  }
+}

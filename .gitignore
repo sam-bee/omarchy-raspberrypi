@@ -8,3 +8,6 @@ __pycache__/
 # Native ARM package artifacts and installer payloads are generated locally;
 # keep rolling binaries and build outputs out of Git.
 /payload/
+
+# Split installer binaries are uploaded as GitHub release assets.
+/release/**/*.img*

@@ -283,6 +283,7 @@ def _runtime_rows(value: list[Any]) -> list[dict[str, Any]]:
                 "architecture",
                 "filename",
                 "package_sha256",
+                "sha256",
                 "signature",
                 "package_signature",
                 "source_revision",
@@ -294,6 +295,9 @@ def _runtime_rows(value: list[Any]) -> list[dict[str, Any]]:
             raise ReleaseError(f"runtime package record {index + 1} lacks name/version")
         compact["name"] = compact.get("name") or compact["package"]
         compact.pop("package", None)
+        if "package_sha256" not in compact and isinstance(compact.get("sha256"), str):
+            compact["package_sha256"] = compact["sha256"]
+        compact.pop("sha256", None)
         rows.append(compact)
     return sorted(rows, key=lambda row: (row["name"], row["version"]))
 
@@ -534,7 +538,7 @@ def build(args: argparse.Namespace) -> Path:
             "physical_devices_touched_during_packaging": False,
             "raw_and_compressed_hashes_rechecked_locally": True,
             "part_hashes_rechecked_locally": True,
-            "candidate_validation": receipt.get("validation", {}),
+            "candidate_validation": receipt.get("validation") or output.get("validation", {}),
         },
     }
     for key in ("native_runtime_verified", "file_image_verified", "inherited_baseline"):
