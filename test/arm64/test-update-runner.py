@@ -7,6 +7,7 @@ from contextlib import ExitStack, redirect_stdout
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import stat
@@ -381,6 +382,28 @@ class UpdateRunnerTests(unittest.TestCase):
         (self.release / ".omarchy-pi-source-commit").write_text("b" * 40 + "\n", encoding="utf-8")
         with self.assertRaisesRegex(update.UpdateError, "does not match"):
             update.active_release(self.account)
+
+    def test_previous_migration_snapshot_is_group_readable_under_restrictive_umask(self):
+        migrations = self.release / "migrations"
+        migrations.mkdir(mode=0o700)
+        migration = migrations / "old-migration.sh"
+        migration.write_text("#!/bin/bash\n", encoding="utf-8")
+        migration.chmod(0o600)
+        destination = self.base / "job" / "old-runtime"
+        old_umask = os.umask(0o077)
+        try:
+            with mock.patch.object(update.os, "chown") as chown:
+                snapshot = update._copy_previous_migrations(self.release, destination)
+                update._make_candidate_snapshot_readable(snapshot, self.account.pw_gid)
+        finally:
+            os.umask(old_umask)
+
+        self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode) & 0o050, 0o050)
+        self.assertEqual(stat.S_IMODE((snapshot / "migrations").stat().st_mode) & 0o050, 0o050)
+        self.assertEqual(stat.S_IMODE((snapshot / "migrations/old-migration.sh").stat().st_mode) & 0o040, 0o040)
+        chown.assert_any_call(snapshot, 0, self.account.pw_gid, follow_symlinks=False)
+        chown.assert_any_call(snapshot / "migrations", 0, self.account.pw_gid, follow_symlinks=False)
+        chown.assert_any_call(snapshot / "migrations/old-migration.sh", 0, self.account.pw_gid, follow_symlinks=False)
 
     def test_worker_rejects_account_identity_change_before_work(self):
         state_root = self.base / "state/updates"

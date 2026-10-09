@@ -608,6 +608,7 @@ def _package_worker(job, request, account, runtime, result, phase, root_helper, 
                 "--old-release", old_release, "--new-release", candidate.source_tree)
     old_snapshot = Path(job) / "old-runtime"
     _copy_previous_migrations(old_release, old_snapshot)
+    _make_candidate_snapshot_readable(old_snapshot, account.pw_gid)
     migration_args = ["--old-release", old_snapshot, "--new-release", candidate.source_tree,
                       "--policy", candidate.source_tree / "install/arm64/migrations.allowlist"]
     phase("review-migrations")
