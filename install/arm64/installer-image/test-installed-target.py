@@ -283,6 +283,19 @@ class InstalledTargetTests(unittest.TestCase):
         self.assertIn("psk=wifi-secret", text)
         self.assertIn("ieee80211_regdom=GB", (root / "etc/modprobe.d/omarchy-pi-regdom.conf").read_text())
 
+    def test_ssh_key_directory_chown_targets_fixture_account_when_worker_is_root(self) -> None:
+        temporary, root, boot, payload, settings, storage = self.make_fixture()
+        self.addCleanup(temporary.cleanup)
+        home = root / "home/desk"
+        home.mkdir(parents=True)
+        account = installed.Account("desk", 2001, 2002, home)
+        runner = FakeRunner(root, boot)
+        with patch.object(installed.os, "geteuid", return_value=0), patch.object(installed.os, "fchown"), patch.object(installed.os, "chown") as chown:
+            installed._configure_ssh(root, boot, account, installed.validate_settings(settings), runner=runner)
+        ssh_directory = home / ".ssh"
+        chown.assert_any_call(ssh_directory, account.uid, account.gid)
+        self.assertEqual(stat.S_IMODE(ssh_directory.stat().st_mode), 0o700)
+
     def make_fixture(self) -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path, dict, dict]:
         temporary = tempfile.TemporaryDirectory(prefix="omarchy-installed-target-")
         base = Path(temporary.name)
@@ -399,7 +412,13 @@ class InstalledTargetTests(unittest.TestCase):
         localtime = root / "etc/localtime"
         self.assertTrue(localtime.is_symlink())
         self.assertEqual(os.readlink(localtime), "/usr/share/zoneinfo/Europe/London")
-        self.assertTrue((root / "home/desk/.ssh/authorized_keys").exists())
+        ssh_directory = root / "home/desk/.ssh"
+        self.assertTrue((ssh_directory / "authorized_keys").exists())
+        account = installed._account_from_target(root, "desk")
+        self.assertEqual(ssh_directory.stat().st_uid, account.uid)
+        self.assertEqual(ssh_directory.stat().st_gid, account.gid)
+        self.assertEqual(stat.S_IMODE(ssh_directory.stat().st_mode), 0o700)
+        self.assert_readable_as_uid(ssh_directory / "authorized_keys", account.uid)
         receipt = json.loads(provenance_path.read_text(encoding="utf-8"))
         self.assertEqual(receipt["source_revision"], "d" * 40)
         self.assertEqual(receipt["installer"], provenance["installer"])

@@ -875,7 +875,19 @@ def _configure_ssh(root: Path, boot: Path, account: Account, settings: Mapping[s
         _enable_system_unit(root, "sshd.service", runner=runner)
         if settings["ssh_authorized_key"] is not None:
             directory = account.home / ".ssh"
+            _reject_symlink_components(directory)
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            try:
+                info = directory.lstat()
+            except OSError:
+                raise _error("target SSH key directory is unavailable") from None
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise _error("target SSH key directory is unsafe")
+            try:
+                os.chmod(directory, 0o700)
+                os.chown(directory, account.uid, account.gid)
+            except OSError:
+                raise _error("could not set target SSH key directory ownership") from None
             _atomic_write(
                 directory / "authorized_keys",
                 (settings["ssh_authorized_key"] + "\n").encode(),
