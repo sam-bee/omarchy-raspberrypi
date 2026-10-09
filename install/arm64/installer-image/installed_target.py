@@ -834,6 +834,7 @@ def _configure_network(root: Path, settings: Mapping[str, Any]) -> None:
         "[wifi]\n"
         "mode=infrastructure\n"
         "security=802-11-wireless-security\n"
+        "powersave=2\n"
         f"ssid={_keyfile_value(wifi['ssid'])}\n\n"
         "[wifi-security]\n"
         "key-mgmt=wpa-psk\n"

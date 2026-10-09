@@ -281,6 +281,7 @@ class InstalledTargetTests(unittest.TestCase):
         text = profile.read_text(encoding="utf-8")
         self.assertIn("ssid=target-wifi", text)
         self.assertIn("psk=wifi-secret", text)
+        self.assertIn("powersave=2", text)
         self.assertIn("ieee80211_regdom=GB", (root / "etc/modprobe.d/omarchy-pi-regdom.conf").read_text())
 
     def test_ssh_key_directory_chown_targets_fixture_account_when_worker_is_root(self) -> None:

@@ -42,6 +42,7 @@ class UpdateHelperTests(unittest.TestCase):
         (self.root / "etc/mkinitcpio.d").mkdir(parents=True)
         (self.root / "etc/ssh").mkdir(parents=True)
         (self.root / "etc/pacman.d").mkdir(parents=True)
+        (self.root / "etc/NetworkManager/conf.d").mkdir(parents=True)
         (self.root / "etc/NetworkManager/system-connections").mkdir(parents=True)
         (self.root / "boot/overlays").mkdir(parents=True)
         (self.root / "usr/bin").mkdir(parents=True)
@@ -109,6 +110,14 @@ class UpdateHelperTests(unittest.TestCase):
         (self.root / "boot/config.txt").write_text("dtparam=pciex1_gen=2\n")
         after = update_lib.snapshot(root=self.root, home=self.home)
         self.assertIn("/boot/config.txt", update_lib.compare_snapshots(before, after))
+
+    def test_networkmanager_dropins_are_protected(self) -> None:
+        before = update_lib.snapshot(root=self.root, home=self.home)
+        dropin = self.root / "etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf"
+        dropin.write_text("[connection]\nwifi.powersave = 2\n")
+        after = update_lib.snapshot(root=self.root, home=self.home)
+        self.assertIn("/etc/NetworkManager/conf.d", after["protected_dirs"])
+        self.assertIn("/etc/NetworkManager/conf.d", update_lib.compare_snapshots(before, after))
 
     def test_existing_authentication_state_change_is_reported_without_plaintext(self) -> None:
         before = update_lib.snapshot(root=self.root, home=self.home)

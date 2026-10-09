@@ -38,6 +38,7 @@ PROTECTED_FILES = (
 )
 PROTECTED_DIRS = (
     "/etc/mkinitcpio.conf.d",
+    "/etc/NetworkManager/conf.d",
     "/etc/NetworkManager/system-connections",
     "/etc/wpa_supplicant",
     "/etc/ssh",
