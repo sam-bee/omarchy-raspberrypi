@@ -2,7 +2,7 @@
 
 The packaged installer variant installs the matching downstream `omarchy` and `omarchy-settings` ARM packages. Commands live in `/usr/bin`, runtime files in `/usr/share/omarchy`, and defaults in `/etc/skel`. New users keep configuration in `~/.config` and generated theme state in `~/.local/state/omarchy`. They do not receive a full runtime checkout or the legacy `~/.local/share/omarchy-pi/current` release pointer.
 
-The current fresh NVMe installation has passed native boot, encrypted automatic unlock, package integrity, XDG state, SSH and RDP acceptance for the installed pair `omarchy`/`omarchy-settings` version `4.0.0.alpha-6857`. Those results apply to that installed target and do not pre-validate a later candidate's update, reboot or recovery behavior.
+The initial fresh NVMe installation passed native boot, encrypted automatic unlock, package integrity, XDG state, SSH and RDP acceptance for the installed pair `omarchy`/`omarchy-settings` version `4.0.0.alpha-6857`. A subsequent normal packaged update and reboot also passed on kernel `6.18.55`, with pair version `4.0.0.alpha-6865`, the protected configuration fingerprints preserved, `pacman -Qkk` reporting 1792 runtime files and 473 settings files unaltered, and automatic unlock, SSH, the desktop and RDP service working after reboot. These results describe the tested installed target; they do not claim that the final USB image has been natively booted.
 
 ## Build and provenance
 

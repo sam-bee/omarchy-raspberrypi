@@ -160,9 +160,9 @@ The pinned `ttfx` ARM recipe is at [`install/arm64/packages/ttfx/PKGBUILD`](../i
 
 A controlled reboot and persistence check is a required acceptance gate. Verify the selected kernel and modules, boot order, PCIe policy, storage/encryption state where configured, network, SSH, desktop, audio, clipboard and agent paths, protected files and service health. A passing reboot establishes only the tested target and workload; it does not establish sustained stress, universal hardware behavior or physical-display acceptance.
 
-## Remaining gates
+## Remaining validation
 
-Before installer distribution, replay the deployment from a clean installation and compare protected boot, encryption, SSH and network state. Verify physical keyboard/pointer input and physical display color separately. Preserve boot order, PCIe policy, credentials and recovery media throughout the checks.
+Clean NVMe installation, normal packaged update and reboot checks have passed on the tested Pi 5 target. Physical keyboard/pointer input, physical display color and other hardware or application combinations remain future validation; they are not prerequisites for this normal Pi 5 release. Preserve boot order, PCIe policy, credentials and recovery media during those later checks.
 
 ## Local validation and next milestone
 
