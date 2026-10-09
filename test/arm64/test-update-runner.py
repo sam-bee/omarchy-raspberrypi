@@ -250,6 +250,68 @@ class UpdateRunnerTests(unittest.TestCase):
             "b" * 40,
         )
 
+    def test_previous_pair_snapshot_survives_publication_of_new_active_pair(self):
+        rollback = self.base / "usr/share/omarchy-pi/rollback"
+        rollback.parent.mkdir(parents=True)
+        previous_root = self.base / "state/updates/job/previous"
+        previous_root.parent.mkdir(parents=True)
+        packages = []
+
+        def candidate(version, revision, signed=False):
+            result = []
+            for name in ("omarchy", "omarchy-settings"):
+                archive = self.base / f"{name}-{version}-aarch64.pkg.tar.zst"
+                self._native_archive(archive, name, version, revision)
+                signature = None
+                if signed:
+                    signature = archive.with_name(archive.name + ".sig")
+                    signature.write_bytes(b"detached-signature\n")
+                result.append(update.update_packages.CandidatePackage(
+                    name=name,
+                    version=version,
+                    architecture="aarch64",
+                    archive=archive,
+                    sha256=update.update_packages._digest(archive),
+                    signature="required" if signed else "optional",
+                    signature_file=signature,
+                ))
+            return SimpleNamespace(packages=tuple(result), source_revision=revision)
+
+        old = candidate("1.0-1", "a" * 40, signed=True)
+        new = candidate("2.0-1", "b" * 40)
+
+        def permissive_root_directory(path, mode=0o755, gid=0):
+            Path(path).mkdir(mode=mode, parents=True, exist_ok=True)
+            Path(path).chmod(mode)
+
+        with mock.patch.object(update, "PACKAGE_ROLLBACK_ROOT", rollback), \
+             mock.patch.object(update, "root_directory", side_effect=permissive_root_directory), \
+             mock.patch.object(update.os, "chown"):
+            update._retain_installed_package_pair(old)
+            installed = update.update_packages.load_installed_rollback(
+                ("omarchy", "omarchy-settings"), roots=(rollback,)
+            )
+            snapshot = update._snapshot_previous_package_pair(installed, previous_root, 1000)
+            rollback_result = [
+                {"archive": str(package.archive), "sha256": package.sha256}
+                for package in snapshot
+            ]
+            update._retain_installed_package_pair(new)
+
+        retained = update.update_packages.load_installed_rollback(
+            ("omarchy", "omarchy-settings"), roots=(previous_root,)
+        )
+        active = update.update_packages.load_installed_rollback(
+            ("omarchy", "omarchy-settings"), roots=(rollback,)
+        )
+        self.assertEqual({package.version for package in active}, {"2.0-1"})
+        self.assertEqual({package.version for package in retained}, {"1.0-1"})
+        self.assertTrue((previous_root / "manifest.json").is_file())
+        self.assertTrue(all(Path(record["archive"]).parent == previous_root for record in rollback_result))
+        for package in retained:
+            self.assertEqual(update.update_packages._digest(package.archive), package.sha256)
+            self.assertTrue(package.signature_file is not None and package.signature_file.is_file())
+
     def test_rollback_publication_keeps_old_pair_if_manifest_replace_is_interrupted(self):
         rollback = self.base / "usr/share/omarchy-pi/rollback"
         rollback.parent.mkdir(parents=True)

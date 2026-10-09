@@ -279,6 +279,91 @@ def _make_candidate_snapshot_readable(root, gid):
             os.chmod(path, mode | 0o040)
 
 
+def _snapshot_previous_package_pair(packages, destination, gid):
+    """Persist a validated pre-update pair below the durable job snapshot.
+
+    The active rollback directory is replaced after a successful transaction.
+    A job-specific copy must therefore be complete before pacman runs and must
+    not share any archive paths with that directory.  Publish the copy through
+    a temporary sibling, then load it again through the normal rollback
+    validator so both the manifest and archive digests are checked before the
+    worker proceeds.
+    """
+
+    destination = Path(destination)
+    if destination.is_symlink() or destination.exists():
+        raise UpdateError(f"The previous package snapshot already exists: {destination}")
+    parent = destination.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise UpdateError(f"The package snapshot parent is unavailable: {parent}")
+    staging = parent / (".previous-" + uuid.uuid4().hex)
+    staging.mkdir(mode=0o750)
+    os.chown(staging, 0, gid)
+    os.chmod(staging, 0o750)
+    try:
+        records = []
+        for package in packages:
+            archive = Path(package.archive)
+            if archive.is_symlink() or not archive.is_file():
+                raise UpdateError(f"The retained package archive is unavailable: {archive}")
+            archive_destination = staging / archive.name
+            shutil.copyfile(archive, archive_destination)
+            archive_destination.chmod(0o640)
+            os.chown(archive_destination, 0, gid)
+            with archive_destination.open("rb") as stream:
+                os.fsync(stream.fileno())
+            if update_packages._digest(archive_destination) != package.sha256:
+                raise UpdateError(f"The retained package archive changed while being copied: {archive}")
+            record = {
+                "name": package.name,
+                "version": package.version,
+                "architecture": package.architecture,
+                "filename": archive_destination.name,
+                "sha256": package.sha256,
+                "signature": package.signature,
+            }
+            if package.signature == "required":
+                signature = package.signature_file
+                if signature is None or signature.is_symlink() or not signature.is_file():
+                    raise UpdateError(f"The retained package signature is unavailable: {signature}")
+                signature_destination = staging / signature.name
+                shutil.copyfile(signature, signature_destination)
+                signature_destination.chmod(0o640)
+                os.chown(signature_destination, 0, gid)
+                with signature_destination.open("rb") as stream:
+                    os.fsync(stream.fileno())
+                if update_packages._digest(signature_destination) != update_packages._digest(signature):
+                    raise UpdateError(f"The retained package signature changed while being copied: {signature}")
+                record["signature_file"] = signature_destination.name
+            records.append(record)
+        if not records:
+            raise UpdateError("The installed package pair is empty")
+        write_json(staging / "manifest.json", {
+            "schema_version": 1,
+            "architecture": "aarch64",
+            "version": records[0]["version"],
+            "packages": records,
+        }, gid)
+        retained = update_packages.load_installed_rollback(
+            tuple(record["name"] for record in records), roots=(staging,)
+        )
+        if {package.sha256 for package in retained} != {record["sha256"] for record in records}:
+            raise UpdateError("The previous package snapshot failed checksum validation")
+        os.replace(staging, destination)
+        directory_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        # Read back the published path as the worker will later consume it.
+        return update_packages.load_installed_rollback(
+            tuple(record["name"] for record in records), roots=(destination,)
+        )
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def launch(packaged=False, candidate_root=None):
     channel = require_packaged_runtime() if packaged else None
     if os.geteuid() != 0:
@@ -505,7 +590,10 @@ def _package_worker(job, request, account, runtime, result, phase, root_helper, 
     if update_packages.package_provenance() != candidate.channel:
         raise UpdateError("The installed Omarchy package pair changed after launch")
     rollback = update_packages.load_installed_rollback(candidate.package_names)
+    previous_snapshot = Path(job) / "previous"
+    rollback = _snapshot_previous_package_pair(rollback, previous_snapshot, account.pw_gid)
     candidate = replace(candidate, previous_packages=rollback)
+    result["rollback_before"] = str(previous_snapshot / "manifest.json")
     result["candidate_source"] = candidate.source_revision
     result["candidate_source_sha256"] = candidate.source_sha256
     result["rollback_packages"] = [
